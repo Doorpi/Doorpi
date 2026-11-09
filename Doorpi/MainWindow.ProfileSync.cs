@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using Doorpi.Storage;
 
 namespace Doorpi;
 
@@ -25,6 +26,8 @@ public partial class MainWindow
     private GoogleDriveSyncService? _profileSyncService;
     private string? _profileSyncDeviceId;
     private int _profileSyncApplyingRemote;
+    private readonly SemaphoreSlim _profileRemoteApplyGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _profileSyncOperationGates = new(StringComparer.OrdinalIgnoreCase);
     private volatile bool _profileOAuthInputModeActive;
     private Thread? _profileOAuthInputThread;
 
@@ -58,10 +61,10 @@ public partial class MainWindow
         string path = Path.Combine(dataFolder, "device-id.txt");
         try
         {
-            string existing = File.Exists(path) ? File.ReadAllText(path).Trim() : "";
+            string existing = StateStorage.Exists(path) ? StateStorage.ReadAllText(path).Trim() : "";
             if (!string.IsNullOrWhiteSpace(existing)) return _profileSyncDeviceId = existing;
             string created = Guid.NewGuid().ToString("N");
-            File.WriteAllText(path, created);
+            StateStorage.WriteAllText(path, created);
             return _profileSyncDeviceId = created;
         }
         catch
@@ -206,16 +209,17 @@ public partial class MainWindow
         return changed;
     }
 
-    private List<GameHistoryEntry> LoadProfileHistoryForSync(string profileId)
+    private List<GameHistoryEntry> LoadProfileHistoryForSync(string profileId, bool persistMaintenance = true)
     {
         string path = Path.Combine(dataFolder, "users", profileId, "game-history.json");
-        if (!File.Exists(path)) return new List<GameHistoryEntry>();
+        if (!StateStorage.Exists(path)) return new List<GameHistoryEntry>();
         lock (_gameHistoryFileLock)
         {
             try
             {
                 List<GameHistoryEntry> loaded =
-                    JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(path)) ?? new();
+                    JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(path))
+                    ?? throw new InvalidDataException("Coleção de histórico de jogos ausente.");
                 List<GameHistoryEntry> history = loaded
                     .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
                     .ToList();
@@ -259,8 +263,8 @@ public partial class MainWindow
                         changed = true;
                     }
                 }
-                changed |= OptimizeProfileGameArtworkCacheLocked(profileId, history);
-                if (changed)
+                if (persistMaintenance) changed |= OptimizeProfileGameArtworkCacheLocked(profileId, history);
+                if (changed && persistMaintenance)
                 {
                     string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
                     SafeWriteAllText(path, json);
@@ -269,9 +273,9 @@ public partial class MainWindow
                 }
                 return history;
             }
-            catch
+            catch (Exception ex)
             {
-                return new List<GameHistoryEntry>();
+                throw new InvalidDataException("O histórico de jogos do perfil está inválido; a sincronização foi interrompida.", ex);
             }
         }
     }
@@ -281,19 +285,22 @@ public partial class MainWindow
         string path = Path.Combine(dataFolder, "users", profileId, "media-history.json");
         lock (_mediaHistoryFileLock)
         {
+            Exception? failure = null;
             foreach (string candidate in new[] { path, path + ".bak" })
             {
                 try
                 {
-                    if (!File.Exists(candidate)) continue;
-                    return (JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(candidate)) ?? new())
+                    if (!StateStorage.Exists(candidate)) continue;
+                    return (JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(candidate))
+                            ?? throw new InvalidDataException("Coleção de histórico de mídia ausente."))
                         .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
                                         !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
                                         entry.TotalPlaybackSeconds > 0)
                         .ToList();
                 }
-                catch { }
+                catch (Exception ex) { failure = ex; }
             }
+            if (failure != null) throw new InvalidDataException("O histórico de mídia do perfil está inválido; a sincronização foi interrompida.", failure);
             return new List<MediaActivityHistoryEntry>();
         }
     }
@@ -302,10 +309,10 @@ public partial class MainWindow
     {
         UserProfile? profile = FindProfileForSync(profileId);
         if (profile == null) return null;
-        var controls = GetCloudControlConfigurationSnapshot();
+        var controls = GetCloudControlConfigurationSnapshot(profileId);
         CloudProfileV1 snapshot = ProfileSyncSnapshotFactory.Create(
             profile,
-            LoadProfileHistoryForSync(profileId),
+            LoadProfileHistoryForSync(profileId, persistMaintenance: false),
             GetProfileSyncDeviceId(),
             DateTimeOffset.UtcNow,
             controls.Profiles,
@@ -394,6 +401,7 @@ public partial class MainWindow
 
     private async Task<bool> TryHandleProfileSyncWebMessageAsync(string action, JsonElement root)
     {
+        if (LocalTestMode.Enabled) return false;
         switch (action)
         {
             case "profileSyncStatus":
@@ -423,12 +431,15 @@ public partial class MainWindow
             {
                 string profileId = GetStr(root, "profileId", currentUserId);
                 bool deleteCloud = root.TryGetProperty("deleteCloud", out JsonElement deleteElement) && deleteElement.GetBoolean();
-                ProfileSyncResult result = await ProfileSyncService.DisconnectAsync(profileId, deleteCloud).ConfigureAwait(false);
-                _profileSyncConflicts.TryRemove(profileId, out _);
-                _profileSyncSetupImports.TryRemove(profileId, out _);
-                RemoveProfileSyncNotification(profileId, "failure");
-                RemoveProfileSyncNotification(profileId, "conflict");
-                PostProfileSyncResult(profileId, result);
+                await WithProfileSyncOperationAsync(profileId, async id =>
+                {
+                    ProfileSyncResult result = await ProfileSyncService.DisconnectAsync(id, deleteCloud).ConfigureAwait(false);
+                    _profileSyncConflicts.TryRemove(id, out _);
+                    _profileSyncSetupImports.TryRemove(id, out _);
+                    RemoveProfileSyncNotification(id, "failure");
+                    RemoveProfileSyncNotification(id, "conflict");
+                    PostProfileSyncResult(id, result);
+                }).ConfigureAwait(false);
                 return true;
             }
             case "profileSyncResolve":
@@ -456,7 +467,29 @@ public partial class MainWindow
         });
     }
 
-    private async Task ConnectProfileSyncAsync(string profileId, bool setup)
+    private async Task WithProfileSyncOperationAsync(string profileId, Func<string, Task> operation,
+        CancellationToken cancellationToken = default)
+    {
+        string id = GoogleOAuthClient.SafeProfileId(profileId);
+        SemaphoreSlim gate = _profileSyncOperationGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { await operation(id).ConfigureAwait(false); }
+        catch (StorageConflictException)
+        {
+            PostProfileSyncResult(id, new ProfileSyncResult
+            {
+                Status = SyncStatus.Failed,
+                Message = "O perfil mudou durante a sincronização. Os dados locais foram preservados; sincronize novamente."
+            });
+            throw;
+        }
+        finally { gate.Release(); }
+    }
+
+    private Task ConnectProfileSyncAsync(string profileId, bool setup)
+        => WithProfileSyncOperationAsync(profileId, id => ConnectProfileSyncCoreAsync(id, setup));
+
+    private async Task ConnectProfileSyncCoreAsync(string profileId, bool setup)
     {
         PostProfileSyncMessage(new { type = "profileSyncBusy", profileId, busy = true, setup });
         StartProfileOAuthInputMode();
@@ -542,7 +575,7 @@ public partial class MainWindow
                 return;
             }
 
-            await RunProfileSyncAsync(profileId, notifyFailure: true).ConfigureAwait(false);
+            await RunProfileSyncCoreAsync(profileId, notifyFailure: true).ConfigureAwait(false);
         }
         finally
         {
@@ -599,14 +632,19 @@ public partial class MainWindow
             PostProfileSyncConflictNotification(profileId);
     }
 
-    private async Task RunProfileSyncAsync(
+    private Task RunProfileSyncAsync(string profileId, bool notifyFailure, CancellationToken cancellationToken = default)
+        => WithProfileSyncOperationAsync(profileId, id => RunProfileSyncCoreAsync(id, notifyFailure, cancellationToken), cancellationToken);
+
+    private async Task RunProfileSyncCoreAsync(
         string profileId,
         bool notifyFailure,
         CancellationToken cancellationToken = default)
     {
+        if (LocalTestMode.Enabled) return;
         await WaitForGameplayBackgroundEndAsync(cancellationToken).ConfigureAwait(false);
-        if (Volatile.Read(ref _profileSyncApplyingRemote) == 1) return;
+        if (Volatile.Read(ref _profileSyncApplyingRemote) > 0) return;
         if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
+        var sourceRevisions = CaptureProfileSyncRevisions(profileId);
         (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
         if (local == null) return;
 
@@ -617,11 +655,11 @@ public partial class MainWindow
                 cancellationToken)
             .ConfigureAwait(false);
         if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
-        if (result.LocalArtworkEnrichment != null)
+        if (result.LocalArtworkEnrichment != null && result.Status != SyncStatus.Downloaded)
             ApplyLocalArtworkEnrichment(profileId, result.LocalArtworkEnrichment);
         if (result.Status == SyncStatus.Downloaded && result.RemoteProfile != null)
         {
-            await ApplyRemoteProfileAsync(profileId, result).ConfigureAwait(false);
+            await ApplyRemoteProfileAsync(profileId, result, sourceRevisions).ConfigureAwait(false);
             result = new ProfileSyncResult
             {
                 Status = SyncStatus.Downloaded,
@@ -702,7 +740,8 @@ public partial class MainWindow
         bool notifyFailure = false,
         int delayMs = 1400)
     {
-        if (Volatile.Read(ref _profileSyncApplyingRemote) == 1) return;
+        if (LocalTestMode.Enabled) return;
+        if (Volatile.Read(ref _profileSyncApplyingRemote) > 0) return;
         string id = string.IsNullOrWhiteSpace(profileId) ? currentUserId : profileId;
         if (string.IsNullOrWhiteSpace(id) || id == "default") return;
         if (!string.Equals(id, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
@@ -750,7 +789,10 @@ public partial class MainWindow
         });
     }
 
-    private async Task ResolveProfileSyncConflictAsync(string profileId, string choice)
+    private Task ResolveProfileSyncConflictAsync(string profileId, string choice)
+        => WithProfileSyncOperationAsync(profileId, id => ResolveProfileSyncConflictCoreAsync(id, choice));
+
+    private async Task ResolveProfileSyncConflictCoreAsync(string profileId, string choice)
     {
         if (string.Equals(choice, "later", StringComparison.OrdinalIgnoreCase))
         {
@@ -766,13 +808,14 @@ public partial class MainWindow
 
         if (string.Equals(choice, "cloud", StringComparison.OrdinalIgnoreCase))
         {
+            var sourceRevisions = CaptureProfileSyncRevisions(profileId);
             ProfileSyncResult remote = await ProfileSyncService.DownloadProfileAsync(profileId).ConfigureAwait(false);
             if (remote.RemoteProfile != null)
             {
                 (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
                 if (local != null)
                     ProfileSyncEngine.MergeMissingArtwork(local.Value.Snapshot, remote.RemoteProfile);
-                await ApplyRemoteProfileAsync(profileId, remote).ConfigureAwait(false);
+                await ApplyRemoteProfileAsync(profileId, remote, sourceRevisions).ConfigureAwait(false);
                 ScheduleProfileSync(profileId);
             }
             PostProfileSyncResult(profileId, remote);
@@ -794,13 +837,22 @@ public partial class MainWindow
         }
     }
 
-    private async Task ApplyRemoteProfileAsync(string profileId, ProfileSyncResult result)
+    private IReadOnlyDictionary<string, long> CaptureProfileSyncRevisions(string profileId)
+    {
+        string directory = Path.Combine(dataFolder, "users", GoogleOAuthClient.SafeProfileId(profileId));
+        return StateStorage.ReadSnapshot(new[] { profilesFile }
+            .Concat(new[] { "user.json", "games.json", "game-history.json", "media-history.json", "controls.json", "media.json", "stores.json" }
+                .Select(name => Path.Combine(directory, name)))).Revisions;
+    }
+
+    private async Task ApplyRemoteProfileAsync(string profileId, ProfileSyncResult result,
+        IReadOnlyDictionary<string, long>? sourceRevisions = null)
     {
         CloudProfileV1 remote = result.RemoteProfile ?? throw new InvalidOperationException("Perfil remoto ausente.");
-        UserProfile? profile = FindProfileForSync(profileId);
-        if (profile == null) return;
-
-        Interlocked.Exchange(ref _profileSyncApplyingRemote, 1);
+        profileId = GoogleOAuthClient.SafeProfileId(profileId);
+        sourceRevisions ??= CaptureProfileSyncRevisions(profileId);
+        await _profileRemoteApplyGate.WaitAsync().ConfigureAwait(false);
+        Interlocked.Increment(ref _profileSyncApplyingRemote);
         try
         {
             (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
@@ -809,6 +861,22 @@ public partial class MainWindow
                 var store = new ProfileSyncLocalStore(Path.Combine(dataFolder, "users", profileId));
                 await store.CreateBackupAsync(local.Value.Snapshot, "before-cloud-apply").ConfigureAwait(false);
             }
+
+            string deviceId = GetProfileSyncDeviceId();
+            string profileDirectory = Path.Combine(dataFolder, "users", profileId);
+            var localSnapshot = StateStorage.ReadSnapshot(new[]
+            {
+                profilesFile, Path.Combine(profileDirectory, "user.json"), Path.Combine(profileDirectory, "games.json"),
+                Path.Combine(profileDirectory, "game-history.json"), Path.Combine(profileDirectory, "media-history.json"),
+                Path.Combine(profileDirectory, "controls.json"), Path.Combine(profileDirectory, "profile-sync-state.json"),
+                Path.Combine(profileDirectory, "media.json"), Path.Combine(profileDirectory, "stores.json"),
+                Path.Combine(profileDirectory, "profile-sync-base.json"), Path.Combine(profileDirectory, "profile-sync-pending-remote.json"),
+                Path.Combine(profileDirectory, "profile-sync-pending-remote.json.bak")
+            });
+            var expectedRevisions = new Dictionary<string, long>(localSnapshot.Revisions, StringComparer.OrdinalIgnoreCase);
+            foreach (var expected in sourceRevisions) expectedRevisions[expected.Key] = expected.Value;
+            UserProfile? profile = FindProfileForSync(profileId);
+            if (profile == null) return;
 
             profile.Name = remote.ProfileName;
             profile.PinCode = NormalizePinCode(remote.PinCode);
@@ -829,10 +897,9 @@ public partial class MainWindow
             List<UserProfile> users = LoadUserProfiles();
             int profileIndex = users.FindIndex(user => string.Equals(user.Id, profileId, StringComparison.OrdinalIgnoreCase));
             if (profileIndex >= 0) users[profileIndex] = profile;
-            SaveUserProfiles(users);
-            WriteUserProfileFile(Path.Combine(dataFolder, "users", profileId, "user.json"), profile);
+            EnsureOneAdmin(users);
 
-            List<GameHistoryEntry> previous = LoadProfileHistoryForSync(profileId);
+            List<GameHistoryEntry> previous = LoadProfileHistoryForSync(profileId, persistMaintenance: false);
             var previousByKey = previous
                 .GroupBy(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name))
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
@@ -878,12 +945,7 @@ public partial class MainWindow
                     appliedHistory.Select(entry => ProfileSyncSnapshotFactory.NormalizeGameKey(entry.Name)),
                     StringComparer.Ordinal)
                 .ToHashSet(StringComparer.Ordinal);
-            ResetLibraryPlaytimeForDeletedHistory(profileId, removedHistoryKeys);
-
             string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
-            lock (_gameHistoryFileLock)
-                OptimizeProfileGameArtworkCacheLocked(profileId, appliedHistory);
-            SafeWriteAllText(historyPath, JsonSerializer.Serialize(appliedHistory, IndentedJsonOptions));
 
             Dictionary<string, MediaActivityHistoryEntry> previousMediaByKey = LoadProfileMediaHistoryForSync(profileId)
                 .GroupBy(entry => ProfileSyncSnapshotFactory.NormalizeMediaKey(entry.AppId, entry.ContentTitle, entry.CreatorName), StringComparer.Ordinal)
@@ -952,36 +1014,32 @@ public partial class MainWindow
                     .ToList()
                 : LoadProfileMediaHistoryForSync(profileId);
             string mediaHistoryPath = Path.Combine(dataFolder, "users", profileId, "media-history.json");
-            lock (_mediaHistoryFileLock)
+            ControlConfigurationDocument controls = BuildCloudControlConfiguration(remote, profileId);
+            var writes = new Dictionary<string, string?>
             {
-                OptimizeMediaArtworkCacheLocked(profileId, appliedMediaHistory);
-                string mediaJson = JsonSerializer.Serialize(appliedMediaHistory, IndentedJsonOptions);
-                SafeWriteAllText(mediaHistoryPath, mediaJson);
-                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
-                    SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), mediaJson);
-            }
+                [profilesFile] = JsonSerializer.Serialize(users.Select(CloneUserProfileForStorage).ToList(), IndentedJsonOptions),
+                [Path.Combine(dataFolder, "users", profileId, "user.json")] = JsonSerializer.Serialize(CloneUserProfileForStorage(profile), IndentedJsonOptions),
+                [historyPath] = JsonSerializer.Serialize(appliedHistory, IndentedJsonOptions),
+                [mediaHistoryPath] = JsonSerializer.Serialize(appliedMediaHistory, IndentedJsonOptions),
+                [Path.Combine(dataFolder, "users", profileId, "controls.json")] = JsonSerializer.Serialize(controls, ControlJsonOptions)
+            };
+            AddLibraryHistoryResetWrites(profileId, removedHistoryKeys, writes);
 
-            if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
+            var appliedControls = GetCloudControlConfigurationSnapshot(controls);
+            CloudProfileV1 appliedSnapshot = ProfileSyncSnapshotFactory.Create(
+                profile, appliedHistory, deviceId, DateTimeOffset.UtcNow,
+                appliedControls.Profiles, appliedControls.Assignments, appliedMediaHistory);
+            await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision,
+                localWrites: writes, expectedRevisions: expectedRevisions).ConfigureAwait(false);
+
+            await Dispatcher.InvokeAsync(() =>
             {
-                SaveUserProfile(profile);
-                SaveGameHistory(appliedHistory);
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    if (!_interactiveUserSessionStarted)
-                    {
-                        LoadCurrentUserIntoUI();
-                        return;
-                    }
-
-                    // A sincronização pode concluir enquanto o usuário navega pela
-                    // Home. Atualize somente os dados do perfil; limpar e reconstruir
-                    // as grades aqui derrubava o foco após qualquer edição local.
-                    webView.CoreWebView2.PostWebMessageAsString(
-                        JsonSerializer.Serialize(BuildCurrentUserPayload(profile)));
-                });
-            }
-
-            ApplyCloudControlConfiguration(remote);
+                if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
+                ReleaseConfiguredControlOutputs();
+                PublishControlConfigurationForUser(profileId, controls);
+                if (!_interactiveUserSessionStarted) { LoadCurrentUserIntoUI(); return; }
+                webView?.CoreWebView2?.PostWebMessageAsString(JsonSerializer.Serialize(BuildCurrentUserPayload(profile)));
+            });
 
             PostProfileSyncMessage(new
             {
@@ -991,22 +1049,32 @@ public partial class MainWindow
 
             ResumeProfileSyncArtworkDownloads(profileId, initialDelayMs: 3500);
 
-            var appliedControls = GetCloudControlConfigurationSnapshot();
-            CloudProfileV1 appliedSnapshot = ProfileSyncSnapshotFactory.Create(
-                profile,
-                appliedHistory,
-                GetProfileSyncDeviceId(),
-                DateTimeOffset.UtcNow,
-                appliedControls.Profiles,
-                appliedControls.Assignments,
-                appliedMediaHistory);
-            await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision)
-                .ConfigureAwait(false);
         }
         finally
         {
-            Interlocked.Exchange(ref _profileSyncApplyingRemote, 0);
+            Interlocked.Decrement(ref _profileSyncApplyingRemote);
+            _profileRemoteApplyGate.Release();
         }
+    }
+
+    private void AddLibraryHistoryResetWrites(string profileId, IReadOnlySet<string> removedHistoryKeys,
+        Dictionary<string, string?> writes)
+    {
+        if (removedHistoryKeys.Count == 0) return;
+        string path = Path.Combine(dataFolder, "users", profileId, "games.json");
+        if (!StateStorage.Exists(path)) return;
+        List<GameModel> games = JsonSerializer.Deserialize<List<GameModel>>(StateStorage.ReadAllText(path)) ?? new();
+        bool changed = false;
+        foreach (GameModel game in games)
+        {
+            if (!removedHistoryKeys.Contains(NormalizeGameName(game.Name))) continue;
+            if (game.TotalPlaytimeMinutes == 0 && game.LastSessionMinutes == 0 && game.LastPlayed <= DateTime.MinValue) continue;
+            game.TotalPlaytimeMinutes = 0;
+            game.LastSessionMinutes = 0;
+            game.LastPlayed = DateTime.MinValue;
+            changed = true;
+        }
+        if (changed) writes[path] = JsonSerializer.Serialize(games, IndentedJsonOptions);
     }
 
     private static string PreserveArtworkCache(
@@ -1148,7 +1216,7 @@ public partial class MainWindow
             List<GameHistoryEntry> latest;
             try
             {
-                latest = File.Exists(historyPath)
+                latest = StateStorage.Exists(historyPath)
                     ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
                     : new List<GameHistoryEntry>();
             }
@@ -1213,7 +1281,7 @@ public partial class MainWindow
             List<GameHistoryEntry> latest;
             try
             {
-                latest = File.Exists(historyPath)
+                latest = StateStorage.Exists(historyPath)
                     ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
                     : new List<GameHistoryEntry>();
             }
@@ -1308,7 +1376,7 @@ public partial class MainWindow
             List<MediaActivityHistoryEntry> latest;
             try
             {
-                latest = File.Exists(historyPath)
+                latest = StateStorage.Exists(historyPath)
                     ? JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
                     : new();
             }
@@ -1420,7 +1488,10 @@ public partial class MainWindow
                 "The profile could not be synchronized. Local data was preserved.")
         };
 
-    private async Task CompletePendingSetupProfileSyncAsync(string profileId, bool importCloud)
+    private Task CompletePendingSetupProfileSyncAsync(string profileId, bool importCloud)
+        => WithProfileSyncOperationAsync(profileId, id => CompletePendingSetupProfileSyncCoreAsync(id, importCloud));
+
+    private async Task CompletePendingSetupProfileSyncCoreAsync(string profileId, bool importCloud)
     {
         if (importCloud && _profileSyncSetupImports.TryRemove(profileId, out ProfileSyncResult? remote) && remote.RemoteProfile != null)
         {

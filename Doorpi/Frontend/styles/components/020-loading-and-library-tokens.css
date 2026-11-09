@@ -1,0 +1,123 @@
+/* Isso garante que as imagens e fundos sejam "transparentes" ao clique */
+#bgBlur,
+#heroImage,
+#appBlobBg,
+#gridBgImg,
+.capaJogo,
+#gameLogo {
+    pointer-events: none !important;
+    user-select: none;
+}
+#heroImage, #gridBgImg, #bgBlur {
+   
+    contain: strict;
+   
+    image-rendering: low-quality;
+}
+
+/* ── Loading card (skeleton enquanto arte baixa) ── */
+.card.loading-card {
+    pointer-events: none;
+    cursor: default;
+    position: relative;
+    overflow: hidden;
+}
+
+    .card.loading-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient( 105deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.09) 45%, rgba(255,255,255,0.03) 100% );
+        background-size: 200% 100%;
+        animation: loadingCardShimmer 1.6s ease infinite;
+    }
+
+    .card.loading-card.featured::after {
+        animation-duration: 1.9s;
+    }
+
+@keyframes loadingCardShimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+body:not(.nav-menu-active) #heroImage {
+    image-rendering: auto;
+}
+
+.game-grid, .card {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
+
+
+/* ── Seção de pastas no system loading ── */
+.sys-section-sep {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: clamp(6px, 0.7vw, 10px) 0;
+}
+
+.sys-section-label {
+    font-size: clamp(0.58rem, 0.65vw, 0.75rem);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.18);
+    margin-bottom: clamp(2px, 0.3vw, 4px);
+}
+
+.sys-app-row .sys-folder-count {
+    margin-left: auto;
+    font-size: 0.88em;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.sys-app-row.done .sys-folder-count {
+    opacity: 1;
+    color: rgba(100,220,120,0.7);
+}
+
+.sys-app-row.active .sys-folder-count {
+    opacity: 1;
+    color: rgba(255,255,255,0.35);
+}
+:root {
+    --card-w: clamp(142px, min(12.5vw, 22.2vh), 360px);
+    --card-h: clamp(213px, min(18.75vw, 33.3vh), 540px);
+    --card-featured-w: clamp(456px, calc(var(--card-h) * 2.1395348837), 1155px);
+    --card-radius: clamp(8px, min(0.72vw, 1.28vh), 22px);
+    --card-gap: clamp(18px, min(2vw, 1.65vh), 36px);
+    --grid-pad-top: clamp(42px, min(4.8vw, 5vh), 64px);
+    --grid-pad-side: clamp(30px, min(3.6vw, 6.4vh), 72px);
+    --grid-pad-bottom: clamp(28px, min(3.5vw, 5.4vh), 132px);
+    --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
+    --logo-bottom: clamp(430px, min(31vw, 55vh), 900px);
+    --logo-width: min(28%, 44vh);
+    --topbar-pad-v: clamp(16px, min(1.72vw, 3.06vh), 54px);
+    --topbar-pad-h: clamp(28px, min(2.81vw, 5vh), 88px);
+    --modal-sidebar-w: clamp(180px, min(16.5vw, 29.6vh), 500px);
+    --modal-pad-v: clamp(28px, min(2.8vw, 4.98vh), 88px);
+    --modal-pad-h: clamp(32px, min(3.1vw, 5.5vh), 100px);
+    --modal-radius: clamp(12px, min(1.09vw, 1.94vh), 38px);
+    --fs-clock: clamp(0.85rem, min(1.25vw, 2.22vh), 2.2rem);
+    --fs-h2: clamp(1.2rem, min(1.75vw, 3.11vh), 2.8rem);
+    --fs-sidebar-title: clamp(0.9rem, min(1.25vw, 2.22vh), 2.2rem);
+    --fs-btn: clamp(0.72rem, min(0.9vw, 1.6vh), 1.6rem);
+    --fs-card-title: clamp(0.65rem, min(0.75vw, 1.33vh), 1.25rem);
+    --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
+    --accent: rgba(255,255,255,0.92);
+    --hero-banner-h: min(60vh, 29vw);
+}
+
+@media (min-height: 801px) and (max-height: 1100px) {
+    :root {
+        --logo-bottom: clamp(545px, 55vh, 620px);
+    }
+}

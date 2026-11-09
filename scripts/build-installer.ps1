@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DoorpiVersion,
 
-    [string]$UpdaterVersion = $DoorpiVersion,
+    [string]$UpdaterVersion = "0.1.2",
+    [string]$MinUpdaterVersion = "0.1.2",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [bool]$SelfContained = $true,
@@ -76,6 +77,7 @@ if (!$SkipReleaseBuild) {
     $releaseParams = @{
         DoorpiVersion = $DoorpiVersion
         UpdaterVersion = $UpdaterVersion
+        MinUpdaterVersion = $MinUpdaterVersion
         Configuration = $Configuration
         Runtime = $Runtime
         SelfContained = $SelfContained
@@ -116,6 +118,22 @@ if (!(Test-Path (Join-Path $updaterPublish "Updater.exe"))) {
 if (!(Test-Path $doorpiIcon)) {
     throw "Icone do Doorpi nao encontrado em $doorpiIcon."
 }
+
+foreach ($component in @(
+    @{ Folder = $doorpiPublish; Name = 'doorpi'; Version = $DoorpiVersion },
+    @{ Folder = $updaterPublish; Name = 'updater'; Version = $UpdaterVersion }
+)) {
+    $packageManifestPath = Join-Path $component.Folder 'package-manifest.json'
+    if (!(Test-Path -LiteralPath $packageManifestPath)) { throw "Pacote publicado sem manifesto interno: $($component.Name)." }
+    $packageMetadata = Get-Content -LiteralPath $packageManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($packageMetadata.component -ne $component.Name -or $packageMetadata.version -ne $component.Version) {
+        throw "Versao do pacote publicado nao corresponde ao instalador. Gere um release completo antes de empacotar."
+    }
+}
+$releaseRoot = Join-Path $root 'artifacts\release'
+$manifestPath = Join-Path $releaseRoot 'manifest-beta.json'
+if (!(Test-Path -LiteralPath $manifestPath)) { throw "Manifesto assinado do release nao encontrado." }
+Invoke-Checked 'dotnet' @('run', '--no-build', '--project', (Join-Path $root 'Doorpi.UpdateCore.Tests\Doorpi.UpdateCore.Tests.csproj'), '-c', 'Release', '--', '--validate-manifest', $manifestPath, $releaseRoot)
 
 New-Item -ItemType Directory -Force -Path $installerRoot | Out-Null
 

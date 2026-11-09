@@ -8,11 +8,17 @@ public static class UpdatePlanner
 
         bool doorpiAvailable = IsApplicable(manifest.Doorpi, localDoorpiVersion);
         bool updaterAvailable = IsApplicable(manifest.Updater, localUpdaterVersion);
+        bool updaterRequired = doorpiAvailable &&
+            !UpdateManifestValidator.MeetsMinimumUpdaterVersion(manifest.Doorpi, localUpdaterVersion);
+        if (updaterRequired && (!updaterAvailable ||
+            !UpdateManifestValidator.MeetsMinimumUpdaterVersion(manifest.Doorpi, manifest.Updater.Version)))
+            throw new InvalidDataException("O manifesto não fornece um atualizador compatível com a atualização do Doorpi.");
 
         return new UpdateDecision
         {
             DoorpiUpdateAvailable = doorpiAvailable,
             UpdaterUpdateAvailable = updaterAvailable,
+            UpdaterRequiredBeforeDoorpi = updaterRequired,
             DoorpiRelease = doorpiAvailable ? manifest.Doorpi : null,
             UpdaterRelease = updaterAvailable ? manifest.Updater : null,
             ForceUpdate = (doorpiAvailable && manifest.Doorpi.ForceUpdate)

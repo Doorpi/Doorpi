@@ -1,0 +1,42 @@
+
+        /* ABA DA ESQUERDA (Jogos) */
+        @keyframes slideInFromLeft {
+            0% {
+                opacity: 0;
+                transform: translateX(-150px); /* Distância maior e mais perceptível */
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* ABA DA DIREITA (Mídia) */
+        @keyframes slideInFromRight {
+            0% {
+                opacity: 0;
+                transform: translateX(150px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        #gameGrid,
+        #view-apps.active {
+            /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
+            animation: slideInFromLeft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            will-change: transform, opacity;
+            backface-visibility: hidden; /* Força 2D por hardware, evita tremulação nos pixels */
+        }
+
+        #mediaGrid,
+        #storesGrid,
+        #view-media-apps.active,
+        #view-folders.active {
+            animation: slideInFromRight 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            will-change: transform, opacity;
+            backface-visibility: hidden;
+        }
+    

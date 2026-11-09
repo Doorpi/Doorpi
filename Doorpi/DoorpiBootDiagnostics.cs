@@ -34,42 +34,34 @@ namespace Doorpi
             return false;
         }
 
+        private static readonly object LogSync = new();
+
         public static void CleanupReleaseLogs()
         {
-#if DEBUG
-            return;
-#else
-            try
-            {
-                string dir = DoorpiPaths.LogsFolder;
-                if (!Directory.Exists(dir))
-                    return;
-
-                foreach (string file in Directory.EnumerateFiles(dir, "*.log", SearchOption.TopDirectoryOnly))
-                {
-                    try { File.Delete(file); } catch { }
-                }
-            }
-            catch { }
-#endif
+            // Preserve release diagnostics across startup/recovery. Rotation is bounded.
         }
 
         public static void Log(string stage, string extra = "")
         {
-#if !DEBUG
-            return;
-#else
+            BootStartupTrace.Record(stage, extra);
             try
             {
-                string dir = DoorpiPaths.LogsFolder;
-                Directory.CreateDirectory(dir);
-                string path = Path.Combine(dir, "boot-diagnostics.log");
-                RotateIfNeeded(path);
-
-                File.AppendAllText(path, BuildLine(stage, extra), Encoding.UTF8);
-            }
-            catch { }
+                lock (LogSync)
+                {
+                    string dir = DoorpiPaths.LogsFolder;
+                    Directory.CreateDirectory(dir);
+                    string path = Path.Combine(dir, "boot-diagnostics.log");
+                    RotateIfNeeded(path);
+#if DEBUG
+                    string line = BuildLine(stage, extra);
+#else
+                    // No identity, registry dump or environment secrets in release logs.
+                    string line = $"[{DateTimeOffset.UtcNow:O}] {stage} pid={Environment.ProcessId} session={GetCurrentSessionId()} extra={extra.Replace("\r", " ").Replace("\n", " ")}{Environment.NewLine}";
 #endif
+                    File.AppendAllText(path, line, Encoding.UTF8);
+                }
+            }
+            catch { } // Diagnostics must never prevent the shell from starting.
         }
 
         private static string BuildLine(string stage, string extra)
@@ -108,7 +100,7 @@ namespace Doorpi
 
         private static int GetCurrentSessionId()
         {
-            try { return Process.GetCurrentProcess().SessionId; }
+            try { using var process = Process.GetCurrentProcess(); return process.SessionId; }
             catch { return -1; }
         }
 

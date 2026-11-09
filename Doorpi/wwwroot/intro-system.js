@@ -19,6 +19,7 @@
 
     const state = {
         started: false,
+        prepared: false,
         completed: false,
         failed: false,
         config: null,
@@ -632,6 +633,20 @@
         } catch { }
     }
 
+    // The native prelude yields before this package starts its own timeline/audio.
+    async function waitForNativePresentationRelease() {
+        state.prepared = true;
+        if (window.__doorpiBootstrapManaged !== true || window.__doorpiPresentationReleased === true) return;
+        await new Promise(resolve => {
+            const released = () => {
+                window.removeEventListener('doorpi:boot-presentation-released', released);
+                resolve();
+            };
+            window.addEventListener('doorpi:boot-presentation-released', released);
+            if (window.__doorpiPresentationReleased === true) released();
+        });
+    }
+
     // Adicione 'async' aqui na frente
     async function start() {
         if (state.started) return;
@@ -661,9 +676,10 @@
         // O usuário pode ter pulado durante a leitura assíncrona do manifesto.
         if (state.completed) return;
 
-        if (!state.config.enabled) {
-            state.completed = true;
-            revealMainSystemUI();
+        await waitForNativePresentationRelease();
+        if (state.completed) return;
+        if (!state.config.enabled || window.__doorpiSkipBootIntro === true) {
+            completeIntro('disabled-or-session-recovery', true);
             return;
         }
 
@@ -694,6 +710,7 @@
         start, runAfterIntro, finishHandoff, skip: skipIntro,
         isRunning: () => state.started && !state.completed,
         isComplete: () => state.completed,
+        isPrepared: () => state.prepared,
         isHandoffActive: () => state.handoffActive,
         startUserPickerAmbient: () => {
             state.pendingInitialDestination = 'user-picker';

@@ -3,6 +3,18 @@
 // =============================================================================
 const STRINGS = {
     'pt-BR': {
+        webPermissionsTitle: "Permissões dos apps",
+        webPermissionsShort: "Câmera e microfone por aplicativo e site",
+        webPermissionsDescription: "Câmera e microfone autorizados ou bloqueados neste perfil. Streamings integrados, localização e notificações continuam bloqueados.",
+        webPermissionsLoading: "Carregando permissões…",
+        webPermissionsEmpty: "Nenhuma decisão salva para este perfil.",
+        webPermissionsError: "Não foi possível ler ou salvar as permissões. Tente abrir esta tela novamente.",
+        webPermissionCamera: "Câmera",
+        webPermissionMicrophone: "Microfone",
+        webPermissionAllowed: "Permitido",
+        webPermissionBlocked: "Bloqueado",
+        webPermissionRevoke: "Revogar e fechar app aberto",
+        webPermissionRemoveBlock: "Remover bloqueio",
         controlsSettingsTitle: 'Controles',
         controlsSettingsDesc: 'Perfis reutilizáveis para apps, web apps e lojas',
         // ---- Adições de media.js ----
@@ -1046,6 +1058,18 @@ const STRINGS = {
     },
 
     'en-US': {
+        webPermissionsTitle: "App permissions",
+        webPermissionsShort: "Camera and microphone by app and site",
+        webPermissionsDescription: "Camera and microphone decisions for this profile. Built-in streaming apps, location and notifications remain blocked.",
+        webPermissionsLoading: "Loading permissions…",
+        webPermissionsEmpty: "No saved decisions for this profile.",
+        webPermissionsError: "Could not read or save permissions. Try opening this page again.",
+        webPermissionCamera: "Camera",
+        webPermissionMicrophone: "Microphone",
+        webPermissionAllowed: "Allowed",
+        webPermissionBlocked: "Blocked",
+        webPermissionRevoke: "Revoke and close running app",
+        webPermissionRemoveBlock: "Remove block",
         controlsSettingsTitle: 'Controls',
         controlsSettingsDesc: 'Reusable profiles for apps, web apps, and stores',
         btnCancel: 'Cancel',

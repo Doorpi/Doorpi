@@ -1,0 +1,989 @@
+{
+  "schemaVersion": 1,
+  "description": "Ordered source fragments preserve the original shared scopes. __doorpiCss is a build-time macro, not a runtime API.",
+  "bundles": [
+    {
+      "output": "wwwroot/app.js",
+      "baselineSha256": "d653c69207c0f21beec438313e540cd9173e9ecc35e1bd7bdb7c8561774e1a15",
+      "sources": [
+        {
+          "path": "scripts/app/010-state-and-display.js",
+          "originalStartLine": 1,
+          "originalEndLine": 89,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/020-first-run-tutorial.js",
+          "originalStartLine": 90,
+          "originalEndLine": 419,
+          "styles": [
+            "injected-styles/app/doorpi-first-run-tutorial-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/app/030-library-update-queue.js",
+          "originalStartLine": 420,
+          "originalEndLine": 511,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/040-audio-and-focus.js",
+          "originalStartLine": 512,
+          "originalEndLine": 1253,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/050-runtime-sessions.js",
+          "originalStartLine": 1254,
+          "originalEndLine": 1822,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/060-session-conflicts.js",
+          "originalStartLine": 1823,
+          "originalEndLine": 2276,
+          "styles": [
+            "injected-styles/app/session-conflicts-1.css"
+          ]
+        },
+        {
+          "path": "scripts/app/070-game-focus-recovery.js",
+          "originalStartLine": 2277,
+          "originalEndLine": 2650,
+          "styles": [
+            "injected-styles/app/game-focus-recovery-1.css"
+          ]
+        },
+        {
+          "path": "scripts/app/080-intro-and-platforms.js",
+          "originalStartLine": 2651,
+          "originalEndLine": 2733,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/090-web-fixes-and-top-profile.js",
+          "originalStartLine": 2734,
+          "originalEndLine": 3006,
+          "styles": [
+            "injected-styles/app/web-fixes-and-top-profile-1.css",
+            "injected-styles/app/web-fixes-and-top-profile-2.css"
+          ]
+        },
+        {
+          "path": "scripts/app/100-notifications.js",
+          "originalStartLine": 3007,
+          "originalEndLine": 3615,
+          "styles": [
+            "injected-styles/app/doorpi-notification-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/app/110-update-prompt.js",
+          "originalStartLine": 3616,
+          "originalEndLine": 4244,
+          "styles": [
+            "injected-styles/app/doorpi-update-prompt-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/app/120-clock-fallbacks-and-host-messages.js",
+          "originalStartLine": 4245,
+          "originalEndLine": 5336,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/130-global-focus-and-profile-overlays.js",
+          "originalStartLine": 5337,
+          "originalEndLine": 6384,
+          "styles": [
+            "injected-styles/app/doorpi-overlay-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/app/140-user-picker.js",
+          "originalStartLine": 6385,
+          "originalEndLine": 6790,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/150-quick-panel-state-and-helpers.js",
+          "originalStartLine": 6791,
+          "originalEndLine": 7273,
+          "styles": [
+            "injected-styles/app/doorpi-quick-panel-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/app/151-quick-panel-storage.js",
+          "originalStartLine": 7274,
+          "originalEndLine": 7576,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/152-quick-panel-content-and-render.js",
+          "originalStartLine": 7577,
+          "originalEndLine": 7729,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/153-quick-panel-incremental-updates.js",
+          "originalStartLine": 7730,
+          "originalEndLine": 7994,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/154-quick-panel-event-wiring.js",
+          "originalStartLine": 7995,
+          "originalEndLine": 8219,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/155-quick-panel-lifecycle-and-navigation.js",
+          "originalStartLine": 8220,
+          "originalEndLine": 8488,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/156-quick-panel-public-api.js",
+          "originalStartLine": 8489,
+          "originalEndLine": 8610,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/157-extension-and-disc-dialogs.js",
+          "originalStartLine": 8611,
+          "originalEndLine": 8742,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/158-overlay-routing-and-loading.js",
+          "originalStartLine": 8743,
+          "originalEndLine": 8927,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/159-add-dialog-and-library-filters.js",
+          "originalStartLine": 8928,
+          "originalEndLine": 9292,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/160-modal-lifecycle-and-app-selection.js",
+          "originalStartLine": 9813,
+          "originalEndLine": 10312,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/170-folder-list.js",
+          "originalStartLine": 10313,
+          "originalEndLine": 10377,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/180-artwork-and-hero.js",
+          "originalStartLine": 10378,
+          "originalEndLine": 10712,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/190-auxiliary-style-installation.js",
+          "originalStartLine": 10713,
+          "originalEndLine": 11591,
+          "styles": [
+            "injected-styles/app/auxiliary-style-installation-1.css"
+          ]
+        },
+        {
+          "path": "scripts/app/200-context-menu.js",
+          "originalStartLine": 11592,
+          "originalEndLine": 12029,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/210-item-removal.js",
+          "originalStartLine": 12030,
+          "originalEndLine": 12082,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/220-artwork-wizard.js",
+          "originalStartLine": 12083,
+          "originalEndLine": 12684,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/230-item-editor.js",
+          "originalStartLine": 12685,
+          "originalEndLine": 13325,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/240-virtual-keyboard.js",
+          "originalStartLine": 13326,
+          "originalEndLine": 13840,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/250-navigation-hint.js",
+          "originalStartLine": 13841,
+          "originalEndLine": 13889,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/260-ambient-background.js",
+          "originalStartLine": 13890,
+          "originalEndLine": 14111,
+          "styles": [
+            "injected-styles/app/ambient-background-1.css"
+          ]
+        },
+        {
+          "path": "scripts/app/270-session-transition.js",
+          "originalStartLine": 14112,
+          "originalEndLine": 14636,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/280-media-app-forms.js",
+          "originalStartLine": 14637,
+          "originalEndLine": 14914,
+          "styles": []
+        },
+        {
+          "path": "scripts/app/290-launch-overlay.js",
+          "originalStartLine": 14915,
+          "originalEndLine": 15579,
+          "styles": [
+            "injected-styles/app/launch-overlay-1.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/bluetooth-ui.js",
+      "baselineSha256": "f1e7b8d7d8dd4ef4543d5675f19b12416931c450be401bf4b044c522384f2e51",
+      "sources": [
+        {
+          "path": "scripts/bluetooth-ui/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 291,
+          "styles": [
+            "injected-styles/bluetooth-ui/doorpi-bluetooth-styles.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/controls.js",
+      "baselineSha256": "19495ef45f8310ae2aac3e1c223abff40116a66d91b86e1a538ce3fb44ec16da",
+      "sources": [
+        {
+          "path": "scripts/controls/010-scope-and-translations.js",
+          "originalStartLine": 1,
+          "originalEndLine": 130,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/020-input-definitions-and-state.js",
+          "originalStartLine": 131,
+          "originalEndLine": 160,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/030-formatting-and-model-helpers.js",
+          "originalStartLine": 161,
+          "originalEndLine": 197,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/040-artwork-and-icons.js",
+          "originalStartLine": 198,
+          "originalEndLine": 260,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/050-binding-presentation.js",
+          "originalStartLine": 261,
+          "originalEndLine": 395,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/060-style-installation.js",
+          "originalStartLine": 396,
+          "originalEndLine": 430,
+          "styles": [
+            "injected-styles/controls/doorpi-controls-v2-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/controls/070-overlay-creation.js",
+          "originalStartLine": 431,
+          "originalEndLine": 490,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/080-editor-lifecycle.js",
+          "originalStartLine": 491,
+          "originalEndLine": 534,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/090-host-messages.js",
+          "originalStartLine": 535,
+          "originalEndLine": 576,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/100-editor-rendering.js",
+          "originalStartLine": 577,
+          "originalEndLine": 737,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/110-pickers-and-capture.js",
+          "originalStartLine": 738,
+          "originalEndLine": 844,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/120-dialogs-and-feedback.js",
+          "originalStartLine": 845,
+          "originalEndLine": 850,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/130-focus-helpers.js",
+          "originalStartLine": 851,
+          "originalEndLine": 988,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/140-directional-navigation.js",
+          "originalStartLine": 989,
+          "originalEndLine": 1097,
+          "styles": []
+        },
+        {
+          "path": "scripts/controls/150-menu-integrations-and-public-api.js",
+          "originalStartLine": 1098,
+          "originalEndLine": 1111,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/emulators.js",
+      "baselineSha256": "c1ff3368fd9d96d764733a0a4c6e0a1abb47053a823ae1eaea934fe040361143",
+      "sources": [
+        {
+          "path": "scripts/emulators/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 697,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/file-browser.js",
+      "baselineSha256": "3c3a09e2f8a883738f4b3eae14e14bc588cc14b172de0afc670bbaa57969f1de",
+      "sources": [
+        {
+          "path": "scripts/file-browser/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 1088,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/grid-controller.js",
+      "baselineSha256": "3bcf3d073b68293b5ddc720a5705d59fc861afb296dfb8b4537a060a895d41d3",
+      "sources": [
+        {
+          "path": "scripts/grid-controller/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 254,
+          "styles": [
+            "injected-styles/grid-controller/doorpi-library-loading-card-style.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/intro-system.js",
+      "baselineSha256": "0f158ad47985325f8d0d74da98246bb1093e1be3246c2175c0090b0d98110fb7",
+      "sources": [
+        {
+          "path": "scripts/intro-system/010-state-and-config.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 1,
+          "sourceEndLine": 92,
+          "styles": []
+        },
+        {
+          "path": "scripts/intro-system/020-presentation-and-completion.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 93,
+          "sourceEndLine": 253,
+          "styles": [
+            "injected-styles/intro-system/doorpi-intro-system-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/intro-system/030-handoff-assets-and-ambient.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 254,
+          "sourceEndLine": 374,
+          "styles": []
+        },
+        {
+          "path": "scripts/intro-system/040-readiness-and-input.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 375,
+          "sourceEndLine": 427,
+          "styles": []
+        },
+        {
+          "path": "scripts/intro-system/050-ambient-lifecycle.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 428,
+          "sourceEndLine": 494,
+          "styles": []
+        },
+        {
+          "path": "scripts/intro-system/060-host-and-package-messages.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 495,
+          "sourceEndLine": 561,
+          "styles": []
+        },
+        {
+          "path": "scripts/intro-system/070-startup.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 562,
+          "sourceEndLine": 634,
+          "styles": []
+        },
+        {
+          "path": "scripts/intro-system/080-public-api-and-bootstrap.js",
+          "extractedFrom": "scripts/intro-system/010-implementation.js",
+          "sourceStartLine": 635,
+          "sourceEndLine": 702,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/media.js",
+      "baselineSha256": "2f73f4753077e02b107ee3dacd30dd5ab0fe8eb1f9278358198a192287c75aca",
+      "sources": [
+        {
+          "path": "scripts/media/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 486,
+          "styles": [
+            "injected-styles/media/implementation-1.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/nav-menu.js",
+      "baselineSha256": "a103ec9a7c21427cb4b033d95ef987b8f05da8286e9bcdd332e003610330d8a2",
+      "sources": [
+        {
+          "path": "scripts/nav-menu/010-scope-and-data.js",
+          "originalStartLine": 1,
+          "originalEndLine": 52,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/020-shortcuts-and-desktop-warning.js",
+          "originalStartLine": 53,
+          "originalEndLine": 312,
+          "styles": [
+            "injected-styles/nav-menu/doorpi-shortcut-styles.css",
+            "injected-styles/nav-menu/shortcuts-and-desktop-warning-2.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/030-lazy-grid.js",
+          "originalStartLine": 313,
+          "originalEndLine": 679,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/040-library-filters-and-dual-pane.js",
+          "originalStartLine": 680,
+          "originalEndLine": 1245,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/050-system-settings-hub.js",
+          "originalStartLine": 1246,
+          "originalEndLine": 1631,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/060-storage-legacy.js",
+          "originalStartLine": 1632,
+          "originalEndLine": 1894,
+          "styles": [
+            "injected-styles/nav-menu/nav-system-storage-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/070-storage-v2-legacy.js",
+          "originalStartLine": 1895,
+          "originalEndLine": 2076,
+          "styles": [
+            "injected-styles/nav-menu/nav-system-storage-v2-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/080-storage-management.js",
+          "originalStartLine": 2077,
+          "originalEndLine": 2386,
+          "styles": [
+            "injected-styles/nav-menu/nav-system-storage-v3-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/090-video-settings.js",
+          "originalStartLine": 2387,
+          "originalEndLine": 2529,
+          "styles": [
+            "injected-styles/nav-menu/nav-system-video-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/100-startup-settings.js",
+          "originalStartLine": 2530,
+          "originalEndLine": 2637,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/110-update-settings.js",
+          "originalStartLine": 2638,
+          "originalEndLine": 2993,
+          "styles": [
+            "injected-styles/nav-menu/nav-system-update-tabs-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/120-ambient-helpers-and-state.js",
+          "originalStartLine": 2994,
+          "originalEndLine": 3224,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/130-style-installation.js",
+          "originalStartLine": 3225,
+          "originalEndLine": 4813,
+          "styles": [
+            "injected-styles/nav-menu/nav-menu-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/140-overlay-categories-and-launch.js",
+          "originalStartLine": 4814,
+          "originalEndLine": 5014,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/150-content-routing-and-profile.js",
+          "originalStartLine": 5015,
+          "originalEndLine": 5805,
+          "styles": [
+            "injected-styles/nav-menu/doorpi-unified-profile-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/160-legacy-profile.js",
+          "originalStartLine": 5806,
+          "originalEndLine": 6075,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/170-profile-history.js",
+          "originalStartLine": 6076,
+          "originalEndLine": 6193,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/180-settings-hub.js",
+          "originalStartLine": 6194,
+          "originalEndLine": 6547,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/185-web-permissions.js",
+          "styles": [
+            "injected-styles/nav-menu/web-permissions.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/190-device-settings.js",
+          "originalStartLine": 6548,
+          "originalEndLine": 6760,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/200-windows-and-gpu-updates.js",
+          "originalStartLine": 6761,
+          "originalEndLine": 7049,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/210-account-settings.js",
+          "originalStartLine": 7050,
+          "originalEndLine": 7545,
+          "styles": [
+            "injected-styles/nav-menu/nav-account-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/220-sharing-legacy.js",
+          "originalStartLine": 7546,
+          "originalEndLine": 7878,
+          "styles": [
+            "injected-styles/nav-menu/nav-sharing-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/230-sharing.js",
+          "originalStartLine": 7879,
+          "originalEndLine": 8264,
+          "styles": [
+            "injected-styles/nav-menu/nav-sharing-v2-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/240-extensions.js",
+          "originalStartLine": 8265,
+          "originalEndLine": 8697,
+          "styles": [
+            "injected-styles/nav-menu/nav-ext-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/nav-menu/250-focus-and-scrolling.js",
+          "originalStartLine": 8698,
+          "originalEndLine": 9103,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/260-open-and-close.js",
+          "originalStartLine": 9104,
+          "originalEndLine": 9191,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/270-keyboard-and-controller-navigation.js",
+          "originalStartLine": 9192,
+          "originalEndLine": 10315,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/280-host-message-updates.js",
+          "originalStartLine": 10316,
+          "originalEndLine": 10414,
+          "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/290-context-menu-and-public-api.js",
+          "originalStartLine": 10415,
+          "originalEndLine": 10561,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/navigation.js",
+      "baselineSha256": "b62cf9461beb64090b712525923885656aa6bfa19d24a7637335ad5aa01e0b08",
+      "sources": [
+        {
+          "path": "scripts/navigation/010-state-hints-and-context.js",
+          "originalStartLine": 1,
+          "originalEndLine": 125,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/020-targets-and-spatial-candidates.js",
+          "originalStartLine": 126,
+          "originalEndLine": 543,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/030-group-transitions.js",
+          "originalStartLine": 544,
+          "originalEndLine": 688,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/040-overlay-focus-and-actions.js",
+          "originalStartLine": 689,
+          "originalEndLine": 819,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/050-focus-movement.js",
+          "originalStartLine": 820,
+          "originalEndLine": 1129,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/060-scrolling-and-keyboard.js",
+          "originalStartLine": 1130,
+          "originalEndLine": 1479,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/070-controller-state-and-quarantine.js",
+          "originalStartLine": 1480,
+          "originalEndLine": 1609,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/080-back-action-routing.js",
+          "originalStartLine": 1610,
+          "originalEndLine": 1757,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/090-controller-button-and-direction-mapping.js",
+          "originalStartLine": 1758,
+          "originalEndLine": 1881,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/100-native-controller-snapshots.js",
+          "originalStartLine": 1882,
+          "originalEndLine": 2015,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/110-gamepad-dispatch-loop.js",
+          "originalStartLine": 2016,
+          "originalEndLine": 2486,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/120-initial-focus-and-pointer.js",
+          "originalStartLine": 2487,
+          "originalEndLine": 2502,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/profile-photo-picker.js",
+      "baselineSha256": "b0c18febdf6bc8218cc72003f4d0fc458879b562d9e1f4fbbb94194ba389e7f5",
+      "sources": [
+        {
+          "path": "scripts/profile-photo-picker/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 664,
+          "styles": [
+            "injected-styles/profile-photo-picker/profile-photo-picker-styles.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/profile-sync-ui.js",
+      "baselineSha256": "d4dd53d477eb7b404d4b694c9c3f5cd94d283fd60d7f7c90eeb7f06d251e08ab",
+      "sources": [
+        {
+          "path": "scripts/profile-sync-ui/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 316,
+          "styles": [
+            "injected-styles/profile-sync-ui/profile-sync-styles.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/renderer.js",
+      "baselineSha256": "2f9559e6cd82605e28c24273c7fc56e49a8e62d47cbcf956ab0e68dfbaa20801",
+      "sources": [
+        {
+          "path": "scripts/renderer/010-featured-presentation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 301,
+          "styles": []
+        },
+        {
+          "path": "scripts/renderer/020-card-interaction.js",
+          "originalStartLine": 302,
+          "originalEndLine": 1084,
+          "styles": []
+        },
+        {
+          "path": "scripts/renderer/030-transition-artwork-lifecycle.js",
+          "originalStartLine": 1085,
+          "originalEndLine": 1125,
+          "styles": []
+        },
+        {
+          "path": "scripts/renderer/040-card-renderer.js",
+          "originalStartLine": 1126,
+          "originalEndLine": 1802,
+          "styles": [
+            "injected-styles/renderer/admin-lock-card-styles.css",
+            "injected-styles/renderer/bulk-silent-card-styles.css"
+          ]
+        },
+        {
+          "path": "scripts/renderer/050-tab-transitions.js",
+          "originalStartLine": 1803,
+          "originalEndLine": 1875,
+          "styles": [
+            "injected-styles/renderer/doorpi-tab-transitions.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/setup.js",
+      "baselineSha256": "684bfa376bbcd1074bd65560526993dfb01ff9d3ca0bbcdb5e59a19c3412092b",
+      "sources": [
+        {
+          "path": "scripts/setup/010-state-and-style-installation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 22,
+          "styles": [
+            "injected-styles/setup/implementation-1.css"
+          ]
+        },
+        {
+          "path": "scripts/setup/020-markup.js",
+          "originalStartLine": 23,
+          "originalEndLine": 225,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/030-layout-and-user-form.js",
+          "originalStartLine": 226,
+          "originalEndLine": 437,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/040-accordion-and-scrolling.js",
+          "originalStartLine": 438,
+          "originalEndLine": 498,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/050-background-animation.js",
+          "originalStartLine": 499,
+          "originalEndLine": 572,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/060-authentication-and-cloud-profile.js",
+          "originalStartLine": 573,
+          "originalEndLine": 775,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/070-setup-lifecycle-and-focus.js",
+          "originalStartLine": 776,
+          "originalEndLine": 929,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/080-validation.js",
+          "originalStartLine": 930,
+          "originalEndLine": 1044,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/090-event-wiring.js",
+          "originalStartLine": 1045,
+          "originalEndLine": 1211,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/100-folders-and-photo-selection.js",
+          "originalStartLine": 1212,
+          "originalEndLine": 1300,
+          "styles": []
+        },
+        {
+          "path": "scripts/setup/110-sync-messages.js",
+          "originalStartLine": 1301,
+          "originalEndLine": 1373,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/sound-ui.js",
+      "baselineSha256": "ddaeccda56f2058efe1be4c7fe751a8ac9ae1d483404832013867225ff98687a",
+      "sources": [
+        {
+          "path": "scripts/sound-ui/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 1140,
+          "styles": [
+            "injected-styles/sound-ui/doorpi-sound-styles.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/store.js",
+      "baselineSha256": "2771939d36fa4f216588ad0a5635d618f4b074848e57a4580fec9c2c855233d5",
+      "sources": [
+        {
+          "path": "scripts/store/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 369,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/stores.js",
+      "baselineSha256": "813be744a86eea28a5ca50dd630b9ecb6a0f35c9e14cc4a9f3f11e1702a6e841",
+      "sources": [
+        {
+          "path": "scripts/stores/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 144,
+          "styles": [
+            "injected-styles/stores/implementation-1.css"
+          ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/strings.js",
+      "baselineSha256": "8d50654b9d043486cb596366615adb69c06476e709319adc98b4154ec1f9fef1",
+      "sources": [
+        {
+          "path": "scripts/strings/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 2146,
+          "styles": []
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/wifi-ui.js",
+      "baselineSha256": "1e0dc5c4fd993d33a04dd1a26e8c74252294107624080fd892d0c7b23cea3618",
+      "sources": [
+        {
+          "path": "scripts/wifi-ui/010-implementation.js",
+          "originalStartLine": 1,
+          "originalEndLine": 204,
+          "styles": [
+            "injected-styles/wifi-ui/doorpi-wifi-styles.css"
+          ]
+        }
+      ]
+    }
+  ]
+}

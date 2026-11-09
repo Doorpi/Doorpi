@@ -1,0 +1,391 @@
+/* Console UI direction pass: quiet system chrome, content-led hierarchy. */
+.top-bar {
+    padding: clamp(14px, 1.8vh, 30px) clamp(24px, 2.6vw, 64px);
+}
+
+#clock {
+    font-size: clamp(0.78rem, 0.92vw, 1.05rem);
+    font-weight: 420;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.74);
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,0.55));
+}
+
+#addGameContainer {
+    background:
+        linear-gradient(180deg, rgba(3,4,10,0.58), rgba(3,4,10,0.82)),
+        rgba(4,5,12,0.58);
+}
+
+.modal-layout {
+    width: min(93vw, 1680px);
+    height: min(85vh, 940px);
+    border-radius: 8px;
+    background: linear-gradient(110deg, rgba(12,13,22,0.82), rgba(10,11,19,0.62));
+    border-color: rgba(255,255,255,0.075);
+    box-shadow: 0 34px 90px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.045);
+}
+
+.modal-sidebar {
+    background: rgba(255,255,255,0.012);
+    border-right-color: rgba(255,255,255,0.065);
+}
+
+.sidebar-eyebrow {
+    display: none;
+}
+
+.sidebar-title {
+    margin-bottom: clamp(18px, 2vw, 36px);
+    color: rgba(255,255,255,0.54);
+    font-size: clamp(0.78rem, 0.92vw, 1.05rem);
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.menu-tab {
+    min-height: clamp(48px, 4.8vh, 68px);
+    border-left-width: 1px;
+    color: rgba(255,255,255,0.46);
+    font-weight: 520;
+}
+
+.menu-tab:focus,
+.menu-tab:hover {
+    background: rgba(255,255,255,0.052);
+    border-left-color: rgba(255,255,255,0.42);
+    transform: none;
+}
+
+.menu-tab.active {
+    background: linear-gradient(90deg, rgba(255,255,255,0.10), transparent 82%);
+    border-left-color: rgba(255,255,255,0.88);
+}
+
+.view-header {
+    gap: clamp(10px, 1vw, 18px);
+    margin-bottom: clamp(16px, 1.35vw, 26px);
+}
+
+.view-header h2 {
+    font-size: clamp(1.18rem, 1.35vw, 1.9rem);
+    font-weight: 420;
+    letter-spacing: 0;
+}
+
+.subtitle {
+    max-width: 66ch;
+    color: rgba(255,255,255,0.46);
+}
+
+.filter-bar {
+    gap: clamp(12px, 1vw, 22px);
+    min-height: 38px;
+    padding: 0;
+}
+
+.filter-bar::before {
+    bottom: -7px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.045) 58%, transparent);
+}
+
+.filter-btn {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 0 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.52);
+    font-size: clamp(0.78rem, 0.78vw, 0.96rem);
+    font-weight: 620;
+    letter-spacing: 0;
+}
+
+.filter-btn::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 100%;
+    bottom: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.92);
+    transition: right 0.18s ease, opacity 0.18s ease;
+    opacity: 0;
+}
+
+.filter-btn:focus,
+.filter-btn:hover {
+    background: transparent;
+    border-color: transparent;
+    color: rgba(255,255,255,0.92);
+}
+
+.filter-btn:focus::after,
+.filter-btn:hover::after,
+.filter-btn.active::after {
+    right: 0;
+    opacity: 1;
+}
+
+.filter-btn.active {
+    background: transparent;
+    border-color: transparent;
+    color: rgba(255,255,255,0.98);
+    box-shadow: none;
+}
+
+.filter-count {
+    color: rgba(255,255,255,0.34);
+    font-size: 0.82em;
+    font-weight: 520;
+}
+
+.filter-btn.active .filter-count,
+.filter-btn:focus .filter-count,
+.filter-btn:hover .filter-count {
+    color: rgba(255,255,255,0.68);
+}
+
+#appList {
+    grid-template-columns: repeat(auto-fill, minmax(clamp(220px, 16vw, 310px), 1fr));
+    gap: clamp(10px, 0.85vw, 16px);
+    padding: 8px 8px 112px;
+}
+
+.app-item {
+    min-height: clamp(72px, 5.4vw, 104px);
+    border-radius: 8px;
+    border-width: 1px;
+    background: rgba(255,255,255,0.042);
+}
+
+.app-item:focus,
+.app-item:hover {
+    transform: translateY(-2px);
+    background: rgba(255,255,255,0.092);
+    box-shadow: 0 16px 34px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.07);
+}
+
+.app-item.selected {
+    background: rgba(255,255,255,0.10);
+    border-color: rgba(255,255,255,0.86);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.20), 0 16px 34px rgba(0,0,0,0.34);
+}
+
+.app-item.selected::after {
+    content: '';
+    width: clamp(18px, 1.2vw, 24px);
+    height: 2px;
+    right: clamp(10px, 0.75vw, 14px);
+    bottom: clamp(12px, 0.9vw, 16px);
+    border-radius: 2px;
+    background: rgba(255,255,255,0.92);
+    animation: none;
+}
+
+.app-item .app-state {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.42);
+    font-weight: 520;
+}
+
+#folderList,
+#storeInstallList {
+    gap: 0;
+    padding: 4px 10px 112px 0;
+}
+
+.store-install-card,
+.folder-item {
+    border-width: 0 0 1px;
+    border-color: rgba(255,255,255,0.085);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.store-install-card {
+    min-height: clamp(86px, 6.4vw, 116px);
+    grid-template-columns: clamp(48px, 3.6vw, 68px) minmax(0, 1fr) max-content;
+    padding: clamp(12px, 0.95vw, 18px) clamp(10px, 1vw, 20px);
+}
+
+.store-install-card:focus,
+.store-install-card:hover,
+.folder-item:focus,
+.folder-item:hover {
+    background: rgba(255,255,255,0.072);
+    border-color: rgba(255,255,255,0.22);
+    transform: none;
+    box-shadow: inset 3px 0 0 rgba(255,255,255,0.85);
+}
+
+.store-install-art {
+    width: clamp(48px, 3.6vw, 68px);
+    height: clamp(48px, 3.6vw, 68px);
+    border-radius: 7px;
+    background: rgba(255,255,255,0.028);
+}
+
+.store-install-info strong {
+    font-size: clamp(0.98rem, 0.98vw, 1.22rem);
+    font-weight: 620;
+}
+
+.store-install-note {
+    max-width: min(100%, 58ch);
+    color: rgba(255,255,255,0.48) !important;
+}
+
+.store-install-pair {
+    gap: 10px;
+}
+
+.store-install-pair span {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.38);
+    font-size: clamp(0.66rem, 0.66vw, 0.78rem);
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.store-install-action {
+    min-width: clamp(92px, 7.2vw, 128px);
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.58);
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.24);
+}
+
+.store-install-card:not(.installed):focus .store-install-action,
+.store-install-card:not(.installed):hover .store-install-action {
+    background: transparent;
+    color: rgba(255,255,255,0.96);
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.92);
+}
+
+.folder-item {
+    padding: clamp(14px, 1.05vw, 20px) clamp(10px, 1vw, 20px);
+}
+
+.folder-item-header {
+    gap: 18px;
+}
+
+.folder-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.folder-icon {
+    color: rgba(255,255,255,0.48);
+}
+
+.icon-btn {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.50);
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.18);
+}
+
+.icon-btn:focus,
+.icon-btn:hover {
+    background: transparent;
+    color: #fff;
+    transform: none;
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.92);
+}
+
+.icon-btn.delete-btn:focus,
+.icon-btn.delete-btn:hover {
+    background: transparent;
+    color: rgba(255,170,170,0.95);
+    box-shadow: inset 0 -2px 0 rgba(255,130,130,0.82);
+}
+
+.action-bar {
+    padding: clamp(12px, 1vw, 20px) 0 clamp(16px, 1.35vw, 26px);
+    border-top-color: rgba(255,255,255,0.075);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.025));
+}
+
+.selection-counter {
+    color: rgba(255,255,255,0.58);
+}
+
+.counter-dot {
+    width: 20px;
+    height: 2px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.72);
+    animation: none;
+}
+
+.action-buttons {
+    gap: clamp(14px, 1.15vw, 24px);
+}
+
+.modal-btn {
+    min-height: 38px;
+    padding: 0 0 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.58);
+    font-weight: 620;
+    letter-spacing: 0;
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.18);
+}
+
+.modal-btn.primary {
+    color: rgba(255,255,255,0.94);
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.82);
+}
+
+.modal-btn::after,
+.modal-btn.primary::after {
+    display: none;
+}
+
+.modal-btn:focus,
+.modal-btn:hover {
+    background: transparent;
+    border-color: transparent;
+    color: #fff;
+    transform: none;
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.96), 0 12px 28px rgba(0,0,0,0.18);
+}
+
+.inline-scan-status {
+    color: rgba(255,255,255,0.42) !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    font-weight: 520 !important;
+}
+
+.inline-scan-spinner {
+    width: 18px !important;
+    height: 2px !important;
+    border: 0 !important;
+    border-radius: 2px !important;
+    background: rgba(255,255,255,0.62) !important;
+    animation: inlineScanLine 0.9s ease-in-out infinite alternate !important;
+}
+
+@keyframes inlineScanLine {
+    from { opacity: 0.28; transform: scaleX(0.45); }
+    to { opacity: 0.9; transform: scaleX(1); }
+}
+

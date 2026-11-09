@@ -695,8 +695,7 @@ public partial class MainWindow
             try
             {
                 if (!File.Exists(file)) continue;
-                var info = new FileInfo(file);
-                values.Add($"{file}|{info.Length}|{info.LastWriteTimeUtc.Ticks}");
+                values.Add($"{file}|{File.GetLength(file)}|{File.GetLastWriteTimeUtc(file).Ticks}");
             }
             catch { }
         }
@@ -705,8 +704,7 @@ public partial class MainWindow
         {
             if (File.Exists(browserIndex))
             {
-                var info = new FileInfo(browserIndex);
-                values.Add($"{browserIndex}|{info.Length}|{info.LastWriteTimeUtc.Ticks}");
+                values.Add($"{browserIndex}|{File.GetLength(browserIndex)}|{File.GetLastWriteTimeUtc(browserIndex).Ticks}");
             }
         }
         catch { }
@@ -717,8 +715,7 @@ public partial class MainWindow
             {
                 try
                 {
-                    var info = new FileInfo(file);
-                    values.Add($"{file}|{info.Length}|{info.LastWriteTimeUtc.Ticks}");
+                    values.Add($"{file}|{File.GetLength(file)}|{File.GetLastWriteTimeUtc(file).Ticks}");
                 }
                 catch { }
             }

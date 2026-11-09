@@ -928,8 +928,6 @@ namespace Doorpi
                 if (!OptimizeMediaArtworkCacheLocked(profileId, history)) return;
                 string json = JsonSerializer.Serialize(history.OrderByDescending(item => item.LastPlayed), IndentedJsonOptions);
                 SafeWriteAllText(path, json);
-                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
-                    SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), json);
             }
         }
 
@@ -1104,8 +1102,6 @@ namespace Doorpi
                     records.OrderBy(item => item.AppId, StringComparer.OrdinalIgnoreCase).ToList(),
                     IndentedJsonOptions);
                 SafeWriteAllText(path, json);
-                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
-                    SafeWriteAllText(Path.Combine(dataFolder, "media-metadata-probe.json"), json);
             }
             catch (Exception ex)
             {
@@ -1215,8 +1211,6 @@ namespace Doorpi
 
                 string json = JsonSerializer.Serialize(records, IndentedJsonOptions);
                 SafeWriteAllText(path, json);
-                if (string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase))
-                    SafeWriteAllText(Path.Combine(dataFolder, "media-network-probe.json"), json);
             }
             catch (Exception ex)
             {
@@ -1937,8 +1931,6 @@ namespace Doorpi
             OptimizeMediaArtworkCacheLocked(request.ProfileId, history);
             string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
             SafeWriteAllText(historyPath, json);
-            if (string.Equals(currentUserId, request.ProfileId, StringComparison.OrdinalIgnoreCase))
-                SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), json);
         }
 
         private void FinalizeMediaHistorySession(bool saveEligibleActivity)
@@ -1970,7 +1962,6 @@ namespace Doorpi
                     {
                         string cleanJson = JsonSerializer.Serialize(history, IndentedJsonOptions);
                         SafeWriteAllText(mediaHistoryFile, cleanJson);
-                        SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), cleanJson);
                     }
                     return history;
                 }
@@ -1992,7 +1983,6 @@ namespace Doorpi
                     if (!changed) return;
                     string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
                     SafeWriteAllText(mediaHistoryFile, json);
-                    SafeWriteAllText(Path.Combine(dataFolder, "media-history.json"), json);
                 }
                 catch (Exception ex)
                 {
@@ -2052,9 +2042,6 @@ namespace Doorpi
                 {
                     string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
                     SafeWriteAllText(mediaHistoryFile, json);
-                    string mirror = Path.Combine(dataFolder, "media-history.json");
-                    if (!string.Equals(mediaHistoryFile, mirror, StringComparison.OrdinalIgnoreCase))
-                        SafeWriteAllText(mirror, json);
                 }
             }
 
@@ -2197,8 +2184,6 @@ namespace Doorpi
                 .OrderByDescending(item => item.LastPlayed)
                 .ToList(), IndentedJsonOptions);
             SafeWriteAllText(mediaHistoryFile, json);
-            string mirror = Path.Combine(dataFolder, "media-history.json");
-            if (!string.Equals(mediaHistoryFile, mirror, StringComparison.OrdinalIgnoreCase)) SafeWriteAllText(mirror, json);
             if (active.Category == "music")
                 LogWebViewDiagnostic(
                     $"media-history-session-saved app={active.AppId} category=music seconds={Math.Floor(active.AccumulatedSeconds)} final={isFinal}");

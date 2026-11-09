@@ -205,6 +205,7 @@ public sealed class ProfileSyncState
     public string LastSyncedContentHash { get; set; } = "";
     public DateTimeOffset? LastSyncedAtUtc { get; set; }
     public ProfileSyncAction? PendingAction { get; set; }
+    public string PendingLocalContentHash { get; set; } = "";
     public PendingProfileConflict? PendingConflict { get; set; }
     public bool ConflictPromptDeferred { get; set; }
 }

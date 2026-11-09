@@ -1,270 +1,129 @@
-using Microsoft.Win32;
 using System;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading.Tasks;
+using System.Diagnostics;
+using System.Threading;
 using System.Windows;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace Doorpi
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : Application
     {
-        private const string ShellBootstrapArg = "--doorpi-shell-bootstrap";
-        private const string MainProcessArg = "--doorpi-main";
-        private const string WebViewRecoveryArg = "--doorpi-webview-recovery";
-
+        private Mutex? _instance;
         protected override void OnStartup(StartupEventArgs e)
         {
+            LocalTestMode.Configure();
             DoorpiBootDiagnostics.CleanupReleaseLogs();
-            DoorpiBootDiagnostics.Log("app-onstartup", $"args={string.Join(" ", e.Args)}");
-
+            DoorpiBootDiagnostics.Log("app-onstartup");
             if (DoorpiBootDiagnostics.ShouldAbortCurrentSession(out string reason))
             {
                 DoorpiBootDiagnostics.Log("app-abort", reason);
                 Shutdown();
                 return;
             }
-
             base.OnStartup(e);
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = StartApplicationAsync(e.Args);
+        }
 
-            if (ShouldRunShellBootstrap(e.Args))
+        private async Task StartApplicationAsync(string[] args)
+        {
+            try { await StartApplicationCoreAsync(args); }
+            catch (Exception ex)
+            {
+                DoorpiBootDiagnostics.Log("startup-orchestration-failed", ex.ToString());
+                try { if (BootConfiguration.IsConfigured) WindowsShellEnvironment.EnsureExplorerStarted(); } catch { }
+                MessageBox.Show("O Doorpi não iniciou para preservar os dados.\n\n" + ex.Message,
+                    "Doorpi — recuperação", MessageBoxButton.OK, MessageBoxImage.Error);
+                Shutdown(1);
+            }
+        }
+
+        private async Task StartApplicationCoreAsync(string[] args)
+        {
+            bool shellEntry = !LocalTestMode.Enabled && BootStartupSelection.IsShellEntry(args, BootConfiguration.IsConfigured, WindowsShellEnvironment.IsExplorerRunning());
+            var selection = shellEntry
+                ? BootStartupSelection.Read(args, Path.Combine(DoorpiPaths.DataFolder, BootStartupSelection.FileName))
+                : new BootStartupSelection(BootStartupPath.Supervised, "ordinary");
+            BootStartupTrace.Initialize(DoorpiPaths.LogsFolder, selection.Source is "argument" or "experiment" ||
+                args.Any(arg => arg.Equals("--doorpi-boot-trace", StringComparison.OrdinalIgnoreCase)));
+            DoorpiBootDiagnostics.Log("startup-route", $"shellEntry={shellEntry} path={selection.Path} source={selection.Source} issue={selection.Issue}");
+            if (!await BootProcessHandoff.WaitAsync(args))
+            {
+                DoorpiBootDiagnostics.Log("startup-parent-handoff-failed");
+                Shutdown(1);
+                return;
+            }
+            bool bootstrap = shellEntry && selection.Path == BootStartupPath.Supervised;
+            _instance = new Mutex(false, $@"Local\Doorpi.{(LocalTestMode.Enabled ? "LocalTest" : bootstrap ? "Supervisor" : "Main")}.{Process.GetCurrentProcess().SessionId}");
+            bool acquired;
+            try { acquired = _instance.WaitOne(0); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) { _instance.Dispose(); _instance = null; Shutdown(); return; }
+            if (HandoffInterruptedUpdate()) return;
+            // Import and integrity checks complete before any UI reports startup health.
+            await Task.Run(() => Doorpi.Storage.StateStorage.Initialize(DoorpiPaths.AppDataFolder));
+            if (shellEntry && selection.Path == BootStartupPath.Direct)
+            {
+                await RunDirectShellStartupAsync(args);
+                return;
+            }
+            if (bootstrap)
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
                 _ = RunShellBootstrapAsync();
                 return;
             }
-
-            StartMainWindow();
+            try
+            {
+                CreateMainWindow();
+            }
+            catch (Exception ex)
+            {
+                DoorpiBootDiagnostics.Log("main-window-start-failed", ex.ToString());
+                Shutdown(1);
+            }
         }
 
-        private void StartMainWindow()
+        protected override void OnExit(ExitEventArgs e)
         {
+            try { BootStartupTrace.FlushAsync().Wait(TimeSpan.FromMilliseconds(500)); } catch { }
+            if (_instance != null) { _instance.ReleaseMutex(); _instance.Dispose(); }
+            base.OnExit(e);
+        }
+
+        private void CreateMainWindow()
+        {
+            MainWindow = new MainWindow();
+            if (LocalTestMode.Enabled) MainWindow.Title = "Doorpi — TESTE SQLITE ISOLADO";
             ShutdownMode = ShutdownMode.OnMainWindowClose;
-            var window = new MainWindow();
-            MainWindow = window;
-            window.Show();
+            MainWindow.Show();
         }
 
-        private static bool ShouldRunShellBootstrap(string[] args)
+        private bool HandoffInterruptedUpdate()
         {
-            if (HasArg(args, MainProcessArg) || HasArg(args, WebViewRecoveryArg))
-                return false;
-
-            if (!IsConsoleShellConfigured())
-                return false;
-
-            if (HasArg(args, ShellBootstrapArg))
-                return true;
-
-            // Compatibility for users that still have the old shell value without
-            // --doorpi-shell-bootstrap written in Winlogon.
-            return !IsExplorerRunning();
-        }
-
-        private async Task RunShellBootstrapAsync()
-        {
-            BootIntroWindow? bootstrapWindow = null;
-            try
+            var state = new Doorpi.UpdateCore.UpdateStateStore(
+                Path.Combine(DoorpiPaths.AppDataFolder, "updates", "state.json")).Load();
+            string signal = Environment.GetEnvironmentVariable("DOORPI_UPDATE_HEALTH_SIGNAL") ?? "";
+            if (!Doorpi.UpdateCore.UpdateStartupPolicy.IsRecoveryRequired(state, signal)) return false;
+            string folder = AppContext.BaseDirectory;
+            string updater = Path.Combine(folder, "Updater", "Updater.exe");
+            if (!System.IO.File.Exists(updater)) updater = Path.Combine(folder, "Updater.exe");
+            if (!System.IO.File.Exists(updater))
+                throw new InvalidDataException("Uma atualização foi interrompida. O atualizador compatível precisa restaurar os dados antes de iniciar.");
+            var start = new ProcessStartInfo(updater)
             {
-                DoorpiBootDiagnostics.Log("shell-bootstrap-start");
-                bootstrapWindow = BootIntroWindow.CreateOnDedicatedThread();
-                await bootstrapWindow.RunIntroAsync();
-
-                EnsureExplorerStarted();
-                bool shellReady = await WaitForExplorerShellReadyAsync(TimeSpan.FromSeconds(35));
-                DoorpiBootDiagnostics.Log("shell-bootstrap-shell-ready", $"ready={shellReady}");
-
-                var mainProcess = StartMainDoorpiProcess();
-                if (mainProcess != null)
-                    await WaitForMainDoorpiWindowAsync(mainProcess, TimeSpan.FromSeconds(24));
-
-                if (bootstrapWindow != null)
-                {
-                    await bootstrapWindow.FadeOutAndCloseAsync();
-                    bootstrapWindow = null;
-                }
-
-                DoorpiBootDiagnostics.Log("shell-bootstrap-complete");
-            }
-            catch (Exception ex)
-            {
-                DoorpiBootDiagnostics.Log("shell-bootstrap-error", ex.ToString());
-                try
-                {
-                    bootstrapWindow ??= BootIntroWindow.CreateOnDedicatedThread();
-                    await bootstrapWindow.RunIntroAsync();
-                    StartMainWindow();
-                    return;
-                }
-                catch { }
-            }
-
+                WorkingDirectory = Path.GetDirectoryName(updater)!, UseShellExecute = false, CreateNoWindow = true
+            };
+            start.ArgumentList.Add("--mode"); start.ArgumentList.Add("update-doorpi");
+            start.ArgumentList.Add("--parent-pid"); start.ArgumentList.Add(Environment.ProcessId.ToString());
+            start.ArgumentList.Add("--install-folder"); start.ArgumentList.Add(folder);
+            start.Environment.Remove("DOORPI_UPDATE_HEALTH_SIGNAL");
+            Process.Start(start)?.Dispose();
+            DoorpiBootDiagnostics.Log("storage-recovery-handoff", state?.OperationId ?? "");
             Shutdown();
+            return true;
         }
-
-        private static Process? StartMainDoorpiProcess()
-        {
-            try
-            {
-                string exe = Process.GetCurrentProcess().MainModule?.FileName ??
-                    Environment.ProcessPath ??
-                    "";
-                if (string.IsNullOrWhiteSpace(exe))
-                    return null;
-
-                var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = exe,
-                    Arguments = MainProcessArg,
-                    UseShellExecute = true,
-                    WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
-                });
-                DoorpiBootDiagnostics.Log("shell-bootstrap-main-started", $"pid={process?.Id ?? 0}");
-                return process;
-            }
-            catch (Exception ex)
-            {
-                DoorpiBootDiagnostics.Log("shell-bootstrap-main-start-error", ex.Message);
-                return null;
-            }
-        }
-
-        private static void EnsureExplorerStarted()
-        {
-            if (IsExplorerRunning())
-            {
-                DoorpiBootDiagnostics.Log("shell-bootstrap-explorer-skip", "already-running");
-                return;
-            }
-
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "explorer.exe",
-                    UseShellExecute = true
-                });
-                DoorpiBootDiagnostics.Log("shell-bootstrap-explorer-started");
-            }
-            catch (Exception ex)
-            {
-                DoorpiBootDiagnostics.Log("shell-bootstrap-explorer-error", ex.Message);
-            }
-        }
-
-        private static async Task<bool> WaitForExplorerShellReadyAsync(TimeSpan timeout)
-        {
-            var sw = Stopwatch.StartNew();
-            var stable = Stopwatch.StartNew();
-            bool wasReady = false;
-
-            while (sw.Elapsed < timeout)
-            {
-                bool ready = IsExplorerRunning() && IsExplorerShellSurfaceReady() && TryFlushDwm();
-                if (ready)
-                {
-                    if (!wasReady)
-                    {
-                        wasReady = true;
-                        stable.Restart();
-                    }
-                    else if (stable.ElapsedMilliseconds >= 1600)
-                    {
-                        return true;
-                    }
-                }
-                else
-                {
-                    wasReady = false;
-                    stable.Restart();
-                }
-
-                await Task.Delay(100).ConfigureAwait(false);
-            }
-
-            return false;
-        }
-
-        private static async Task WaitForMainDoorpiWindowAsync(Process process, TimeSpan timeout)
-        {
-            var sw = Stopwatch.StartNew();
-            while (sw.Elapsed < timeout)
-            {
-                try
-                {
-                    if (process.HasExited)
-                        return;
-
-                    process.Refresh();
-                    if (process.MainWindowHandle != IntPtr.Zero)
-                        return;
-                }
-                catch
-                {
-                    return;
-                }
-
-                await Task.Delay(100).ConfigureAwait(false);
-            }
-        }
-
-        private static bool IsConsoleShellConfigured()
-        {
-            try
-            {
-                using var winlogonKey = Registry.CurrentUser.OpenSubKey(
-                    @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon");
-                return winlogonKey?.GetValue("Shell") is string shell &&
-                    shell.IndexOf("Doorpi", StringComparison.OrdinalIgnoreCase) >= 0;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static bool IsExplorerRunning()
-        {
-            try { return Process.GetProcessesByName("explorer").Length > 0; }
-            catch { return false; }
-        }
-
-        private static bool IsExplorerShellSurfaceReady()
-        {
-            try
-            {
-                if (FindWindow("Shell_TrayWnd", null) != IntPtr.Zero)
-                    return true;
-
-                return GetShellWindow() != IntPtr.Zero;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static bool TryFlushDwm()
-        {
-            try { return DwmFlush() >= 0; }
-            catch { return true; }
-        }
-
-        private static bool HasArg(string[] args, string expected)
-            => args.Any(arg => string.Equals(arg, expected, StringComparison.OrdinalIgnoreCase));
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetShellWindow();
-
-        [DllImport("dwmapi.dll", PreserveSig = true)]
-        private static extern int DwmFlush();
     }
 }

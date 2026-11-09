@@ -1,0 +1,10 @@
+
+            .doorpi-shortcut-combo { display:inline-flex; align-items:center; gap:.42em; white-space:nowrap; vertical-align:middle; }
+            .doorpi-shortcut-plus { color:rgba(255,255,255,.42); font-size:.82em; font-weight:800; }
+            .doorpi-keycap { min-width:2.7em; height:1.8em; padding:0 .72em; border-radius:.55em; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.055)); border:1px solid rgba(255,255,255,.30); box-shadow:inset 0 1px 0 rgba(255,255,255,.20), 0 .32em .9em rgba(0,0,0,.30); color:rgba(255,255,255,.94); font-size:.72em; font-weight:860; letter-spacing:.08em; }
+            .doorpi-stickcap { width:2.15em; height:2.15em; border-radius:50%; position:relative; display:inline-flex; align-items:center; justify-content:center; background:radial-gradient(circle at 38% 30%, rgba(255,255,255,.26), transparent 18%), radial-gradient(circle at 50% 55%, rgba(255,255,255,.08), transparent 46%), linear-gradient(180deg, #303340, #11131b); border:1px solid rgba(255,255,255,.22); box-shadow:inset 0 .18em .32em rgba(255,255,255,.08), inset 0 -.24em .42em rgba(0,0,0,.42), 0 .38em .9em rgba(0,0,0,.36); color:rgba(255,255,255,.95); font-size:.72em; font-weight:900; letter-spacing:.04em; }
+            .doorpi-stickcap::after { content:''; position:absolute; inset:28%; border-radius:50%; border:1px solid rgba(255,255,255,.28); box-shadow:0 0 0 .18em rgba(0,0,0,.14); }
+            .doorpi-xbox-logo-btn { width:2.15em; height:2.15em; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg, #f6f6f7, #c9ccd2); border:1px solid rgba(255,255,255,.48); box-shadow:inset 0 .12em .22em rgba(255,255,255,.58), inset 0 -.18em .34em rgba(0,0,0,.22), 0 .34em .82em rgba(0,0,0,.34); color:#151820; }
+            .doorpi-xbox-logo-btn svg { width:1.2em; height:1.2em; display:block; fill:currentColor; }
+            .nav-shortcut-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:10px; color:rgba(255,255,255,.54); font-size:.78rem; }
+        

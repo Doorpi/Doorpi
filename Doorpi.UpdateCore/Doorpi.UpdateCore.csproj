@@ -11,4 +11,8 @@
     <DefineConstants>$(DefineConstants);DOORPI_DEV_UPDATE_POLICY</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Doorpi.Storage\Doorpi.Storage.csproj" />
+  </ItemGroup>
+
 </Project>

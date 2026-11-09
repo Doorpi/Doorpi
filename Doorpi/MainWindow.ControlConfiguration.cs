@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using Doorpi.ProfileSync;
+using Doorpi.Storage;
 
 namespace Doorpi;
 
@@ -33,6 +34,10 @@ public partial class MainWindow
     private ControlProfile[]? _controlRuntimeRoutesSource;
     private ControlBindingRoute[] _controlRuntimeRoutes = Array.Empty<ControlBindingRoute>();
     private string _controlRuntimeRoutesKey = "";
+    private bool _controlRoutesNeedNeutral;
+    private ControlOutputState? _configuredOutputs;
+    private ControlOutputState ConfiguredOutputs => _configuredOutputs ??=
+        new ControlOutputState(SendConfiguredKeyEvent, SendConfiguredMouseButton);
     private string _lastRuntimeControlTargetKey = "";
     private int _configuredControlButtonsSuppressedUntilRelease;
     private bool _configuredCloseHoldOverlayVisible;
@@ -400,7 +405,7 @@ public partial class MainWindow
 
             ControlConfigurationDocument document = CreateDefaultControlConfiguration();
             bool recoveredFromBackup = false;
-            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            if (!string.IsNullOrWhiteSpace(path) && StateStorage.Exists(path))
             {
                 try
                 {
@@ -417,14 +422,21 @@ public partial class MainWindow
                         recoveredFromBackup = true;
                         DoorpiBootDiagnostics.Log("controls-recovered", $"path={path}");
                     }
+                    else
+                    {
+                        throw new InvalidDataException("A configuração de controles e sua revisão de recuperação estão inválidas.");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine("[Controls] Falha ao carregar configuração: " + ex.Message);
+                    throw;
                 }
             }
 
             int loadedSchemaVersion = document.SchemaVersion;
+            if (loadedSchemaVersion > 8)
+                throw new InvalidDataException("A configuração de controles requer uma versão mais recente do Doorpi.");
             bool requiresMigration = recoveredFromBackup || loadedSchemaVersion < 8;
             document.Profiles ??= new List<ControlProfile>();
             document.Assignments ??= new List<ControlProfileAssignment>();
@@ -589,11 +601,10 @@ public partial class MainWindow
 
         lock (_controlConfigurationLock)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             document.SchemaVersion = 8;
             document.UpdatedAtUtc = DateTimeOffset.UtcNow;
             string json = JsonSerializer.Serialize(document, ControlJsonOptions);
-            DurableFileStore.WriteAllText(path, json, keepBackup: true);
+            StateStorage.WriteAllText(path, json, keepBackup: true);
             _controlConfigurationCachePath = path;
             _controlConfigurationCache = document;
             Volatile.Write(
@@ -1062,22 +1073,32 @@ public partial class MainWindow
         });
     }
 
-    private List<ControlTarget> GetControlTargets()
+    private List<ControlTarget> GetControlTargets(string? userId = null)
     {
         var targets = new List<ControlTarget>();
         try
         {
-            List<GameModel> games = LoadGames();
-            targets.AddRange(LoadMediaApps()
+            string owner = string.IsNullOrWhiteSpace(userId) ? currentUserId : userId;
+            string gamesPath = Path.Combine(dataFolder, "users", owner, "games.json");
+            List<GameModel> games = string.IsNullOrWhiteSpace(userId)
+                ? LoadGames()
+                : ReadControlTargetCollection<GameModel>(gamesPath);
+            List<MediaAppModel> media = string.IsNullOrWhiteSpace(userId)
+                ? LoadMediaAppsForUser(owner)
+                : ReadControlTargetCollection<MediaAppModel>(Path.Combine(dataFolder, "users", owner, "media.json"));
+            targets.AddRange(media
                 .Where(app => !IsMediaAppAlsoRegisteredAsGame(app, games))
                 .Select(CreateControlTarget)
                 .Where(target => !string.IsNullOrWhiteSpace(target.Id)));
         }
-        catch { }
+        catch when (string.IsNullOrWhiteSpace(userId)) { }
 
         try
         {
-            targets.AddRange(LoadStoreLaunchers()
+            List<MediaAppModel> stores = string.IsNullOrWhiteSpace(userId)
+                ? LoadStoreLaunchers()
+                : ReadControlTargetCollection<MediaAppModel>(Path.Combine(dataFolder, "users", userId, "stores.json"));
+            targets.AddRange(stores
                 .Select(store => new ControlTarget
                 {
                     Kind = "store",
@@ -1092,7 +1113,7 @@ public partial class MainWindow
                 })
                 .Where(target => !string.IsNullOrWhiteSpace(target.Id)));
         }
-        catch { }
+        catch when (string.IsNullOrWhiteSpace(userId)) { }
 
         return targets
             .GroupBy(target => ControlTarget.MakeKey(target.Kind, target.Id), StringComparer.OrdinalIgnoreCase)
@@ -1100,6 +1121,13 @@ public partial class MainWindow
             .OrderBy(target => target.Category == "web" ? 0 : target.Category == "executable" ? 1 : 2)
             .ThenBy(target => target.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    private static List<T> ReadControlTargetCollection<T>(string path)
+    {
+        if (!StateStorage.Exists(path)) return new();
+        return JsonSerializer.Deserialize<List<T>>(StateStorage.ReadAllText(path))
+            ?? throw new InvalidDataException("Coleção de alvos de controle inválida: " + Path.GetFileName(path));
     }
 
     private static bool IsMediaAppAlsoRegisteredAsGame(
@@ -1420,11 +1448,11 @@ public partial class MainWindow
                      !string.Equals(user.Id, currentUserId, StringComparison.OrdinalIgnoreCase)))
         {
             string path = Path.Combine(dataFolder, "users", user.Id, "controls.json");
-            if (!File.Exists(path)) continue;
+            if (!StateStorage.Exists(path)) continue;
             try
             {
                 ControlConfigurationDocument? document = JsonSerializer.Deserialize<ControlConfigurationDocument>(
-                    File.ReadAllText(path),
+                    StateStorage.ReadAllText(path),
                     ControlJsonOptions);
                 foreach (ControlProfile profile in document?.Profiles ?? new List<ControlProfile>())
                 {
@@ -1738,7 +1766,7 @@ public partial class MainWindow
             return false;
         // The trailer picker is a modal selection flow, not an active app. User
         // and global runtime bindings must not execute behind that dialog.
-        if (IsTrailerBrowserCaptureActive)
+        if (IsTrailerBrowserCaptureActive || BrowserPermissionDialog.InputCaptured)
         {
             ReleaseConfiguredControlOutputs();
             return false;
@@ -1959,6 +1987,21 @@ public partial class MainWindow
             targetKey,
             virtualKeyboardOpen,
             profiles);
+        if (_controlRoutesNeedNeutral)
+        {
+            for (int slot = 0; slot < XInputControllerHub.SlotCount; slot++)
+            {
+                foreach (ControlBindingRoute route in routes)
+                {
+                    bool active = (snapshot.ConnectedMask & (1 << slot)) != 0 &&
+                        IsControlChordActive(snapshot.Slots[slot], route.ControllerButtons, route.Profile.MouseDeadZone);
+                    if (!active) continue;
+                    _controlBindingRuntime[new BindingRuntimeKey(currentUserId, route.Profile.Id, route.Binding.Id, route.RouteId, slot)] =
+                        new BindingRuntimeState { Active = true, Suppressed = true, LongPressFired = true };
+                }
+            }
+            _controlRoutesNeedNeutral = false;
+        }
 
         bool continuousAnalogActive = false;
         double configuredCloseHoldProgress = 0;
@@ -2007,6 +2050,18 @@ public partial class MainWindow
                     continue;
                 }
 
+                if (runtime.Suppressed)
+                {
+                    runtime.Active = active;
+                    if (!active)
+                    {
+                        runtime.Suppressed = false;
+                        runtime.LongPressFired = false;
+                        runtime.PressedAt = 0;
+                    }
+                    continue;
+                }
+
                 bool continuousAnalogAction = route.ControllerButtons.Any(IsAnalogControlInput) &&
                                               binding.Action.Type is "pointer" or "wheel";
                 if (continuousAnalogAction)
@@ -2032,6 +2087,7 @@ public partial class MainWindow
                 {
                     runtime.PressedAt = now;
                     runtime.LongPressFired = false;
+                    SuppressSubsetBindings(routes, route, slot);
                 }
 
                 if (pressed && route.Trigger == "hold")
@@ -2068,7 +2124,6 @@ public partial class MainWindow
                 else if (pressed && route.Trigger == "press")
                 {
                     TapConfiguredControlAction(binding.Action);
-                    SuppressSubsetBindings(routes, route, slot);
                 }
                 else if (released && route.Trigger == "release" && !runtime.Suppressed)
                 {
@@ -2180,6 +2235,12 @@ public partial class MainWindow
             return _controlRuntimeRoutes;
         }
 
+        if (_controlRuntimeRoutesSource != null)
+        {
+            ReleaseConfiguredControlOutputsCore();
+            _controlRoutesNeedNeutral = true;
+        }
+
         ControlProfile? appProfile = virtualKeyboardOpen
             ? null
             : GetAssignedRuntimeControlProfile(targetKey);
@@ -2263,6 +2324,15 @@ public partial class MainWindow
                 _controlBindingRuntime[stateKey] = runtime;
             }
             runtime.Suppressed = true;
+            if (runtime.OutputHeld)
+            {
+                runtime.OutputHeld = false;
+                bool stillHeld = _controlBindingRuntime.Any(entry => entry.Key != stateKey &&
+                    string.Equals(entry.Key.UserId, currentUserId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(entry.Key.ProfileId, route.Profile.Id, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(entry.Key.BindingId, route.Binding.Id, StringComparison.OrdinalIgnoreCase) && entry.Value.OutputHeld);
+                if (!stillHeld) EndConfiguredControlAction(route.Binding.Action);
+            }
         }
     }
 
@@ -2563,14 +2633,13 @@ public partial class MainWindow
     {
         if (action.Type == "keyboard")
         {
-            foreach (ushort key in action.VirtualKeys)
-                SendConfiguredKeyEvent(key, keyUp: false);
+            ConfiguredOutputs.Begin(action);
             return;
         }
 
         if (action.Type == "mouse")
         {
-            SendConfiguredMouseButton(action.MouseButton, keyUp: false);
+            ConfiguredOutputs.Begin(action);
             return;
         }
 
@@ -2598,15 +2667,7 @@ public partial class MainWindow
 
     private void EndConfiguredControlAction(ControlAction action)
     {
-        if (action.Type == "keyboard")
-        {
-            for (int index = action.VirtualKeys.Count - 1; index >= 0; index--)
-                SendConfiguredKeyEvent(action.VirtualKeys[index], keyUp: true);
-            return;
-        }
-
-        if (action.Type == "mouse")
-            SendConfiguredMouseButton(action.MouseButton, keyUp: true);
+        ConfiguredOutputs.End(action);
     }
 
     private void SendConfiguredKeyEvent(ushort key, bool keyUp)
@@ -2671,23 +2732,7 @@ public partial class MainWindow
 
     private void ReleaseConfiguredControlOutputsCore()
     {
-        ControlProfile[] profiles = Volatile.Read(ref _controlRuntimeProfiles);
-        if (profiles.Length > 0)
-        {
-            foreach (ControlProfile profile in profiles)
-            {
-                foreach (ControlBinding binding in profile.Bindings)
-                {
-                    if (_controlBindingRuntime.Any(entry =>
-                            string.Equals(entry.Key.ProfileId, profile.Id, StringComparison.OrdinalIgnoreCase) &&
-                            string.Equals(entry.Key.BindingId, binding.Id, StringComparison.OrdinalIgnoreCase) &&
-                            entry.Value.OutputHeld))
-                    {
-                        EndConfiguredControlAction(binding.Action);
-                    }
-                }
-            }
-        }
+        _configuredOutputs?.ReleaseAll();
         _controlBindingRuntime.Clear();
         if (_configuredCloseHoldOverlayVisible)
         {
@@ -2698,9 +2743,17 @@ public partial class MainWindow
     }
 
     private (List<CloudControlProfileV1> Profiles, List<CloudControlAssignmentV1> Assignments)
-        GetCloudControlConfigurationSnapshot()
+        GetCloudControlConfigurationSnapshot(string? userId = null)
     {
-        ControlConfigurationDocument document = LoadControlConfiguration();
+        ControlConfigurationDocument document = string.IsNullOrWhiteSpace(userId)
+            ? LoadControlConfiguration()
+            : LoadControlConfigurationForUser(userId);
+        return GetCloudControlConfigurationSnapshot(document);
+    }
+
+    private static (List<CloudControlProfileV1> Profiles, List<CloudControlAssignmentV1> Assignments)
+        GetCloudControlConfigurationSnapshot(ControlConfigurationDocument document)
+    {
         List<CloudControlProfileV1> profiles = document.Profiles
             .Where(profile => !profile.Id.StartsWith("builtin-", StringComparison.OrdinalIgnoreCase))
             .Select(ToCloudControlProfile)
@@ -2822,18 +2875,47 @@ public partial class MainWindow
         return result;
     }
 
-    private void ApplyCloudControlConfiguration(CloudProfileV1 cloud)
+    private ControlConfigurationDocument LoadControlConfigurationForUser(string userId)
     {
+        string path = Path.Combine(dataFolder, "users", GoogleOAuthClient.SafeProfileId(userId), "controls.json");
+        if (!StateStorage.Exists(path)) return CreateDefaultControlConfiguration();
+        if (!TryDeserializeJsonFile(path, ControlJsonOptions, out ControlConfigurationDocument? document) &&
+            !TryDeserializeJsonFile(path + ".bak", ControlJsonOptions, out document))
+            throw new InvalidDataException("Não foi possível ler a configuração de controles do perfil.");
+        document!.Profiles ??= new();
+        document.Assignments ??= new();
+        if (document.SchemaVersion > 8)
+            throw new InvalidDataException("A configuração de controles requer uma versão mais recente do Doorpi.");
+        foreach (ControlProfile profile in document.Profiles) NormalizeControlProfile(profile);
+        foreach (ControlProfileAssignment assignment in document.Assignments) NormalizeControlAssignment(assignment);
+        return document;
+    }
+
+    private void PublishControlConfigurationForUser(string userId, ControlConfigurationDocument document)
+    {
+        string path = Path.Combine(dataFolder, "users", GoogleOAuthClient.SafeProfileId(userId), "controls.json");
+        lock (_controlConfigurationLock)
+        {
+            if (!string.Equals(path, ControlConfigurationPath, StringComparison.OrdinalIgnoreCase)) return;
+            _controlConfigurationCachePath = path;
+            _controlConfigurationCache = document;
+            Volatile.Write(ref _controlRuntimeProfiles, GetRuntimeControlProfiles(document));
+            Volatile.Write(ref _controlRuntimeAssignments, document.Assignments.Select(CloneControlAssignment).ToArray());
+            UpdateSystemShortcutCompatibility(document);
+        }
+    }
+
+    private ControlConfigurationDocument BuildCloudControlConfiguration(CloudProfileV1 cloud, string userId)
+    {
+        ControlConfigurationDocument document = LoadControlConfigurationForUser(userId);
         if ((cloud.ControlProfiles?.Count ?? 0) == 0 &&
             (cloud.ControlAssignments?.Count ?? 0) == 0)
         {
-            return;
+            return document;
         }
 
-        ReleaseConfiguredControlOutputs();
         lock (_controlConfigurationLock)
         {
-            ControlConfigurationDocument document = LoadControlConfiguration();
             foreach (CloudControlProfileV1 cloudProfile in cloud.ControlProfiles ?? new List<CloudControlProfileV1>())
             {
                 if (string.IsNullOrWhiteSpace(cloudProfile.Id) ||
@@ -2843,7 +2925,7 @@ public partial class MainWindow
                 }
                 ControlProfile incoming = FromCloudControlProfile(cloudProfile);
                 bool incomingGlobal = IsGlobalControlProfile(incoming);
-                incoming.OwnerUserId = incomingGlobal ? "" : currentUserId;
+                incoming.OwnerUserId = incomingGlobal ? "" : userId;
                 if (!incomingGlobal)
                     RemoveCopiedGlobalBindings(incoming);
                 int index = document.Profiles.FindIndex(profile =>
@@ -2852,7 +2934,7 @@ public partial class MainWindow
                 else if (incoming.UpdatedAtUtc >= document.Profiles[index].UpdatedAtUtc) document.Profiles[index] = incoming;
             }
 
-            List<ControlTarget> targets = GetControlTargets();
+            List<ControlTarget> targets = GetControlTargets(userId);
             foreach (CloudControlAssignmentV1 hint in cloud.ControlAssignments ?? new List<CloudControlAssignmentV1>())
             {
                 if (!document.Profiles.Any(profile =>
@@ -2875,11 +2957,23 @@ public partial class MainWindow
                         File.Exists(candidate.ExecutablePath) &&
                         string.Equals(NormalizeExecutablePath(candidate.ExecutablePath), cloudPath, StringComparison.OrdinalIgnoreCase));
                 }
+                else if (!string.IsNullOrWhiteSpace(hint.TargetFingerprint))
+                {
+                    target = targets.FirstOrDefault(candidate => string.Equals(
+                        candidate.Fingerprint, hint.TargetFingerprint, StringComparison.OrdinalIgnoreCase));
+                }
 
                 if (target != null)
+                {
                     UpsertControlAssignment(document, target, hint.ProfileId);
+                    ControlProfileAssignment assignment = document.Assignments.First(item =>
+                        string.Equals(item.TargetKey, ControlTarget.MakeKey(target.Kind, target.Id), StringComparison.OrdinalIgnoreCase));
+                    assignment.UpdatedAtUtc = hint.UpdatedAtUtc;
+                }
             }
-            SaveControlConfiguration(document, scheduleSync: false);
+            document.SchemaVersion = 8;
+            document.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            return document;
         }
     }
 }

@@ -1706,10 +1706,14 @@ namespace Doorpi
             {
                 if (_genericBrowserEnvironment == null || string.IsNullOrWhiteSpace(_activeMediaWebViewProfileName))
                     throw new InvalidOperationException("O perfil ativo do Doorpi Browser não está disponível.");
+                var permissionContext = CloneWebPermissionContext(_ytWebView?.CoreWebView2, _webAppWindow ?? this);
                 await EnsureWebViewWithProfileAsync(
                     popupView,
                     _genericBrowserEnvironment,
                     _activeMediaWebViewProfileName);
+
+                await ConfigureWebPermissionsAsync(popupView.CoreWebView2,
+                    permissionContext);
 
                 ApplyProductionWebViewSettings(popupView.CoreWebView2, allowDefaultContextMenus: true);
                 popupView.CoreWebView2.NavigationCompleted += OnGenericBrowserExtensionPopupNavigationCompleted;
@@ -2132,10 +2136,14 @@ namespace Doorpi
             {
                 if (_genericBrowserEnvironment == null || string.IsNullOrWhiteSpace(_activeMediaWebViewProfileName))
                     throw new InvalidOperationException("O perfil ativo do Doorpi Browser não está disponível.");
+                var permissionContext = CloneWebPermissionContext(_ytWebView?.CoreWebView2, _webAppWindow ?? this);
                 await EnsureWebViewWithProfileAsync(
                     popupView,
                     _genericBrowserEnvironment,
                     _activeMediaWebViewProfileName);
+
+                await ConfigureWebPermissionsAsync(popupView.CoreWebView2,
+                    permissionContext);
 
                 ApplyProductionWebViewSettings(popupView.CoreWebView2, allowDefaultContextMenus: true);
                 popupView.CoreWebView2.Navigate(popupUrl);
@@ -3046,6 +3054,7 @@ namespace Doorpi
                     var input = GetUnifiedControllerInput();
                     ushort btn = input.Buttons;
                     buttonTracker.Update(input.Source ?? XInputControllerHub.Read());
+                    if (BrowserPermissionDialog.InputCaptured) { Thread.Sleep(16); continue; }
                     bool trailerBrowserCaptureActive = IsTrailerBrowserCaptureActive;
                     if (!trailerBrowserCaptureActive &&
                         (buttonTracker.TaskSwitcherShortcutJustPressed ||
@@ -3714,63 +3723,6 @@ namespace Doorpi
         }
 
         // ── Abrir app de mídia ────────────────────────────────────────────────
-
-        private string BuildWebViewAdditionalArguments(string renderModeEnvironmentVariable, string defaultRenderMode, string extraArgsEnvironmentVariable = "")
-        {
-            var args = new List<string> { "--autoplay-policy=no-user-gesture-required" };
-            string requestedMode = (Environment.GetEnvironmentVariable(renderModeEnvironmentVariable) ?? "").Trim().ToLowerInvariant();
-            string mode = string.IsNullOrWhiteSpace(requestedMode) ? defaultRenderMode : requestedMode;
-
-            switch (mode)
-            {
-                case "default":
-                case "hardware":
-                case "gpu":
-                case "auto":
-                    break;
-
-                case "disable-gpu":
-                case "nogpu":
-                    args.Add("--disable-gpu");
-                    args.Add("--disable-gpu-compositing");
-                    break;
-
-                case "disable-direct-composition":
-                case "nodcomp":
-                    args.Add("--disable-direct-composition");
-                    break;
-
-                case "warp":
-                    args.Add("--use-angle=warp");
-                    break;
-
-                case "software-video":
-                    args.Add("--disable-accelerated-video-decode");
-                    args.Add("--disable-gpu-memory-buffer-video-frames");
-                    break;
-
-                case "safe":
-                    args.Add("--disable-gpu");
-                    args.Add("--disable-gpu-compositing");
-                    args.Add("--disable-direct-composition");
-                    args.Add("--disable-accelerated-video-decode");
-                    args.Add("--disable-gpu-memory-buffer-video-frames");
-                    break;
-            }
-
-            string extraArgs = (Environment.GetEnvironmentVariable("DOORPI_WEBVIEW_EXTRA_ARGS") ?? "").Trim();
-            if (!string.IsNullOrWhiteSpace(extraArgs))
-                args.Add(extraArgs);
-
-            if (!string.IsNullOrWhiteSpace(extraArgsEnvironmentVariable))
-            {
-                string contextExtraArgs = (Environment.GetEnvironmentVariable(extraArgsEnvironmentVariable) ?? "").Trim();
-                if (!string.IsNullOrWhiteSpace(contextExtraArgs))
-                    args.Add(contextExtraArgs);
-            }
-
-            return string.Join(" ", args.Where(arg => !string.IsNullOrWhiteSpace(arg)));
-        }
 
         private async Task TrySuspendDoorpiHomeWebViewAsync()
         {
@@ -4502,6 +4454,7 @@ namespace Doorpi
 
                 var mainView = _ytWebView ?? throw new InvalidOperationException("A WebView principal foi encerrada.");
                 var env = _activeMediaWebViewEnvironment ?? mainView.CoreWebView2.Environment;
+                var permissionContext = CloneWebPermissionContext(sender as CoreWebView2 ?? mainView.CoreWebView2, _popupWindow);
                 await EnsureWebViewWithProfileAsync(
                     _popupWebView,
                     env,
@@ -4519,7 +4472,8 @@ namespace Doorpi
                 catch { }
                 _popupWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_popupWebView.CoreWebView2);
                 ApplyProductionWebViewSettings(_popupWebView.CoreWebView2, allowDefaultContextMenus: true);
-                _popupWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
+                await ConfigureWebPermissionsAsync(_popupWebView.CoreWebView2,
+                    permissionContext);
 
 
                 _popupWebView.CoreWebView2.DocumentTitleChanged += (s, _) =>
@@ -7296,6 +7250,8 @@ namespace Doorpi
             }
 
             MediaWebViewProfileIdentity profile = ResolveMediaWebViewProfile(url, isYouTube);
+            var permissionView = _ytWebView;
+            var permissionContext = CreateMediaPermissionContext(profile, appName, isGenericBrowser, isUtility || isTrailerCapture);
             RegisterMediaWebViewProfile(profile);
             _activeMediaWebViewProfileName = profile.ProfileName;
 
@@ -7305,7 +7261,9 @@ namespace Doorpi
             _activeMediaWebViewEnvironment = env;
             if (isGenericBrowser)
                 _genericBrowserEnvironment = env;
-            await EnsureWebViewWithProfileAsync(_ytWebView, env, profile.ProfileName);
+            await EnsureWebViewWithProfileAsync(permissionView, env, profile.ProfileName);
+            if (currentUserId != permissionContext.UserId || !ReferenceEquals(permissionView, _ytWebView)) return;
+            await ConfigureWebPermissionsAsync(permissionView.CoreWebView2, permissionContext);
             await RestoreRetainedMediaSessionCookiesAsync(
                 _ytWebView.CoreWebView2,
                 profile.ProfileName,
@@ -7321,8 +7279,7 @@ namespace Doorpi
                 string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
                 _ytWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                     "app.local", folderPath, CoreWebView2HostResourceAccessKind.Allow);
-                _ytWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                    "data.local", dataFolder, CoreWebView2HostResourceAccessKind.Allow);
+                AttachStateResourceHost(_ytWebView.CoreWebView2, trustedHome: false);
             }
             catch { }
 
@@ -7365,7 +7322,6 @@ namespace Doorpi
 
             RegisterMediaWebResourceInterception(_ytWebView.CoreWebView2, isYouTube, isUtility);
             _ytWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
-            _ytWebView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
 
             if (!isUtility)
             {

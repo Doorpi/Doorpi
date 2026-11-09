@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DoorpiVersion,
 
-    [string]$UpdaterVersion = "0.1.0",
+    [string]$UpdaterVersion = "0.1.3",
+    [string]$MinUpdaterVersion = "0.1.3",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [bool]$SelfContained = $true,
@@ -13,7 +14,9 @@ param(
     [string]$ReleaseNotesPath = "",
     [switch]$ForceUpdate,
     [switch]$AllowRollback,
-    [switch]$DevUpdatePolicy
+    [switch]$DevUpdatePolicy,
+    [switch]$UpdaterBridge,
+    [string]$BridgeDoorpiPackagePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,18 +25,92 @@ $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $artifacts = Join-Path $root "artifacts"
 $publishRoot = Join-Path $artifacts "publish"
 $releaseRoot = Join-Path $artifacts "release"
+if ($UpdaterBridge) {
+    $publishRoot = Join-Path $artifacts "publish-updater-bridge"
+    $releaseRoot = Join-Path $artifacts "release-updater-bridge"
+    if ($AllowRollback) { throw "O manifesto ponte nao pode autorizar downgrade." }
+    if ([string]::IsNullOrWhiteSpace($BridgeDoorpiPackagePath) -or !(Test-Path -LiteralPath $BridgeDoorpiPackagePath)) {
+        throw "A ponte exige -BridgeDoorpiPackagePath apontando para o ZIP real anterior do Doorpi."
+    }
+    $BridgeDoorpiPackagePath = (Resolve-Path -LiteralPath $BridgeDoorpiPackagePath).Path
+    foreach ($outputRoot in @($publishRoot, $releaseRoot)) {
+        $outputPrefix = [System.IO.Path]::GetFullPath($outputRoot).TrimEnd('\') + '\'
+        if ($BridgeDoorpiPackagePath.StartsWith($outputPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Preserve o ZIP legado fora das pastas de saida que serao reconstruidas."
+        }
+    }
+}
 $doorpiPublish = Join-Path $publishRoot "Doorpi"
 $updaterPublish = Join-Path $publishRoot "Updater"
 
 if ([string]::IsNullOrWhiteSpace($BaseDownloadUrl)) {
-    $BaseDownloadUrl = "https://github.com/Doorpi/Doorpi/releases/download/v$DoorpiVersion"
+    $BaseDownloadUrl = if ($UpdaterBridge) {
+        "https://github.com/Doorpi/Doorpi/releases/download/updater-v$UpdaterVersion"
+    } else { "https://github.com/Doorpi/Doorpi/releases/download/v$DoorpiVersion" }
 }
 
-if ($ManifestVersion -le 0) {
-    $ManifestVersion = [long](Get-Date -Format "yyyyMMddHHmm")
+$manifestVersionWasProvided = $ManifestVersion -gt 0
+if (!$manifestVersionWasProvided) {
+    $ManifestVersion = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+}
+
+foreach ($previousManifestPath in @(
+    (Join-Path $root "manifests\beta.json"),
+    (Join-Path $artifacts "release\manifest-beta.json"),
+    (Join-Path $artifacts "release-updater-bridge\manifest-beta.json")
+)) {
+    if (Test-Path -LiteralPath $previousManifestPath) {
+        $previousManifest = Get-Content -LiteralPath $previousManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($ManifestVersion -le [long]$previousManifest.manifestVersion) {
+            if ($manifestVersionWasProvided) { throw "ManifestVersion deve ser maior que a versao dos manifestos existentes." }
+            $ManifestVersion = [long]$previousManifest.manifestVersion + 1
+        }
+    }
+}
+if ($ExpiresInDays -lt 1 -or $ExpiresInDays -gt 90) {
+    throw "ExpiresInDays deve estar entre 1 e 90."
+}
+
+function Assert-MinimumVersion([string]$value, [string]$minimum, [string]$name) {
+    if ($value -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+        throw "$name invalida. Informe uma versao major.minor.patch."
+    }
+    $numeric = [Version]($value.Split('-')[0].Split('+')[0])
+    $minimumNumeric = [Version]$minimum
+    if ($numeric -lt $minimumNumeric -or ($numeric -eq $minimumNumeric -and $value.Contains('-'))) {
+        throw "$name deve ser $minimum ou superior para este armazenamento."
+    }
+}
+if (!$UpdaterBridge) { Assert-MinimumVersion $DoorpiVersion "0.4.31" "DoorpiVersion" }
+Assert-MinimumVersion $MinUpdaterVersion "0.1.3" "MinUpdaterVersion"
+Assert-MinimumVersion $UpdaterVersion ($MinUpdaterVersion.Split('-')[0].Split('+')[0]) "UpdaterVersion"
+
+if ($UpdaterBridge) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $bridgeArchive = [System.IO.Compression.ZipFile]::OpenRead($BridgeDoorpiPackagePath)
+    try {
+        $entry = $bridgeArchive.GetEntry('package-manifest.json')
+        if ($null -eq $entry) { throw "O ZIP anterior nao contem manifesto de pacote." }
+        $reader = New-Object System.IO.StreamReader($entry.Open())
+        try { $bridgePackage = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+        if ($bridgePackage.component -ne 'doorpi' -or $bridgePackage.version -ne $DoorpiVersion -or
+            $bridgePackage.architecture -ne $Runtime -or $bridgePackage.entryPoint -ne 'Doorpi.exe' -or
+            $null -eq $bridgeArchive.GetEntry('Doorpi.exe')) {
+            throw "O ZIP anterior nao corresponde ao componente, versao ou arquitetura informados."
+        }
+        if ([Version]($DoorpiVersion.Split('-')[0]) -ge [Version]'0.4.31' -or $bridgePackage.storageSchemaVersion -gt 0) {
+            throw "A ponte exige o pacote legado anterior ao cutover SQLite."
+        }
+    }
+    finally { $bridgeArchive.Dispose() }
 }
 
 function Reset-Directory([string]$path) {
+    $resolvedTarget = [System.IO.Path]::GetFullPath($path)
+    $resolvedArtifacts = [System.IO.Path]::GetFullPath($artifacts).TrimEnd('\') + '\'
+    if (!$resolvedTarget.StartsWith($resolvedArtifacts, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Destino de limpeza fora da pasta artifacts."
+    }
     if (Test-Path $path) {
         Remove-Item -LiteralPath $path -Recurse -Force
     }
@@ -52,6 +129,10 @@ function Write-PackageManifest([string]$folder, [string]$component, [string]$ver
         architecture = $Runtime
         entryPoint = $entryPoint
         createdAt = (Get-Date).ToUniversalTime().ToString("O")
+    }
+    if ($component -eq "doorpi") {
+        $manifest["storageSchemaVersion"] = 2
+        $manifest["minUpdaterVersion"] = $MinUpdaterVersion
     }
 
     Write-Utf8NoBom (Join-Path $folder "package-manifest.json") (($manifest | ConvertTo-Json -Depth 5) + "`n")
@@ -197,6 +278,33 @@ function Add-ManifestSignature([object]$manifest, [System.Security.Cryptography.
     }
 }
 
+function Assert-TrustedSigningKey([System.Security.Cryptography.RSA]$rsa) {
+    $publicXml = $rsa.ToXmlString($false)
+    $keyHash = ([System.Security.Cryptography.SHA256]::Create()).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($publicXml))
+    $keyId = ([BitConverter]::ToString($keyHash)).Replace("-", "").Substring(0, 16).ToLowerInvariant()
+    $trustedSource = Get-Content -LiteralPath (Join-Path $root "Doorpi.UpdateCore\TrustedUpdateKeys.cs") -Raw
+    $entries = [regex]::Matches($trustedSource, '\["(?<id>[0-9a-fA-F]+)"\]\s*=\s*"(?<key><RSAKeyValue>[^\"]+</RSAKeyValue>)"')
+    foreach ($entry in $entries) {
+        if ($entry.Groups["id"].Value -eq $keyId -and $entry.Groups["key"].Value -eq $publicXml) { return }
+    }
+    throw "A chave informada nao corresponde a uma chave de producao ja confiavel. Nenhuma confianca foi alterada."
+}
+
+# Fail before deleting old artifacts or publishing if the signing identity is wrong.
+$signingKey = Ensure-SigningKey $ManifestPrivateKeyPath
+Assert-TrustedSigningKey $signingKey
+
+$updateTests = Join-Path $root "Doorpi.UpdateCore.Tests\Doorpi.UpdateCore.Tests.csproj"
+foreach ($testProjectName in @('Doorpi.Persistence.Tests', 'Doorpi.UpdateCore.Tests', 'Doorpi.Storage.Tests', 'Doorpi.Control.Tests', 'Doorpi.ProfileSync.Tests', 'Doorpi.Browser.Tests', 'Doorpi.Boot.Tests')) {
+    $testProject = Join-Path $root "$testProjectName\$testProjectName.csproj"
+    if (!(Test-Path -LiteralPath $testProject)) { throw "Teste obrigatorio de release ausente: $testProjectName." }
+    Invoke-Checked 'dotnet' @('build', $testProject, '-c', 'Release', '-m:1', '-nr:false', '-p:UseSharedCompilation=false')
+    Invoke-Checked 'dotnet' @('run', '--no-build', '--project', $testProject, '-c', 'Release')
+}
+foreach ($frontendCheck in @('Test-FrontendIntegrity.cjs', 'Test-BootIntroLifecycle.cjs', 'Test-WebPermissionSettings.cjs')) {
+    Invoke-Checked 'node' @((Join-Path $root "scripts\$frontendCheck"))
+}
+
 Reset-Directory $publishRoot
 Reset-Directory $releaseRoot
 
@@ -212,7 +320,12 @@ $doorpiPublishArgs = @(
     "-p:Version=$DoorpiVersion",
     "-o", $doorpiPublish
 ) + $devPolicyArgs
-Invoke-Checked "dotnet" $doorpiPublishArgs
+if (!$UpdaterBridge) {
+    Invoke-Checked "dotnet" $doorpiPublishArgs
+    if (!(Get-ChildItem -LiteralPath $doorpiPublish -Recurse -File -Filter "e_sqlite3.dll")) {
+        throw "A publicacao do Doorpi nao contem a biblioteca nativa SQLite exigida."
+    }
+}
 
 $updaterPublishArgs = @(
     "publish", (Join-Path $root "DoorpiUpdater\DoorpiUpdater.csproj"),
@@ -224,13 +337,16 @@ $updaterPublishArgs = @(
     "-o", $updaterPublish
 ) + $devPolicyArgs
 Invoke-Checked "dotnet" $updaterPublishArgs
+if (!(Get-ChildItem -LiteralPath $updaterPublish -Recurse -File -Filter "e_sqlite3.dll")) {
+    throw "A publicacao do atualizador nao contem a biblioteca nativa SQLite exigida."
+}
 
 $publishedData = Join-Path $doorpiPublish "Data"
 if (Test-Path $publishedData) {
     Remove-Item -LiteralPath $publishedData -Recurse -Force
 }
 
-Write-PackageManifest $doorpiPublish "doorpi" $DoorpiVersion "Doorpi.exe"
+if (!$UpdaterBridge) { Write-PackageManifest $doorpiPublish "doorpi" $DoorpiVersion "Doorpi.exe" }
 Write-PackageManifest $updaterPublish "updater" $UpdaterVersion "Updater.exe"
 
 $doorpiPackageName = "doorpi-$DoorpiVersion.doorpiupdate.zip"
@@ -238,7 +354,9 @@ $updaterPackageName = "updater-$UpdaterVersion.doorpiupdate.zip"
 $doorpiPackage = Join-Path $releaseRoot $doorpiPackageName
 $updaterPackage = Join-Path $releaseRoot $updaterPackageName
 
-New-UpdatePackageFromFolder $doorpiPublish $doorpiPackage
+if ($UpdaterBridge) {
+    Copy-Item -LiteralPath $BridgeDoorpiPackagePath -Destination $doorpiPackage
+} else { New-UpdatePackageFromFolder $doorpiPublish $doorpiPackage }
 New-UpdatePackageFromFolder $updaterPublish $updaterPackage
 
 $doorpiHash = (Get-FileHash $doorpiPackage -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -299,7 +417,7 @@ $draftManifest = [ordered]@{
         downloadUrl = "$BaseDownloadUrl/$doorpiPackageName"
         sha256 = $doorpiHash
         sizeBytes = $doorpiSize
-        minUpdaterVersion = $UpdaterVersion
+        minUpdaterVersion = $MinUpdaterVersion
         forceUpdate = [bool]$ForceUpdate
         allowRollback = [bool]$AllowRollback
     }
@@ -321,13 +439,22 @@ $draftManifest = [ordered]@{
     )
 }
 
-$signingKey = Ensure-SigningKey $ManifestPrivateKeyPath
 if ($null -ne $signingKey) {
     Add-ManifestSignature $draftManifest $signingKey
 }
 
 $manifestPath = Join-Path $releaseRoot "manifest-beta.json"
 Write-Utf8NoBom $manifestPath (($draftManifest | ConvertTo-Json -Depth 10) + "`n")
+try {
+    $validationArgs = @("run", "--no-build", "--project", $updateTests, "-c", "Release", "--", "--validate-manifest", $manifestPath, $releaseRoot)
+    if ($UpdaterBridge) { $validationArgs += '--updater-bridge' }
+    Invoke-Checked "dotnet" $validationArgs
+}
+catch {
+    Remove-Item -LiteralPath $manifestPath -Force
+    throw
+}
+$signingKey.Dispose()
 
 Write-Host ""
 Write-Host "Release gerado em: $releaseRoot"

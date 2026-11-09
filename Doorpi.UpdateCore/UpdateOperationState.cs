@@ -28,6 +28,24 @@ public sealed class UpdateOperationState
     [JsonPropertyName("backupFolder")]
     public string BackupFolder { get; set; } = "";
 
+    [JsonPropertyName("binaryApplyStarted")]
+    public bool BinaryApplyStarted { get; set; }
+
+    [JsonPropertyName("storageMigrationStarted")]
+    public bool StorageMigrationStarted { get; set; }
+
+    [JsonPropertyName("storageMigrationCompleted")]
+    public bool StorageMigrationCompleted { get; set; }
+
+    [JsonPropertyName("storageBackupDirectory")]
+    public string StorageBackupDirectory { get; set; } = "";
+
+    [JsonPropertyName("storageHadDatabase")]
+    public bool StorageHadDatabase { get; set; }
+
+    [JsonPropertyName("storageSchemaVersion")]
+    public int StorageSchemaVersion { get; set; }
+
     [JsonPropertyName("healthSignalPath")]
     public string HealthSignalPath { get; set; } = "";
 

@@ -1,0 +1,26 @@
+.web-permission-description {
+    max-width: 70ch;
+    color: rgba(255, 255, 255, .7);
+    line-height: 1.6;
+    margin: 0 0 24px;
+}
+.web-permission-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 22px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .035);
+}
+.web-permission-row > div { min-width: 0; }
+.web-permission-row h3 { margin: 0 0 8px; }
+.web-permission-row p { margin: 5px 0; overflow-wrap: anywhere; color: rgba(255, 255, 255, .7); }
+.web-permission-revoke { white-space: normal; }
+.web-permission-revoke.nav-focused-el, .web-permission-revoke:focus-visible {
+    outline: 2px solid #a9ccff;
+    outline-offset: 4px;
+}

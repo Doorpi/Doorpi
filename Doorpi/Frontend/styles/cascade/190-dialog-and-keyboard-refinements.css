@@ -1,0 +1,147 @@
+/* Refinement pass: lower glare, distinct focus, integrated VKB. */
+#addGameContainer {
+    background:
+        radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.12), transparent 44%),
+        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.075), transparent 48%),
+        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.82)) !important;
+}
+
+.modal-layout {
+    background:
+        radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.10), transparent 42%),
+        linear-gradient(112deg, rgba(34,38,58,0.90), rgba(18,22,38,0.84) 58%, rgba(14,17,30,0.88)) !important;
+}
+
+.add-card .plus,
+.add-card .plus.is-gamepad {
+    font-size: clamp(34px, 2.6vw, 52px);
+    font-weight: 180;
+    color: rgba(255,255,255,0.34);
+    line-height: 1;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+.add-card:focus .plus,
+.add-card:hover .plus,
+.add-card.nav-focused-el .plus {
+    color: rgba(255,255,255,0.86);
+    transform: none;
+}
+
+.menu-tab.active,
+.subtab.active,
+.modal-btn.primary {
+    --doorpi-selected-rail: rgba(255,255,255,0.62);
+}
+
+.menu-tab.active:not(:focus):not(:hover):not(.nav-focused-el) {
+    background: linear-gradient(90deg, rgba(255,255,255,0.105), rgba(255,255,255,0.026) 82%);
+    border-left-color: var(--doorpi-selected-rail);
+    box-shadow: none;
+}
+
+.menu-tab:focus,
+.menu-tab:hover,
+.menu-tab.nav-focused-el {
+    background: rgba(255,255,255,0.135) !important;
+    border-left-color: rgba(255,255,255,0.96) !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.16), 0 12px 28px rgba(0,0,0,0.18);
+}
+
+.subtab.active:not(:focus):not(:hover):not(.nav-focused-el) {
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.52);
+}
+
+.subtab:focus,
+.subtab:hover,
+.subtab.nav-focused-el {
+    background: rgba(255,255,255,0.095) !important;
+    box-shadow: inset 0 -3px 0 rgba(255,255,255,0.96), 0 10px 24px rgba(0,0,0,0.16) !important;
+}
+
+.modal-btn.primary:not(:focus):not(:hover):not(.nav-focused-el) {
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.50) !important;
+}
+
+.modal-btn:focus,
+.modal-btn:hover,
+.modal-btn.nav-focused-el {
+    background: rgba(255,255,255,0.105) !important;
+    box-shadow: inset 0 -3px 0 rgba(255,255,255,0.98), 0 14px 30px rgba(0,0,0,0.22) !important;
+}
+
+.modal-tab-hint {
+    color: rgba(255,255,255,0.44);
+}
+
+.shoulder-key {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.76);
+}
+
+.vkb-overlay {
+    background:
+        radial-gradient(ellipse at 78% 0%, rgba(112,146,235,0.10), transparent 42%),
+        linear-gradient(135deg, rgba(36,40,60,0.96), rgba(17,20,34,0.94)) !important;
+    border-color: rgba(255,255,255,0.17) !important;
+    box-shadow: 0 18px 42px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.10) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+.vkb-preview-text {
+    background: rgba(255,255,255,0.09) !important;
+    border-color: rgba(255,255,255,0.17) !important;
+}
+
+.vkb-key {
+    background: rgba(255,255,255,0.095) !important;
+    border-color: rgba(255,255,255,0.15) !important;
+    color: rgba(255,255,255,0.88) !important;
+}
+
+.vkb-key:hover,
+.vkb-key:focus {
+    background: rgba(255,255,255,0.88) !important;
+    color: #080a14 !important;
+    border-color: rgba(255,255,255,0.94) !important;
+    box-shadow: none !important;
+    outline: 2px solid rgba(255,255,255,0.72) !important;
+    outline-offset: 1px;
+}
+
+.vkb-key[data-key="ENTER"],
+.vkb-key[data-key="ok"] {
+    background: rgba(255,255,255,0.14) !important;
+    border-color: rgba(255,255,255,0.22) !important;
+    color: rgba(255,255,255,0.94) !important;
+}
+
+.vkb-key[data-key="ENTER"]:focus,
+.vkb-key[data-key="ok"]:focus {
+    background: rgba(255,255,255,0.92) !important;
+    color: #080a14 !important;
+    box-shadow: none !important;
+    outline-color: rgba(255,255,255,0.82) !important;
+}
+
+.nav-vertical-card.active,
+.nav-vertical-card.selected,
+.nav-vertical-card.is-active {
+    background: rgba(255,255,255,0.075) !important;
+    border-color: rgba(255,255,255,0.22) !important;
+    box-shadow: inset 3px 0 0 rgba(255,255,255,0.55) !important;
+}
+
+.nav-vertical-card:focus,
+.nav-vertical-card:hover,
+.nav-vertical-card.nav-focused-el {
+    background: rgba(255,255,255,0.14) !important;
+    border-color: rgba(255,255,255,0.82) !important;
+    box-shadow: inset 3px 0 0 rgba(255,255,255,0.95), 0 14px 34px rgba(0,0,0,0.24) !important;
+    transform: translateX(4px) !important;
+}
+

@@ -1,0 +1,24 @@
+
+            /* 1. Elimina as bordas nativas do navegador em imagens vazias/carregando */
+            img { 
+                border: none !important; 
+                outline: none !important; 
+                color: transparent !important; 
+                -webkit-user-drag: none; 
+            }
+            img:not([src]), img[src=""] { 
+                visibility: hidden !important; 
+            }
+
+            /* 2. Joga a tela de Loading para a GPU (Placa de vídeo) SEM quebrar os giros */
+            #systemLoadingOverlay, 
+            #globalLoadingOverlay {
+                will-change: opacity;
+            }
+        
+            /* Apenas avisa o navegador para processar o giro separadamente, sem travar o eixo */
+            .vb-ring, 
+            .vb-ring-wrap {
+                will-change: transform;
+            }
+        

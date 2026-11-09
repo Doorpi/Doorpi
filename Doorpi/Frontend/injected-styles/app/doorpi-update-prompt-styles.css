@@ -1,0 +1,236 @@
+
+                .doorpi-update-badge {
+                    position: fixed;
+                    top: clamp(82px, 9.6vh, 112px);
+                    left: clamp(96px, 8.2vw, 150px);
+                    z-index: 8001;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 9px;
+                    height: 34px;
+                    padding: 0 14px;
+                    border: 1px solid rgba(255,255,255,0.18);
+                    border-radius: 999px;
+                    background: rgba(12, 22, 38, 0.72);
+                    color: rgba(255,255,255,0.88);
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.04em;
+                    text-transform: uppercase;
+                    box-shadow: 0 14px 35px rgba(0,0,0,0.28);
+                    backdrop-filter: blur(16px);
+                    cursor: pointer;
+                    opacity: 0;
+                    transform: translateY(-8px);
+                    pointer-events: none;
+                    transition: opacity .25s ease, transform .25s ease, border-color .2s ease;
+                }
+                .doorpi-update-badge.is-visible {
+                    opacity: 1;
+                    transform: translateY(0);
+                    pointer-events: auto;
+                }
+                body.nav-menu-active .doorpi-update-badge,
+                body.nav-menu-closing .doorpi-update-badge {
+                    opacity: 0 !important;
+                    transform: translateY(-8px) !important;
+                    pointer-events: none !important;
+                }
+                .doorpi-update-badge:focus,
+                .doorpi-update-badge:hover {
+                    border-color: rgba(255,255,255,0.65);
+                    outline: none;
+                }
+                .doorpi-update-badge-dot {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    background: #58d9ff;
+                    box-shadow: 0 0 16px rgba(88,217,255,0.95);
+                }
+                .doorpi-update-badge.is-force .doorpi-update-badge-dot {
+                    background: #ff6d6d;
+                    box-shadow: 0 0 16px rgba(255,109,109,0.95);
+                }
+                .doorpi-update-prompt {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 30000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 42px;
+                    background:
+                        radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0.18), transparent 46%),
+                        rgba(1, 5, 15, 0.68);
+                    opacity: 0;
+                    pointer-events: none;
+                    transition: opacity .22s ease;
+                }
+                .doorpi-update-prompt.is-visible {
+                    opacity: 1;
+                    pointer-events: auto;
+                }
+                .doorpi-update-shell {
+                    position: relative;
+                    width: min(760px, 92vw);
+                    overflow: hidden;
+                    padding: 30px 36px 28px;
+                    border: 1px solid rgba(255,255,255,0.14);
+                    border-radius: 8px;
+                    background:
+                        linear-gradient(90deg, rgba(255,255,255,0.16), rgba(255,255,255,0.04) 42%, transparent 78%) 0 0 / 100% 2px no-repeat,
+                        linear-gradient(180deg, rgba(24,27,36,0.94), rgba(11,13,20,0.94));
+                    box-shadow: 0 34px 86px rgba(0,0,0,0.66), inset 0 1px 0 rgba(255,255,255,0.08);
+                    color: rgba(255,255,255,0.94);
+                    transform: translateY(14px) scale(.99);
+                    transition: transform .22s ease;
+                }
+                .doorpi-update-shell::before {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    background:
+                        linear-gradient(90deg, rgba(255,255,255,0.035), transparent 22%, transparent 82%, rgba(255,255,255,0.025)),
+                        radial-gradient(ellipse at 86% -18%, rgba(255,255,255,0.055), transparent 36%);
+                    pointer-events: none;
+                }
+                .doorpi-update-shell::after {
+                    content: '';
+                    position: absolute;
+                    left: 0;
+                    top: 32px;
+                    bottom: 32px;
+                    width: 3px;
+                    border-radius: 0 4px 4px 0;
+                    background: linear-gradient(180deg, transparent, rgba(255,255,255,0.18), transparent);
+                    pointer-events: none;
+                }
+                .doorpi-update-prompt.is-visible .doorpi-update-shell {
+                    transform: translateY(0) scale(1);
+                }
+                .doorpi-update-prompt.is-force .doorpi-update-shell {
+                    border-color: rgba(255,255,255,0.18);
+                    background:
+                        linear-gradient(90deg, rgba(255,110,110,0.42), rgba(255,255,255,0.04) 44%, transparent 78%) 0 0 / 100% 2px no-repeat,
+                        linear-gradient(180deg, rgba(25,27,36,0.95), rgba(11,13,20,0.95));
+                }
+                .doorpi-update-header {
+                    position: relative;
+                    display: flex;
+                    align-items: flex-start;
+                    justify-content: space-between;
+                    gap: 22px;
+                }
+                .doorpi-update-kicker {
+                    position: relative;
+                    display: block;
+                    margin: 0 0 12px;
+                    color: rgba(255,255,255,0.50);
+                    font-size: 12px;
+                    font-weight: 800;
+                    letter-spacing: 0.14em;
+                    text-transform: uppercase;
+                }
+                .doorpi-update-shell h2 {
+                    position: relative;
+                    margin: 0;
+                    font-size: clamp(30px, 2.8vw, 42px);
+                    line-height: 1.08;
+                    font-weight: 760;
+                    letter-spacing: 0;
+                }
+                .doorpi-update-subtitle {
+                    position: relative;
+                    margin: 18px 0 0;
+                    max-width: 620px;
+                    color: rgba(255,255,255,0.62);
+                    font-size: 15px;
+                    line-height: 1.42;
+                }
+                .doorpi-update-version-row {
+                    position: relative;
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    margin: 18px 0 0;
+                }
+                .doorpi-update-version-row span {
+                    padding: 7px 10px;
+                    border-radius: 6px;
+                    border: 1px solid rgba(255,255,255,0.13);
+                    background: rgba(255,255,255,0.07);
+                    color: rgba(255,255,255,0.74);
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+                .doorpi-update-warning {
+                    position: relative;
+                    margin: 20px 0 0;
+                    padding-top: 13px;
+                    border-top: 1px solid rgba(255,255,255,0.09);
+                    color: rgba(255,255,255,0.52);
+                    font-size: 12px;
+                }
+                .doorpi-update-actions {
+                    position: relative;
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 14px;
+                    margin-top: 24px;
+                }
+                .doorpi-update-actions button {
+                    min-width: 190px;
+                    height: 42px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.16);
+                    color: #fff;
+                    font-size: 15px;
+                    font-weight: 800;
+                    cursor: pointer;
+                    outline: none;
+                    transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+                }
+                .doorpi-update-primary {
+                    background: rgba(255,255,255,0.90);
+                    color: #080c16;
+                    box-shadow: 0 12px 28px rgba(0,0,0,0.28);
+                }
+                .doorpi-update-secondary {
+                    background: rgba(255,255,255,0.075);
+                }
+                .doorpi-update-actions button:focus,
+                .doorpi-update-actions button.nav-focused-el,
+                .doorpi-update-actions button:hover {
+                    transform: translateY(-1px) scale(1.015);
+                    border-color: rgba(70,155,255,0.96);
+                    box-shadow:
+                        0 0 0 3px rgba(70,155,255,0.32),
+                        0 0 0 7px rgba(70,155,255,0.10),
+                        0 16px 32px rgba(0,0,0,0.32);
+                }
+                .doorpi-update-actions .doorpi-update-primary,
+                .doorpi-update-actions .doorpi-update-primary:focus,
+                .doorpi-update-actions .doorpi-update-primary:hover,
+                .doorpi-update-actions .doorpi-update-primary.nav-focused-el {
+                    background: #fff;
+                    color: #080c16;
+                    border-color: rgba(70,155,255,0.96);
+                }
+                .doorpi-update-actions .doorpi-update-secondary:focus,
+                .doorpi-update-actions .doorpi-update-secondary:hover,
+                .doorpi-update-actions .doorpi-update-secondary.nav-focused-el {
+                    background: rgba(70,155,255,0.12);
+                    color: #fff;
+                }
+                @media (max-width: 720px) {
+                    .doorpi-update-prompt { padding: 18px; }
+                    .doorpi-update-shell { padding: 28px; }
+                    .doorpi-update-actions { flex-direction: column; }
+                    .doorpi-update-actions button { width: 100%; }
+                    .doorpi-update-badge {
+                        top: clamp(76px, 9vh, 98px);
+                        left: clamp(24px, 4vw, 60px);
+                    }
+                }
+            

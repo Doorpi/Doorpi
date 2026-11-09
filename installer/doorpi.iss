@@ -49,6 +49,10 @@ brazilianportuguese.InstallDirProtectedError=Essa pasta exige permissao administ
 english.InstallDirProtectedError=This folder requires administrator permission. For Doorpi to update without elevation, choose a folder writable by the current user, such as:%n%n%1
 brazilianportuguese.InstallDirWritableError=A conta atual nao consegue gravar na pasta escolhida. O Doorpi precisa instalar e atualizar em uma pasta gravavel sem elevacao, como:%n%n%1
 english.InstallDirWritableError=The current account cannot write to the selected folder. Doorpi must install and update in a folder writable without elevation, such as:%n%n%1
+brazilianportuguese.ShellRestoreFailed=Nao foi possivel restaurar a inicializacao do Windows. A desinstalacao foi interrompida para preservar o acesso ao Doorpi.
+english.ShellRestoreFailed=Windows startup configuration could not be restored. Uninstall was stopped to preserve access to Doorpi.
+brazilianportuguese.DirectUpgradeBlocked=Esta versao do instalador aceita apenas instalacao limpa. Para preservar perfis e permitir recuperacao dos dados, atualize pelo atualizador interno do Doorpi.%n%nUma instalacao ou dados anteriores foram encontrados. Nada foi alterado. Se a instalacao anterior foi removida, recupere-a com o atualizador compativel antes de continuar.
+english.DirectUpgradeBlocked=This installer supports clean installation only. To preserve profiles and provide data recovery, upgrade using Doorpi's built-in updater.%n%nAn existing installation or previous data was found. Nothing was changed. If the previous installation was removed, recover it with a compatible updater before continuing.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -183,6 +187,11 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 begin
   Result := GetInstallDirValidationMessage(WizardDirValue);
+  if (Result = '') and
+     (FileExists(AddBackslash(WizardDirValue) + 'Doorpi.exe') or
+      DirExists(ExpandConstant('{localappdata}\Doorpi\Data')) or
+      FileExists(ExpandConstant('{localappdata}\Doorpi\storage\doorpi.db'))) then
+    Result := CustomMessage('DirectUpgradeBlocked');
 end;
 
 function IsSilentUninstall(): Boolean;
@@ -205,8 +214,75 @@ begin
   Result := True;
 end;
 
+function IsThisDoorpiCommand(const Command: string): Boolean;
+var
+  ExeName: string;
+  QuoteEnd: Integer;
+begin
+  ExeName := Trim(Command);
+  if Copy(ExeName, 1, 1) = '"' then
+  begin
+    Delete(ExeName, 1, 1);
+    QuoteEnd := Pos('"', ExeName);
+    if QuoteEnd > 0 then ExeName := Copy(ExeName, 1, QuoteEnd - 1);
+  end;
+  Result := CompareText(ExeName, ExpandConstant('{app}\Doorpi.exe')) = 0;
+end;
+
+procedure RestoreDoorpiStartupConfiguration();
+var
+  Key, SoundKey, Command, Previous: string;
+  HasBackup, HasSound, PreviousKind: Cardinal;
+  Restored: Boolean;
+begin
+  Key := 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon';
+  SoundKey := 'AppEvents\Schemes\Apps\.Default\SystemStart\.Current';
+  if RegQueryStringValue(HKCU, Key, 'Shell', Command) and IsThisDoorpiCommand(Command) then
+  begin
+    if RegQueryDWordValue(HKCU, Key, 'DoorpiShellBackupPresent', HasBackup) and
+       (HasBackup = 1) and RegQueryStringValue(HKCU, Key, 'DoorpiPreviousShell', Previous) then
+    begin
+      if RegQueryDWordValue(HKCU, Key, 'DoorpiPreviousShellKind', PreviousKind) and (PreviousKind = 2) then
+        Restored := RegWriteExpandStringValue(HKCU, Key, 'Shell', Previous)
+      else Restored := RegWriteStringValue(HKCU, Key, 'Shell', Previous);
+    end
+    else
+      Restored := RegDeleteValue(HKCU, Key, 'Shell');
+    if not Restored then
+    begin
+      SuppressibleMsgBox(CustomMessage('ShellRestoreFailed'), mbError, MB_OK, IDOK);
+      Abort;
+    end;
+    { Restore only the mute we installed; keep a sound changed by the user. }
+    if RegQueryStringValue(HKCU, SoundKey, '', Command) and (Command = '') then
+    begin
+      if RegQueryDWordValue(HKCU, Key, 'DoorpiSoundBackupPresent', HasSound) then
+      begin
+        if (HasSound = 1) and RegQueryStringValue(HKCU, Key, 'DoorpiPreviousStartupSound', Previous) then
+        begin
+          if RegQueryDWordValue(HKCU, Key, 'DoorpiPreviousStartupSoundKind', PreviousKind) and (PreviousKind = 2) then
+            RegWriteExpandStringValue(HKCU, SoundKey, '', Previous)
+          else RegWriteStringValue(HKCU, SoundKey, '', Previous);
+        end
+        else RegDeleteValue(HKCU, SoundKey, '');
+      end
+      else RegDeleteValue(HKCU, SoundKey, '');
+    end;
+    RegDeleteValue(HKCU, Key, 'DoorpiShellBackupPresent');
+    RegDeleteValue(HKCU, Key, 'DoorpiPreviousShell');
+    RegDeleteValue(HKCU, Key, 'DoorpiSoundBackupPresent');
+    RegDeleteValue(HKCU, Key, 'DoorpiPreviousStartupSound');
+    RegDeleteValue(HKCU, Key, 'DoorpiPreviousStartupSoundKind');
+    RegDeleteValue(HKCU, Key, 'DoorpiPreviousShellKind');
+  end;
+  Key := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Run';
+  if RegQueryStringValue(HKCU, Key, 'Doorpi', Command) and IsThisDoorpiCommand(Command) then
+    RegDeleteValue(HKCU, Key, 'Doorpi');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  if CurUninstallStep = usUninstall then RestoreDoorpiStartupConfiguration();
   if (CurUninstallStep = usUninstall) and RemoveUserData then
   begin
     DelTree(ExpandConstant('{localappdata}\Doorpi'), True, True, True);

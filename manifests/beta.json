@@ -1,56 +1,53 @@
 {
-    "schemaVersion":  1,
-    "channel":  "beta",
-    "manifestVersion":  202608132218,
-    "publishedAt":  "2026-08-14T01:19:38.6540922Z",
-    "expiresAt":  "2026-08-28T01:19:38.6540922Z",
-    "minimumSupportedManifestVersion":  1,
-    "doorpi":  {
-                   "version":  "0.4.30",
-                   "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.30/doorpi-0.4.30.doorpiupdate.zip",
-                   "sha256":  "bdb91aac43ba9606e760c0fc1445017ba127818fa507638a786c2b017e424156",
-                   "sizeBytes":  133887810,
-                   "minUpdaterVersion":  "0.1.1",
-                   "forceUpdate":  false,
-                   "allowRollback":  false
-               },
-    "updater":  {
-                    "version":  "0.1.1",
-                    "downloadUrl":  "https://github.com/Doorpi/Doorpi/releases/download/v0.4.30/updater-0.1.1.doorpiupdate.zip",
-                    "sha256":  "00fb6eb72575796c9e844f38d361b826daf1fecfa44dbec9f9f83d0c45b99baa",
-                    "sizeBytes":  69967777,
-                    "forceUpdate":  false,
-                    "allowRollback":  false
-                },
-    "changelog":  [
-                      {
-                          "version":  "0.4.30",
-                          "title":  "Doorpi 0.4.30",
-                          "items":  [
-                                        "Correções na contagem de horas de mídias assistidas.",
-                                        "Mudanças na exibição das imagens de criadores."
-                                    ],
-                          "locales":  {
-                                          "pt-BR":  {
-                                                        "title":  "Doorpi 0.4.30",
-                                                        "items":  [
-                                                                      "Correções na contagem de horas de mídias assistidas.",
-                                                                      "Mudanças na exibição das imagens de criadores."
-                                                                  ]
-                                                    },
-                                          "en":  {
-                                                     "title":  "Doorpi 0.4.30",
-                                                     "items":  [
-                                                                   "Fixes to watched media time tracking.",
-                                                                   "Changes to creator image display."
-                                                               ]
-                                                 }
-                                      }
-                      }
-                  ],
-    "signature":  {
-                      "algorithm":  "RSA-SHA256-PKCS1",
-                      "keyId":  "6b65ba1c963d49d6",
-                      "value":  "i+PDzEvc4TavvTo8ge85VL4RiFMogLeqe1aNQP4+ste968cgV4Dp1UxrByv5AgC8OVjW02+brcTGIJ9Hp0gQGXuRclwcMYqhTt/iz68d3fvAby2BzafHlTmQEuK2maXeuhkMzpKY+dmEFJtVWTc5Zo3CqDa7eRNHvaKWE+OlAQXLACfYEwxNOKT3lkxtYrHdddlMnTHHyeqrZ3NJeHEYwuZatG1a/j0Jx6TKHri4ANoqR2zY2wM596IU7NkMJtHTFWUaLHQyuExohi6eq/rjEUX00eWkun2yv6JtsDFATsR3r267Wma9Q6VfxMZ9Ebg+XBItcDPLsnynhG+9eOPS72tG8kw1/D50CF0+RlvE1bvRSuALkdGwZTTYR8LqUalKx5NmssiMM1UNswluDsjtva2UovXG/ysEZEoChMhqRiC0Ple4+bARq6UGMM/+OUDzDHkzDAEFkhlGcZ0EL85vZ1psmV2ZfSl6Y2OETS6wi0PmLyf9WgBnMu8YXhkJ9QtX"
-                  }
+  "schemaVersion": 1,
+  "channel": "beta",
+  "manifestVersion": 1794204851452,
+  "publishedAt": "2026-11-09T06:16:17.0450312Z",
+  "expiresAt": "2026-11-23T06:16:17.0450312Z",
+  "minimumSupportedManifestVersion": 1,
+  "doorpi": {
+    "version": "0.4.31",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.4.31/doorpi-0.4.31.doorpiupdate.zip",
+    "sha256": "676d0ff273c51c833f65dbefdf2b0e47eca54c4afb7171127cd2a27bd9f940c4",
+    "sizeBytes": 137932888,
+    "minUpdaterVersion": "0.1.2",
+    "forceUpdate": false,
+    "allowRollback": false
+  },
+  "updater": {
+    "version": "0.1.2",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.4.31/updater-0.1.2.doorpiupdate.zip",
+    "sha256": "5ebfc81f6e17d90e43cd6965cbdab824327647102a8600bde0ce02805aed5c2d",
+    "sizeBytes": 73546282,
+    "forceUpdate": false,
+    "allowRollback": false
+  },
+  "changelog": [
+    {
+      "version": "0.4.31",
+      "title": "Doorpi 0.4.31",
+      "items": [
+        "Descreva as mudanças desta versão."
+      ],
+      "locales": {
+        "pt-BR": {
+          "title": "Doorpi 0.4.31",
+          "items": [
+            "Descreva as mudanças desta versão."
+          ]
+        },
+        "en": {
+          "title": "Doorpi 0.4.31",
+          "items": [
+            "Descreva as mudanças desta versão."
+          ]
+        }
+      }
+    }
+  ],
+  "signature": {
+    "algorithm": "RSA-SHA256-PKCS1",
+    "keyId": "6b65ba1c963d49d6",
+    "value": "YEfB8jRukMgF3hLDXHVIDZuGw8Pd8ZtbKvD7+IrVYZoOmTG4wOMHkDw0EfA3EjoFxsSIw9w+HW/Gpyd1gQZEHuTfuyyp6nVJxDMPyfXDkxDIoFAsbGPZR6+c03CqEcOB4dMy4pAICkxjgbPUEd/wILexDZqjuS3fhr919xS4Ix7SnMhKuz2lUjU+9+1Gx4OhnUl/KWZugNQPgLYBm6z9NMutyCX28VeLZUSvgcZ5vY98uVQYIj2g9iQTvHEbDapKI/mF69wtl3PjBebhsm0dUGveWQSfSHOEoJL/Qm5lQ1xQ+GsBlevZ15KzWR2O2hyAfBYenVl0UfY4O5THLoAkNuojrEN45dF74IKsVdTO/ecvKIMX/w3Orsp6UqANFQTlF7jQaJveceindUG151RN0lNS/VQcXMtLX8k7Sn+apgRjaL1/HxfF4tgZj36Eh3b+AoQl7LgpsJSZ4KMPH2eZmmBPkwnxS0f1pzipxnlCh2naAWEbU+/bup9LZ66DMwHk"
+  }
 }

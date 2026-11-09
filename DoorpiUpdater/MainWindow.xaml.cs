@@ -1,4 +1,5 @@
 using Doorpi.UpdateCore;
+using Doorpi.Storage;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -11,16 +12,33 @@ public partial class MainWindow : Window
 {
     private static readonly HttpClient HttpClient = new();
     private readonly UpdaterLaunchOptions _options;
+    private Mutex? _operationMutex;
+    private bool _ownsOperationMutex;
+    private readonly List<Mutex> _maintenanceLeases = new();
 
     public MainWindow()
     {
         InitializeComponent();
         _options = UpdaterLaunchOptions.Parse(Environment.GetCommandLineArgs().Skip(1));
         Loaded += OnLoaded;
+        Closed += (_, _) =>
+        {
+            ReleaseMaintenanceLease();
+            if (_ownsOperationMutex) _operationMutex?.ReleaseMutex();
+            _operationMutex?.Dispose();
+        };
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _operationMutex = new Mutex(false, $@"Local\Doorpi.Updater.{Process.GetCurrentProcess().SessionId}");
+        try { _ownsOperationMutex = _operationMutex.WaitOne(0); }
+        catch (AbandonedMutexException) { _ownsOperationMutex = true; }
+        if (!_ownsOperationMutex)
+        {
+            SetStatus("Atualização já em andamento", "Aguarde o atualizador que já está aberto.", 0);
+            return;
+        }
         Activate();
         Focus();
         SetStatus("Atualizando componentes do sistema...", "Preparando ambiente seguro de atualização.", 0.12);
@@ -47,6 +65,8 @@ public partial class MainWindow : Window
         Process? launchedDoorpi = null;
         string installFolder = "";
         string doorpiExe = "";
+        bool mayRestartDoorpi = false;
+        bool rollbackSucceeded = false;
 
         try
         {
@@ -54,6 +74,21 @@ public partial class MainWindow : Window
             doorpiExe = Path.Combine(installFolder, "Doorpi.exe");
 
             await WaitForParentExitAsync();
+            AcquireMaintenanceLease();
+
+            // A killed updater can leave a migration or file replacement halfway
+            // through. Recover its checkpoint before accepting another operation.
+            var interrupted = stateStore.Load();
+            mayRestartDoorpi = true;
+            if (interrupted is { Component: "doorpi" } &&
+                interrupted.Phase is "storage-migrating" or "storage-migrated" or "applying" or
+                    "doorpi-applied-pending-health-check" or "rollback" or "rollback-failed" or "doorpi-health-check-failed")
+            {
+                state = interrupted;
+                installFolder = state.InstallFolder;
+                doorpiExe = Path.Combine(installFolder, "Doorpi.exe");
+                throw new InvalidDataException("Recuperando uma atualização interrompida antes de continuar.");
+            }
 
             SetStatus("Lendo manifesto de atualização...", 0.12);
             if (string.IsNullOrWhiteSpace(_options.ManifestCachePath) || !File.Exists(_options.ManifestCachePath))
@@ -85,14 +120,36 @@ public partial class MainWindow : Window
 
             state.PackagePath = packagePath;
             state.StagingFolder = Path.Combine(DoorpiRuntimePaths.StagingFolder, "doorpi-" + release.Version);
-            state.BackupFolder = Path.Combine(DoorpiRuntimePaths.BackupFolder, "doorpi-" + release.Version);
+            state.BackupFolder = Path.Combine(DoorpiRuntimePaths.BackupFolder, "doorpi-" + release.Version + "-" + state.OperationId);
             state.Phase = "extracting";
             stateStore.Save(state);
 
             SetStatus("Validando pacote recebido...", 0.60);
-            PackageExtractor.ExtractAndValidate(packagePath, state.StagingFolder, "doorpi", release.Version);
+            var package = PackageExtractor.ExtractAndValidate(packagePath, state.StagingFolder, "doorpi", release.Version);
+            string updaterVersion = GetExecutableVersion(Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Updater.exe"));
+            UpdateStorageCompatibility.ValidatePackage(package, updaterVersion,
+                File.Exists(Path.Combine(DoorpiRuntimePaths.AppDataFolder, "storage", "doorpi.db")));
+
+            if (package.StorageSchemaVersion > 0)
+            {
+                state.StorageMigrationStarted = true;
+                state.Phase = "storage-migrating";
+                stateStore.Save(state);
+                SetStatus("Preservando e preparando os dados locais...", 0.66);
+                var checkpoint = await Task.Run(() => StorageMigration.Prepare(
+                    DoorpiRuntimePaths.AppDataFolder, state.OperationId));
+                state.StorageBackupDirectory = checkpoint.BackupDirectory;
+                state.StorageHadDatabase = checkpoint.HadDatabase;
+                state.StorageSchemaVersion = checkpoint.TargetSchemaVersion;
+                state.StorageMigrationCompleted = true;
+                if (checkpoint.TargetSchemaVersion != package.StorageSchemaVersion)
+                    throw new InvalidDataException("O armazenamento preparado não corresponde ao schema exigido pelo pacote.");
+                state.Phase = "storage-migrated";
+                stateStore.Save(state);
+            }
 
             state.Phase = "applying";
+            state.BinaryApplyStarted = true;
             stateStore.Save(state);
             SetStatus("Aplicando arquivos do Doorpi...", 0.74);
 
@@ -117,14 +174,19 @@ public partial class MainWindow : Window
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            // The app validates its configured boot mode. In immersive mode this
+            // re-establishes supervision after the old supervisor released its files.
+            startInfo.ArgumentList.Add("--doorpi-shell-bootstrap");
+            startInfo.ArgumentList.Add("--doorpi-resume-session");
             startInfo.Environment["DOORPI_UPDATE_HEALTH_SIGNAL"] = state.HealthSignalPath;
+            ReleaseMaintenanceLease();
             launchedDoorpi = Process.Start(startInfo);
 
             SetStatus("Aguardando o Doorpi confirmar inicialização saudável...", 0.96);
             // A primeira criação do ambiente WebView2 pode ser mais lenta em PCs
             // modestos. O processo ainda precisa emitir o sinal real; apenas damos
             // tempo suficiente para a verificação do bootstrap concluir.
-            bool healthy = await WaitForHealthSignalAsync(state.HealthSignalPath, launchedDoorpi, TimeSpan.FromSeconds(60));
+            bool healthy = await WaitForHealthSignalAsync(state.HealthSignalPath, launchedDoorpi, TimeSpan.FromSeconds(120));
             if (!healthy)
                 throw new InvalidDataException("O Doorpi atualizado não confirmou inicialização saudável.");
 
@@ -142,11 +204,12 @@ public partial class MainWindow : Window
         {
             try
             {
-                if (launchedDoorpi is { HasExited: false })
+                if (launchedDoorpi is { HasExited: false } || state?.Phase is
+                    "doorpi-applied-pending-health-check" or "rollback" or "rollback-failed")
                 {
                     SetStatus("Falha na verificação de inicialização. Encerrando o Doorpi para restaurar a versão anterior...", 0.78);
-                    launchedDoorpi.Kill(entireProcessTree: true);
-                    await launchedDoorpi.WaitForExitAsync();
+                    await StopUpdatedDoorpiProcessesAsync(doorpiExe);
+                    AcquireMaintenanceLease();
                 }
 
                 if (state != null)
@@ -155,18 +218,23 @@ public partial class MainWindow : Window
                     state.Error = ex.Message;
                     stateStore.Save(state);
 
-                    if (!string.IsNullOrWhiteSpace(state.BackupFolder) && Directory.Exists(state.BackupFolder))
-                    {
-                        SetStatus("Falha detectada. Restaurando a cópia de segurança...", 0.80);
-                        new ComponentInstaller(["Data", "updates", "Updater"])
-                            .Rollback(state.BackupFolder, state.InstallFolder);
-                    }
-
+                    SetStatus("Falha detectada. Restaurando dados e arquivos compatíveis...", 0.80);
+                    await Task.Run(() => UpdateRollback.Restore(state, DoorpiRuntimePaths.AppDataFolder));
+                    state.Phase = "rolled-back";
+                    stateStore.Save(state);
                 }
+                rollbackSucceeded = mayRestartDoorpi;
             }
             catch (Exception rollbackEx)
             {
                 Debug.WriteLine("[Updater] Falha no rollback: " + rollbackEx);
+                mayRestartDoorpi = false;
+                if (state != null)
+                {
+                    state.Phase = "rollback-failed";
+                    state.Error = ex.Message + " | Recuperação: " + rollbackEx.Message;
+                    try { stateStore.Save(state); } catch { }
+                }
             }
 
             try
@@ -178,11 +246,13 @@ public partial class MainWindow : Window
                     ? Path.Combine(restartFolder, "Doorpi.exe")
                     : doorpiExe;
 
-                if (!string.IsNullOrWhiteSpace(restoredDoorpi) && File.Exists(restoredDoorpi))
+                if (mayRestartDoorpi && !string.IsNullOrWhiteSpace(restoredDoorpi) && File.Exists(restoredDoorpi))
                 {
+                    ReleaseMaintenanceLease();
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = restoredDoorpi,
+                        Arguments = "--doorpi-shell-bootstrap --doorpi-resume-session",
                         WorkingDirectory = Path.GetDirectoryName(restoredDoorpi)!,
                         UseShellExecute = false,
                         CreateNoWindow = true
@@ -196,7 +266,9 @@ public partial class MainWindow : Window
 
             try
             {
-                SetStatus("Não foi possível concluir a atualização. A versão anterior foi restaurada.", ex.Message, 1);
+                SetStatus(rollbackSucceeded
+                    ? "Não foi possível concluir a atualização. A versão anterior foi preservada ou restaurada."
+                    : "A recuperação não foi concluída. Os backups foram preservados; o Doorpi não será iniciado com dados incompatíveis.", ex.Message, 1);
                 await Task.Delay(1200);
             }
             finally
@@ -224,6 +296,10 @@ public partial class MainWindow : Window
 
         string localDoorpiVersion = GetExecutableVersion(Path.Combine(installFolder, "Doorpi.exe"));
         UpdateManifestValidator.ValidateNoUnsignedDowngrade(manifest.Doorpi, localDoorpiVersion, "Doorpi");
+        // Validate the updater that is actually executing, not the offered package.
+        UpdateManifestValidator.ValidateMinimumUpdaterVersion(
+            manifest.Doorpi,
+            GetExecutableVersion(Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Updater.exe")));
     }
 
     private static UpdateTrustSettings GetUpdaterTrustSettings(string installFolder)
@@ -284,6 +360,85 @@ public partial class MainWindow : Window
         return (info.ProductVersion ?? info.FileVersion ?? "0.0.0").Split('+')[0];
     }
 
+    private void AcquireMaintenanceLease()
+    {
+        if (_maintenanceLeases.Count > 0) return;
+        try
+        {
+            int sessionId = Process.GetCurrentProcess().SessionId;
+            foreach (string role in new[] { "Supervisor", "Main" })
+            {
+                var mutex = new Mutex(false, $@"Local\Doorpi.{role}.{sessionId}");
+                bool acquired;
+                try { acquired = mutex.WaitOne(0); }
+                catch (AbandonedMutexException) { acquired = true; }
+                if (!acquired)
+                {
+                    mutex.Dispose();
+                    throw new IOException("O Doorpi ainda está aberto. Feche a interface antes de migrar ou restaurar os dados.");
+                }
+                _maintenanceLeases.Add(mutex);
+            }
+        }
+        catch
+        {
+            ReleaseMaintenanceLease();
+            throw;
+        }
+    }
+
+    private void ReleaseMaintenanceLease()
+    {
+        foreach (var mutex in _maintenanceLeases)
+        {
+            mutex.ReleaseMutex();
+            mutex.Dispose();
+        }
+        _maintenanceLeases.Clear();
+    }
+
+    private static async Task StopUpdatedDoorpiProcessesAsync(string executablePath)
+    {
+        string expected = Path.GetFullPath(executablePath);
+        int windowsSession = Process.GetCurrentProcess().SessionId;
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            var owned = new List<Process>();
+            foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(expected)))
+            {
+                try
+                {
+                    if (process.Id != Environment.ProcessId && process.SessionId == windowsSession &&
+                        string.Equals(process.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase))
+                        owned.Add(process);
+                    else process.Dispose();
+                }
+                catch { process.Dispose(); }
+            }
+            if (owned.Count == 0) return;
+            if (attempt == 3)
+            {
+                foreach (var process in owned) process.Dispose();
+                throw new IOException("Não foi possível encerrar a versão nova do Doorpi antes da recuperação dos dados.");
+            }
+            try
+            {
+                // Supervisor and UI are both owned Doorpi executables. Games and
+                // unrelated descendants must survive a failed UI health check.
+                foreach (var process in owned)
+                    if (!process.HasExited) process.Kill(entireProcessTree: false);
+                foreach (var process in owned)
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            }
+            finally
+            {
+                foreach (var process in owned) process.Dispose();
+            }
+            await Task.Delay(200);
+        }
+        throw new IOException("Não foi possível encerrar a versão nova do Doorpi antes da recuperação dos dados.");
+    }
+
     private static async Task<bool> WaitForHealthSignalAsync(string healthSignalPath, Process? process, TimeSpan timeout)
     {
         var deadline = DateTimeOffset.UtcNow.Add(timeout);
@@ -321,8 +476,7 @@ public partial class MainWindow : Window
         {
             using var process = Process.GetProcessById(_options.ParentProcessId);
             SetStatus("Aguardando o Doorpi encerrar com segurança...", 0.10);
-            while (!process.HasExited)
-                await Task.Delay(150);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(45));
         }
         catch (ArgumentException)
         {

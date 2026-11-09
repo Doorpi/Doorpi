@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Doorpi.Storage/Doorpi.Storage.csproj" />
+    <Compile Include="../Doorpi/GameModel.cs" Link="GameModel.cs" />
+    <Compile Include="../Doorpi/MainWindow.StateConsistency.cs" Link="MainWindow.StateConsistency.cs" />
+    <Compile Include="../Doorpi/MainWindow.AppCatalog.cs" Link="MainWindow.AppCatalog.cs" />
+    <Compile Include="$(IntermediateOutputPath)Persistence.Generated.cs" />
+  </ItemGroup>
+  <Target Name="ExtractPersistenceConsumers" BeforeTargets="CoreCompile">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\GenerateConsumers.ps1&quot; -SourcePath &quot;$(MSBuildProjectDirectory)\..\Doorpi\MainWindow.xaml.cs&quot; -OutputPath &quot;$(MSBuildProjectDirectory)\$(IntermediateOutputPath)Persistence.Generated.cs&quot;" />
+  </Target>
+</Project>

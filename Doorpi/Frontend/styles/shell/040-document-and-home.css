@@ -1,0 +1,199 @@
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+}
+
+body {
+    background: #06060e;
+    color: #ddddf0;
+    font-family: 'Outfit', sans-serif;
+    margin: 0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+
+
+.top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: var(--topbar-pad-v) var(--topbar-pad-h);
+    display: flex;
+    justify-content: flex-end;
+    z-index: 50;
+    pointer-events: none;
+}
+
+.home-top-shade {
+    position: fixed;
+    inset: 0 0 auto;
+    height: clamp(120px, 19vh, 260px);
+    z-index: 40;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom,
+        rgba(2, 4, 12, 0.28) 0%,
+        rgba(2, 4, 12, 0.14) 42%,
+        rgba(2, 4, 12, 0.045) 72%,
+        transparent 100%
+    );
+}
+
+#clock {
+    font-size: var(--fs-clock);
+    font-weight: 300;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,1);
+    padding-bottom: 3px;
+    filter: drop-shadow(1px 0px 2px rgb(0 0 0 / 75%));
+}
+
+
+.capaJogo {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+   
+ 
+
+}
+
+
+#bgBlur {
+    position: absolute;
+    inset: 0;
+    background: center/cover no-repeat;
+    filter: blur(100px) brightness(0.35) saturate(3.5);
+    transform: scale(1.2);
+}
+#gridBgImg::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    width: 100%;
+    height: 120px;
+    background: linear-gradient( to top, rgba(0, 0, 0, 0.6) 0%, transparent 100% );
+    pointer-events: none;
+}
+#heroImage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: var(--hero-banner-h);
+    object-fit: cover;
+    object-position: center 25%;
+    transition: opacity 0.8s ease-in-out;
+    opacity: 0;
+    z-index: 98;
+    filter: saturate(1.2);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 60%, transparent 100% ), linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100% );
+    mask-image: linear-gradient(to bottom, transparent 0%, black 0%, black 60%, transparent 100% ), linear-gradient(to right, transparent 0%, black 0%, black 100%, transparent 100% );
+    -webkit-mask-composite: intersect;
+    mask-composite: intersect;
+}
+
+.hero-vignette {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--hero-banner-h);
+    z-index: 100; /* Acima do banner e dos clones */
+    pointer-events: none;
+    background:
+    /* Sombra Inferior (funde com o grid) */
+    linear-gradient(to bottom, transparent 40%, rgba(7, 7, 26, 1) 95%),
+    /* Sombra Superior (funde com a top-bar) */
+    linear-gradient(to top, transparent 80%, rgba(7, 7, 26, 0.8) 100%),
+    /* Sombra Lateral Direita */
+    linear-gradient(to left, transparent 85%, rgba(7, 7, 26, 0.6) 100%),
+    /* Sombra Lateral Esquerda */
+    linear-gradient(to right, transparent 85%, rgba(7, 7, 26, 0.6) 100%);
+}
+
+.capaJogo::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% 0%, transparent 0%, rgba(6,6,14,0.35) 100%), linear-gradient(to bottom, transparent 55%, rgba(6,6,14,0.45) 100%);
+    z-index: 3;
+}
+
+
+#gameLogo {
+    position: fixed;
+    left: var(--logo-left);
+    bottom: var(--logo-bottom);
+    width: auto;
+    height: auto;
+    max-width: min(var(--logo-width), clamp(260px, 24vw, 460px));
+    max-height: clamp(96px, 12vh, 165px);
+    object-fit: contain;
+    object-position: left bottom;
+    z-index: 15;
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+    filter: drop-shadow(1px 2px 1px black);
+}
+
+    #gameLogo.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+
+.grid-bg {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 7;
+}
+
+.grid-bg::before {
+    content: "";
+    position: absolute;
+    top: clamp(-210px, -16vh, -120px);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(4, 6, 15, .025) 24%,
+        rgba(4, 6, 15, .12) 56%,
+        rgba(3, 5, 13, .30) 100%
+    );
+}
+
+.main-content-wrapper {
+    position: relative;
+    z-index: 1;
+}
+
+#gridBgImg {
+    position: absolute;
+    inset: 1% -7vw;
+    width: calc(100% + 31vw);
+    height: calc(100% + 18%);
+    object-fit: cover;
+    filter: blur(250px) brightness(1.2) saturate(1);
+    z-index: -1;
+    transition: opacity 0.8s ease-in-out;
+}
+

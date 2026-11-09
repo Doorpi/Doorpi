@@ -714,7 +714,7 @@ window.isNavMenuOpen = false;
         if (configuredName) return configuredName;
         const knownNames = {
             rpcs3: 'RPCS3', pcsx2: 'PCSX2', ppsspp: 'PPSSPP', xenia: 'Xenia',
-            dolphin: 'Dolphin', cemu: 'Cemu', ryujinx: 'Ryujinx', eden: 'Eden',
+            dolphin: 'Dolphin', cemu: 'Cemu', ryujinx: 'Ryujinx', eden: 'Eden', lichii: 'Lichii',
             azahar: 'Azahar', citra: 'Citra', vita3k: 'Vita3K', duckstation: 'DuckStation',
             project64: 'Project64', snes9x: 'Snes9x', shadps4: 'shadPS4'
         };
@@ -6272,6 +6272,7 @@ window.isNavMenuOpen = false;
 
     function _renderSettings(body) {
         body.classList.toggle('settings-home-active', !_settingsSubView);
+        if (_settingsSubView === 'webPermissions') { _renderWebPermissions(body); return; }
         if (_settingsSubView) {
             _renderSettingsLegacy(body);
             return;
@@ -6342,6 +6343,14 @@ window.isNavMenuOpen = false;
                 description: 'Consulte versões e mantenha o Doorpi, o Windows e os componentes gráficos atualizados em um só lugar.',
                 scope: ['Doorpi e Updater', 'Windows Update', 'Drivers de vídeo', 'Notas da versão'],
                 action: 'updates'
+            },
+            {
+                id: 'setWebPermissions', group: 'Sistema', icon: svgUser,
+                title: _t('webPermissionsTitle', 'Permissões dos apps'),
+                short: _t('webPermissionsShort', 'Câmera e microfone por aplicativo e site'),
+                description: _t('webPermissionsDescription', 'Câmera e microfone autorizados ou bloqueados neste perfil. Streamings integrados, localização e notificações continuam bloqueados.'),
+                scope: [_t('webPermissionCamera', 'Câmera'), _t('webPermissionMicrophone', 'Microfone')],
+                action: 'webPermissions'
             },
             {
                 id: 'setExt', group: 'Sistema', icon: svgExt,
@@ -6424,6 +6433,12 @@ window.isNavMenuOpen = false;
                         break;
                     case 'controls':
                         window.DoorpiControls?.open?.();
+                        break;
+                    case 'webPermissions':
+                        _settingsSubView = 'webPermissions';
+                        _contentIdx = 0;
+                        _renderContent('settings');
+                        _updateContentFocus();
                         break;
                     case 'devices':
                         _settingsReturnToRoot = true;
@@ -6544,6 +6559,116 @@ window.isNavMenuOpen = false;
             window._updateBootModeUI();
         }
     }
+
+    let _webPermissionRequest = '';
+    let _webPermissionUser = '';
+
+    function _renderWebPermissions(body) {
+        if (!document.getElementById('doorpiWebPermissionStyles')) {
+            const style = document.createElement('style');
+            style.id = 'doorpiWebPermissionStyles';
+            style.textContent = `.web-permission-description {
+    max-width: 70ch;
+    color: rgba(255, 255, 255, .7);
+    line-height: 1.6;
+    margin: 0 0 24px;
+}
+.web-permission-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 22px;
+    margin-bottom: 14px;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .035);
+}
+.web-permission-row > div { min-width: 0; }
+.web-permission-row h3 { margin: 0 0 8px; }
+.web-permission-row p { margin: 5px 0; overflow-wrap: anywhere; color: rgba(255, 255, 255, .7); }
+.web-permission-revoke { white-space: normal; }
+.web-permission-revoke.nav-focused-el, .web-permission-revoke:focus-visible {
+    outline: 2px solid #a9ccff;
+    outline-offset: 4px;
+}
+`;
+            document.head.appendChild(style);
+        }
+        body.innerHTML = `<div class="nav-settings-subheader"><button class="nav-back-btn" id="webPermissionBack" tabindex="-1">‹ ${_esc(_t('navBack', 'Voltar'))}</button><h2>${_esc(_t('webPermissionsTitle', 'Permissões dos apps'))}</h2></div><p class="web-permission-description">${_esc(_t('webPermissionsDescription', 'Câmera e microfone autorizados ou bloqueados neste perfil. Streamings integrados, localização e notificações continuam bloqueados.'))}</p><div id="webPermissionList" aria-live="polite"></div>`;
+        body.querySelector('#webPermissionBack').addEventListener('click', () => {
+            _webPermissionRequest = '';
+            _settingsSubView = null;
+            _contentIdx = 0;
+            _renderContent('settings');
+            _updateContentFocus();
+        });
+        _requestWebPermissions('requestWebPermissions');
+    }
+
+    function _requestWebPermissions(action, id, userId = window._doorpiCurrentUserId || '') {
+        _webPermissionUser = String(userId);
+        _webPermissionRequest = `permissions-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const list = document.getElementById('webPermissionList');
+        if (list) list.textContent = _t('webPermissionsLoading', 'Carregando permissões…');
+        _contentItems = [document.getElementById('webPermissionBack')].filter(Boolean);
+        _contentIdx = 0;
+        _updateContentFocus();
+        postToHost({ action, requestId: _webPermissionRequest, ...(id ? { id } : {}) });
+    }
+
+    function _receiveWebPermissions(event) {
+        let data = event.data;
+        try { if (typeof data === 'string') data = JSON.parse(data); } catch { return; }
+        if (data?.type === 'currentUserUpdated' && _settingsSubView === 'webPermissions' && CATS[_catIdx]?.id === 'settings') {
+            const nextUser = String(data.currentUserId || data.user?.Id || data.user?.id || '');
+            if (nextUser !== _webPermissionUser) _requestWebPermissions('requestWebPermissions', undefined, nextUser);
+            return;
+        }
+        if (data?.type !== 'webPermissionsState' || data.requestId !== _webPermissionRequest ||
+            data.profileId !== _webPermissionUser ||
+            _settingsSubView !== 'webPermissions' || CATS[_catIdx]?.id !== 'settings') return;
+        const list = document.getElementById('webPermissionList');
+        if (!list) return;
+        list.replaceChildren();
+        const decisions = data.ok && Array.isArray(data.decisions) ? data.decisions : [];
+        if (!data.ok || decisions.length === 0) {
+            list.textContent = data.ok
+                ? _t('webPermissionsEmpty', 'Nenhuma decisão salva para este perfil.')
+                : _t('webPermissionsError', 'Não foi possível ler ou salvar as permissões. Tente abrir esta tela novamente.');
+        }
+        for (const decision of decisions) {
+            const row = document.createElement('article');
+            row.className = 'web-permission-row';
+            const detail = document.createElement('div');
+            const name = document.createElement('h3');
+            name.textContent = decision.appName;
+            const site = document.createElement('p');
+            site.textContent = decision.origin;
+            const state = document.createElement('p');
+            const resource = decision.resource === 'camera' ? _t('webPermissionCamera', 'Câmera') : _t('webPermissionMicrophone', 'Microfone');
+            state.textContent = `${resource} · ${decision.allowed ? _t('webPermissionAllowed', 'Permitido') : _t('webPermissionBlocked', 'Bloqueado')}`;
+            detail.append(name, site, state);
+            const revoke = document.createElement('button');
+            revoke.className = 'nav-back-btn web-permission-revoke';
+            revoke.tabIndex = -1;
+            revoke.textContent = decision.allowed
+                ? _t('webPermissionRevoke', 'Revogar e fechar app aberto')
+                : _t('webPermissionRemoveBlock', 'Remover bloqueio');
+            revoke.addEventListener('click', () => _requestWebPermissions('revokeWebPermission', decision.id));
+            row.append(detail, revoke);
+            list.appendChild(row);
+        }
+        _contentItems = [document.getElementById('webPermissionBack'), ...list.querySelectorAll('button')].filter(Boolean);
+        _contentIdx = 0;
+        _contentItems.forEach((button, index) => { button.onmouseenter = () => {
+            _topbarFocus = false; _contentIdx = index; _updateContentFocus();
+        }; });
+        _updateContentFocus();
+    }
+
+    window.chrome?.webview?.addEventListener('message', _receiveWebPermissions);
 
     function _renderSettingsDevicesHub(body) {
         const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;

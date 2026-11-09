@@ -1,0 +1,242 @@
+/* Console legibility pass: stronger hierarchy for TV distance, without decorative noise. */
+#clock {
+    font-size: clamp(1.32rem, 1.48vw, 1.95rem);
+    font-weight: 540;
+    letter-spacing: 0.055em;
+    color: rgba(255,255,255,0.96);
+    text-shadow:
+        0 1px 2px rgba(0,0,0,0.58),
+        0 0 1px rgba(0,0,0,0.42);
+}
+
+#addGameContainer {
+    background:
+        radial-gradient(ellipse at 76% 0%, rgba(112,146,235,0.22), transparent 44%),
+        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.13), transparent 48%),
+        linear-gradient(180deg, rgba(12,15,30,0.70), rgba(10,12,24,0.82)) !important;
+    backdrop-filter: blur(18px) brightness(1.08) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) brightness(1.08) saturate(1.18);
+}
+
+.modal-layout {
+    width: min(97vw, 1900px);
+    height: min(92vh, 1100px);
+    background:
+        radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.14), transparent 42%),
+        linear-gradient(112deg, rgba(38,42,64,0.92), rgba(20,24,40,0.84) 58%, rgba(16,19,32,0.88)) !important;
+    border-color: rgba(255,255,255,0.18);
+    box-shadow: 0 34px 92px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+.modal-content-area {
+    background: linear-gradient(90deg, rgba(255,255,255,0.028), transparent 42%);
+}
+
+.view-header {
+    gap: clamp(12px, 1.05vw, 20px);
+    margin-bottom: clamp(22px, 1.75vw, 36px);
+}
+
+.view-header h2 {
+    font-size: clamp(1.45rem, 1.72vw, 2.36rem);
+    font-weight: 470;
+    letter-spacing: -0.018em;
+    color: rgba(255,255,255,0.98);
+}
+
+.subtitle {
+    max-width: 62ch;
+    color: rgba(255,255,255,0.66);
+    font-size: clamp(0.98rem, 1vw, 1.22rem);
+    line-height: 1.42;
+}
+
+.filter-bar {
+    gap: clamp(18px, 1.4vw, 34px);
+    min-height: 50px;
+    padding: 0 0 4px;
+}
+
+.filter-bar::before {
+    bottom: -6px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.28), rgba(255,255,255,0.055) 58%, transparent);
+}
+
+.filter-btn {
+    padding: 0 2px 12px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255,255,255,0.62);
+    font-size: clamp(0.92rem, 0.92vw, 1.12rem);
+    font-weight: 560;
+    box-shadow: none;
+}
+
+.filter-btn::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    right: -12px;
+    top: -9px;
+    bottom: 3px;
+    border-radius: 7px;
+    background: transparent;
+    z-index: -1;
+    transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.filter-btn.active {
+    color: rgba(255,255,255,0.96);
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.filter-btn.active::after {
+    right: 68%;
+    height: 2px;
+    opacity: 0.78;
+    background: rgba(255,255,255,0.70);
+}
+
+.filter-btn:focus,
+.filter-btn:hover {
+    color: #fff;
+    background: transparent;
+    border-color: transparent;
+    text-shadow: 0 0 18px rgba(255,255,255,0.18);
+}
+
+.filter-btn:focus::before,
+.filter-btn:hover::before {
+    background: rgba(255,255,255,0.105);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+}
+
+.filter-btn:focus::after,
+.filter-btn:hover::after,
+.filter-btn.active:focus::after,
+.filter-btn.active:hover::after {
+    right: 0;
+    height: 3px;
+    opacity: 1;
+    background: rgba(255,255,255,0.98);
+}
+
+.filter-count {
+    color: rgba(255,255,255,0.48);
+    font-size: 0.78em;
+}
+
+#appList {
+    grid-template-columns: repeat(auto-fill, minmax(clamp(260px, 18.2vw, 380px), 1fr));
+    gap: clamp(14px, 1.08vw, 22px);
+    padding: 10px 10px 132px;
+}
+
+.app-item {
+    min-height: clamp(92px, 6.5vw, 128px);
+    padding: clamp(16px, 1.22vw, 24px);
+    background: rgba(255,255,255,0.085);
+    border-color: rgba(255,255,255,0.16);
+}
+
+.app-item img.app-icon {
+    width: clamp(48px, 3.55vw, 72px);
+    height: clamp(48px, 3.55vw, 72px);
+}
+
+.app-item-info {
+    gap: 6px;
+}
+
+.app-name {
+    -webkit-line-clamp: 2;
+    font-size: clamp(1.02rem, 1.03vw, 1.24rem);
+    font-weight: 560;
+    line-height: 1.26;
+}
+
+.app-item span.size,
+.app-item .app-state {
+    color: rgba(255,255,255,0.58);
+}
+
+.app-item:focus,
+.app-item:hover {
+    background: rgba(255,255,255,0.155);
+    border-color: rgba(255,255,255,0.80);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.11), 0 20px 44px rgba(0,0,0,0.26);
+}
+
+.action-bar {
+    background: linear-gradient(90deg, rgba(255,255,255,0.018), rgba(255,255,255,0.05));
+    border-top: 1px solid rgba(255,255,255,0.105);
+}
+
+.modal-btn {
+    min-height: 50px;
+    padding: 0 clamp(18px, 1.35vw, 30px);
+    font-size: clamp(0.94rem, 0.94vw, 1.12rem);
+    font-weight: 620;
+}
+
+.store-install-card {
+    grid-template-columns: clamp(60px, 4.5vw, 88px) minmax(0, 1fr) max-content;
+    overflow: hidden;
+    background: rgba(255,255,255,0.062);
+    border-color: rgba(255,255,255,0.145);
+}
+
+.store-install-info {
+    overflow: hidden;
+}
+
+.store-install-info strong {
+    color: rgba(255,255,255,0.96);
+}
+
+.store-install-info small {
+    color: rgba(255,255,255,0.56);
+}
+
+.store-install-pair {
+    max-width: min(100%, 34rem);
+    overflow: hidden;
+}
+
+.store-install-pair span {
+    max-width: min(48%, 14rem);
+}
+
+.store-install-action {
+    justify-self: end;
+    align-self: center;
+    min-width: clamp(116px, 8.6vw, 158px);
+    background: rgba(255,255,255,0.105);
+    color: rgba(255,255,255,0.92);
+}
+
+.context-menu {
+    background: radial-gradient(ellipse at 72% 0%, rgba(104,132,210,.16), transparent 46%), linear-gradient(135deg, rgba(40,44,66,.97), rgba(20,23,38,.95)) !important;
+}
+
+.ctx-game-name {
+    color: rgba(255,255,255,0.60) !important;
+}
+
+.ctx-item {
+    min-height: 48px !important;
+    font-size: 14.5px !important;
+}
+
+.edit-modal-overlay {
+    background: radial-gradient(ellipse at 68% 15%, rgba(115,150,235,0.24), transparent 46%), rgba(9,11,22,0.62) !important;
+}
+
+.edit-modal {
+    background: radial-gradient(ellipse at 80% 0%, rgba(93,118,205,0.14), transparent 44%), linear-gradient(135deg, rgba(40,44,66,0.97), rgba(20,23,38,0.94)) !important;
+    box-shadow: 0 30px 84px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.12) !important;
+}
+

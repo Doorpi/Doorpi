@@ -1,0 +1,163 @@
+
+                #overlayCancelLaunchBtn {
+                    background: rgba(255, 255, 255, 0.11);
+                    border: 1px solid rgba(255, 255, 255, 0.28);
+                    border-radius: 9px;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-family: inherit;
+                    font-size: clamp(0.85rem, 1vw, 1.05rem);
+                    font-weight: 600;
+                    padding: 12px 28px;
+                    cursor: pointer;
+                    outline: none;
+                    transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    margin-top: 28px;
+                    pointer-events: all;
+                }
+                #overlayCancelLaunchBtn:focus,
+                #overlayCancelLaunchBtn:hover {
+                    background: #ffffff;
+                    color: #16202e;
+                    border-color: #ffffff;
+                    transform: translateY(-2px);
+                    box-shadow: 0 10px 28px rgba(4, 8, 15, 0.28);
+                }
+                /* O botÃ£o focado Ã© branco; mantÃ©m o A legÃ­vel sem voltar para
+                   a paleta colorida antiga. */
+                #overlayCancelLaunchBtn:focus .gp-hint,
+                #overlayCancelLaunchBtn:hover .gp-hint {
+                    background: #090a14 !important;
+                    border-color: #090a14 !important;
+                    color: #ffffff !important;
+                    box-shadow: none !important;
+                }
+                #overlayCancelLaunchBtn:active {
+                    transform: translateY(0);
+                    box-shadow: none;
+                }
+                #gameLaunchOverlay.execution-lock-visible #overlayCancelLaunchBtn,
+                #gameLaunchOverlay.execution-lock-visible #overlayDismissBtn {
+                    display: none !important;
+                }
+                #executionLockActions {
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 16px;
+                    width: 100%;
+                    margin-top: 18px;
+                    pointer-events: all;
+                }
+                #gameLaunchOverlay.execution-lock-visible #executionLockActions {
+                    display: flex;
+                }
+                #gameLaunchOverlay.execution-lock-visible .status-running {
+                    justify-content: center;
+                    min-height: 0;
+                    gap: 0;
+                }
+                #executionLockActions .lock-action {
+                    min-width: 196px;
+                    border: 1px solid #ffffff;
+                    border-bottom: 3px solid rgba(0,0,0,0.32);
+                    border-radius: 12px;
+                    background: #ffffff;
+                    color: #080817;
+                    font-family: inherit;
+                    font-size: clamp(0.88rem, 0.95vw, 1rem);
+                    font-weight: 700;
+                    padding: 12px 22px;
+                    outline: none;
+                    cursor: pointer;
+                    transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease;
+                }
+                #executionLockActions .lock-action:focus,
+                #executionLockActions .lock-action:hover {
+                    background: #fff;
+                    color: #080817;
+                    border-color: #fff;
+                    transform: translateY(-2px) scale(1.04);
+                    box-shadow: 0 12px 30px rgba(255,255,255,.22), 0 0 0 2px rgba(255,255,255,.16);
+                }
+                #executionLockActions .lock-action.danger {
+                    background: rgba(255, 77, 94, 0.14);
+                    color: #ff7f8d;
+                    border-color: #ff4d5e;
+                    box-shadow: 0 10px 24px rgba(255,77,94,.12), 0 0 0 1px rgba(255,77,94,.14);
+                }
+                #executionLockActions .lock-action.danger:focus,
+                #executionLockActions .lock-action.danger:hover {
+                    background: rgba(255, 77, 94, 0.22);
+                    color: #fff;
+                    border-color: #ff4d5e;
+                    box-shadow: 0 12px 30px rgba(255,77,94,.26), 0 0 0 2px rgba(255,77,94,.16);
+                }
+                #executionLockSessionPair {
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    width: 100%;
+                    margin-top: 10px;
+                    margin-bottom: 2px;
+                    pointer-events: none;
+                }
+                #gameLaunchOverlay.execution-lock-visible.has-session-pair #executionLockSessionPair {
+                    display: flex;
+                }
+                #executionLockSessionPair .pair-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    min-width: 138px;
+                    max-width: 214px;
+                    padding: 6px 9px;
+                    border-radius: 10px;
+                    border: 1px solid rgba(255,255,255,.16);
+                    background: rgba(10,10,20,.50);
+                }
+                #executionLockSessionPair .pair-chip.store {
+                    border-color: rgba(122, 184, 255, 0.42);
+                    background: rgba(26, 56, 98, 0.28);
+                }
+                #executionLockSessionPair .pair-chip.game {
+                    border-color: rgba(80, 255, 195, 0.34);
+                    background: rgba(17, 64, 53, 0.24);
+                }
+                #executionLockSessionPair .pair-thumb {
+                    width: 30px;
+                    height: 42px;
+                    border-radius: 7px;
+                    background: #1b1f36;
+                    background-size: cover;
+                    background-position: center;
+                    border: 1px solid rgba(255,255,255,.14);
+                    flex: 0 0 auto;
+                }
+                #executionLockSessionPair .pair-meta {
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
+                #executionLockSessionPair .pair-role {
+                    font-size: .66rem;
+                    font-weight: 600;
+                    letter-spacing: .04em;
+                    text-transform: uppercase;
+                    color: rgba(255,255,255,.58);
+                }
+                #executionLockSessionPair .pair-name {
+                    font-size: .78rem;
+                    font-weight: 600;
+                    color: rgba(255,255,255,.92);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 142px;
+                }
+            

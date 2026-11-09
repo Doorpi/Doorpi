@@ -1,0 +1,332 @@
+/* Overlay de Carregamento Global do Modal */
+.global-loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(16,16,28,0.98);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.card.ctx-active {
+    transform: scale(1.02);
+    transition: filter 0.2s ease, transform 0.2s ease;
+    opacity: 1;
+    filter: brightness(1.05);
+    z-index: 10;
+}
+
+@keyframes pulseAnalyzing {
+    0% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0.4;
+    }
+}
+
+
+.folder-perf-dot.loading, .folder-perf-label.loading {
+    animation: pulseAnalyzing 1.5s ease-in-out infinite;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.folder-perf-dot.loading {
+    background: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.game-grid:has(.card.ctx-active) .card:not(.ctx-active)::after {
+    height: 100%;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0) -6%, rgb(0 0 0 / 3%) -26%, rgb(0 0 0 / 80%) -9%);
+}
+
+.folder-item.is-slow {
+    display: flex;
+    animation: editOverlayIn 0.3s ease;
+}
+
+.folder-item.is-slow {
+    border-color: rgba(220, 50, 50, 0.3);
+    background: rgba(220, 50, 50, 0.03);
+}
+.media-app-subtabs {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.subtab {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.45);
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(0.72rem, 0.85vw, 1rem);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 7px 18px;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.15s;
+}
+
+    .subtab.active {
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.35);
+        color: #fff;
+    }
+
+    .subtab:focus,
+    .subtab:hover {
+        background: rgba(255, 255, 255, 0.11);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+    }
+
+.subview {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+    .subview.hidden {
+        display: none;
+    }
+
+.web-app-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(10px, 1vw, 16px);
+    width: min(100%, 920px);
+    padding: clamp(16px, 1.6vw, 24px);
+    margin-top: clamp(12px, 1.2vw, 20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background:
+        radial-gradient(circle at 92% 10%, rgba(100, 160, 255, 0.12), transparent 34%),
+        linear-gradient(135deg, rgba(255,255,255,0.085), rgba(255,255,255,0.035)),
+        rgba(8, 8, 20, 0.42);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.web-app-field {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 0.8vw, 12px);
+    min-width: 0;
+}
+
+.web-app-label {
+    font-size: clamp(0.68rem, 0.76vw, 0.9rem);
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.web-app-input {
+    background: rgba(255, 255, 255, 0.085);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    padding: clamp(10px, 1vw, 14px) clamp(13px, 1.2vw, 18px);
+    color: #fff;
+    font-size: clamp(0.86rem, 0.9vw, 1.05rem);
+    font-family: 'Outfit', sans-serif;
+    outline: none;
+    box-sizing: border-box;
+    width: 100%;
+    cursor: pointer;
+    caret-color: transparent;
+    transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+    .web-app-input:focus {
+        border-color: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12);
+    }
+
+    .web-app-input.error {
+        border-color: rgba(255, 80, 80, 0.8);
+        box-shadow: 0 0 0 3px rgba(255, 80, 80, 0.12);
+    }
+
+.web-app-hint {
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin-top: clamp(10px, 1vw, 16px);
+    color: rgba(255, 255, 255, 0.35);
+}
+
+    .web-app-hint.error {
+        color: rgba(255, 100, 100, 0.9);
+    }
+
+#subview-web .setup-api-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 10px;
+}
+
+#subview-web .setup-input,
+#subview-web .setup-icon-btn {
+    border-radius: 8px;
+}
+
+#subview-web .setup-input {
+    min-height: 0;
+    height: auto;
+    padding: clamp(10px, 1vw, 14px) clamp(13px, 1.2vw, 18px);
+    font-size: clamp(0.86rem, 0.9vw, 1.05rem);
+}
+
+#subview-web .setup-icon-btn {
+    min-width: 104px;
+    min-height: 0;
+    padding: 0 clamp(12px, 1vw, 16px);
+    gap: 8px;
+    justify-content: center;
+    text-transform: uppercase;
+}
+
+#btnWebAppBrowser {
+    min-width: 132px;
+}
+
+.web-app-action-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.92;
+}
+
+.web-app-browser-action-icon {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.9;
+    opacity: 0.96;
+}
+
+#subview-web .setup-input:focus,
+#subview-web .setup-icon-btn:focus,
+#subview-web .setup-icon-btn:hover {
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
+}
+
+@media (max-width: 900px) {
+    .web-app-form {
+        grid-template-columns: 1fr;
+    }
+
+    #subview-web .setup-api-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+#appListMedia {
+    height: 100%;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(clamp(190px, 14.5vw, 280px), 1fr));
+    gap: clamp(12px, 1.09vw, 22px);
+    padding: 6px 6px 100px;
+    align-content: start;
+}
+.tab-icon svg {
+    width: 2rem;
+    height: 2rem;
+    display: block;
+}
+
+.menu-tab {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.tab-icon svg {
+    stroke-width: 1.8;
+}
+
+
+/* Animação do card sendo removido (dura os ~280ms do seu timeout atual) */
+.card.removing {
+    animation: shrinkOut 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    pointer-events: none;
+}
+
+@keyframes shrinkOut {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(0.8) translateY(-20px);
+    }
+}
+
+/* Animação do 13º jogo subindo do Nav Menu para preencher a vaga */
+.card.promoted-up {
+    animation: slideUpFromNav 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    pointer-events: none; /* Evita que o hover dispare no meio do ar */
+    transform-origin: bottom center;
+}
+
+@keyframes slideUpFromNav {
+    0% {
+        opacity: 0;
+        transform: translateY(120px) scale(0.85); /* Começa lá embaixo, menor */
+    }
+
+    60% {
+        opacity: 1;
+        transform: translateY(-5px) scale(1.02); /* Dá um leve "quique" para cima */
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1); /* Assenta perfeitamente no grid */
+    }
+}
+/* Animação Premium PS5 Otimizada: Afundando no Vazio */
+.card.removing {
+    /* 1. MATA a transição nativa de hover para ela não brigar com a animação */
+    transition: none !important;
+    /* 2. Força o navegador a jogar esse card para a GPU (Placa de vídeo) */
+    will-change: transform, opacity;
+    /* 3. Tempo cravado em 280ms (0.28s) para bater com a remoção exata do seu JS */
+    animation: sinkIntoVoid 0.28s cubic-bezier(0.2, 0, 0, 1) forwards !important;
+    pointer-events: none !important;
+    z-index: 0 !important;
+}
+
+@keyframes sinkIntoVoid {
+    0% {
+        opacity: 1;
+        /* translateZ(0) reforça a aceleração de hardware */
+        transform: scale(1) translateZ(0);
+    }
+
+    100% {
+        opacity: 0;
+        /* Encolhe bastante (0.75) e desce sutilmente (10px) simulando peso e gravidade */
+        transform: scale(0.75) translateY(10px) translateZ(0);
+    }
+}
+

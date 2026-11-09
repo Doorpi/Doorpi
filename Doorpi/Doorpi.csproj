@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>0.0.1</Version>
+    <Version>0.4.31</Version>
     <Platforms>AnyCPU;x64</Platforms>
     <ApplicationIcon>Assets\doorpi.ico</ApplicationIcon>
     <UseWindowsDesktopSdk>true</UseWindowsDesktopSdk>
@@ -20,10 +20,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Doorpi.Storage\Doorpi.Storage.csproj" />
     <ProjectReference Include="..\DoorpiInputBridge\DoorpiInputBridge.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\DoorpiWindowsUpdateHelper\DoorpiWindowsUpdateHelper.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Doorpi.UpdateCore\Doorpi.UpdateCore.csproj" />
   </ItemGroup>
+
+  <PropertyGroup Condition="'$(DoorpiLocalTest)' == 'true'">
+    <DefineConstants>$(DefineConstants);DOORPI_LOCAL_TEST</DefineConstants>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="DiscordRichPresence" Version="1.6.1.70" />
@@ -155,5 +160,13 @@
   <ItemGroup>
     <Folder Include="Data\images\" />
   </ItemGroup>
+
+  <Target Name="BuildFrontendStyles" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\Build-FrontendStyles.ps1&quot;" />
+  </Target>
+
+  <Target Name="BuildFrontendScripts" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\Build-FrontendScripts.ps1&quot;" />
+  </Target>
 
 </Project>

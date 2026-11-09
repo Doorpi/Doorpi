@@ -74,9 +74,10 @@ namespace Doorpi
         private static readonly IReadOnlyList<EmulatorCatalogEntry> EmulatorCatalog = new[]
         {
             new EmulatorCatalogEntry { Id = "eden", Name = "Eden", ExecutableNames = new[] { "eden.exe", "eden-qt.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".xci", ".nsp", ".nca" } },
+            new EmulatorCatalogEntry { Id = "lichii", Name = "Lichii", ExecutableNames = new[] { "lichii.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".xci", ".nsp", ".nca" } },
             new EmulatorCatalogEntry { Id = "azahar", Name = "Azahar", ExecutableNames = new[] { "azahar.exe", "azahar-qt.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".3ds", ".cci", ".cxi", ".app" }, ScanMode = "azahar", SupportsInternalLibrary = true },
             new EmulatorCatalogEntry { Id = "ppsspp", Name = "PPSSPP", ExecutableNames = new[] { "ppssppwindows64.exe", "ppssppwindows.exe", "ppsspp.exe" }, LaunchTemplate = "{emulator} --fullscreen --pause-menu-exit {rom}", Extensions = new[] { ".iso", ".cso", ".pbp", ".elf" } },
-            new EmulatorCatalogEntry { Id = "rpcs3", Name = "RPCS3", ExecutableNames = new[] { "rpcs3.exe" }, LaunchTemplate = "{emulator} --no-gui --fullscreen {rom}", Extensions = new[] { ".elf", ".self" }, ScanMode = "rpcs3", SupportsInternalLibrary = true },
+            new EmulatorCatalogEntry { Id = "rpcs3", Name = "RPCS3", ExecutableNames = new[] { "rpcs3.exe" }, LaunchTemplate = "{emulator} --no-gui --fullscreen {rom}", Extensions = new[] { ".iso", ".elf", ".self" }, ScanMode = "rpcs3", SupportsInternalLibrary = true },
             new EmulatorCatalogEntry { Id = "xenia", Name = "Xenia", ExecutableNames = new[] { "xenia.exe", "xenia_canary.exe" }, LaunchTemplate = "{emulator} {rom} --fullscreen=true", Extensions = new[] { ".iso", ".xex", ".zar" } },
             new EmulatorCatalogEntry { Id = "citra", Name = "Citra", ExecutableNames = new[] { "citra-qt.exe", "citra.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".3ds", ".cci", ".cxi", ".app" }, ScanMode = "citra", SupportsInternalLibrary = true },
             new EmulatorCatalogEntry { Id = "vita3k", Name = "Vita3K", ExecutableNames = new[] { "vita3k.exe" }, LaunchTemplate = "{emulator} -F -r {titleId}", Extensions = new[] { ".vpk", ".zip" }, ScanMode = "vita3k", SupportsInternalLibrary = true },
@@ -290,29 +291,13 @@ namespace Doorpi
                 .ToList();
         }
 
-        private static IEnumerable<string> EnumerateFilesSafely(string root, int maxFiles = 6000)
-        {
-            var pending = new Stack<string>();
-            pending.Push(root);
-            int yielded = 0;
-            while (pending.Count > 0 && yielded < maxFiles)
-            {
-                string folder = pending.Pop();
-                try
-                {
-                    foreach (string child in Directory.EnumerateDirectories(folder)) pending.Push(child);
-                }
-                catch { }
+        private sealed class EmulatorScanStatus { public bool Complete { get; set; } = true; }
 
-                IEnumerable<string> files;
-                try { files = Directory.EnumerateFiles(folder).ToArray(); }
-                catch { continue; }
-                foreach (string file in files)
-                {
-                    yield return file;
-                    if (++yielded >= maxFiles) yield break;
-                }
-            }
+        private static IEnumerable<string> EnumerateFilesSafely(string root, int maxFiles = 6000, EmulatorScanStatus? status = null)
+        {
+            var scan = Doorpi.Storage.FileInventory.Scan(root, maxFiles);
+            if (status != null) status.Complete &= scan.Complete;
+            return scan.Files;
         }
 
         private static string CleanEmulatorGameName(string rawName)
@@ -1004,17 +989,20 @@ namespace Doorpi
         {
             string title = "";
             string titleId = "";
-            if (catalogId is "eden" or "yuzu" or "ryujinx")
+            if (catalogId is "eden" or "lichii" or "yuzu" or "ryujinx")
             {
                 titleId = TryReadSwitchTitleId(file);
                 title = TryReadSwitchCachedTitle(executablePath, titleId);
             }
             else if (scanMode == "rpcs3")
             {
+                byte[]? discSfo = Path.GetExtension(file).Equals(".iso", StringComparison.OrdinalIgnoreCase)
+                    ? TryReadIso9660File(file, "PS3_GAME", "PARAM.SFO")
+                    : null;
                 var directory = FindParentContainingFile(file, "PARAM.SFO");
                 string sfo = Path.Combine(directory?.FullName ?? "", "PARAM.SFO");
-                title = TryReadSfoFile(sfo);
-                titleId = TryReadSfoFileValue(sfo, "TITLE_ID");
+                title = discSfo != null ? TryReadSfoValue(discSfo, "TITLE") : TryReadSfoFile(sfo);
+                titleId = discSfo != null ? TryReadSfoValue(discSfo, "TITLE_ID") : TryReadSfoFileValue(sfo, "TITLE_ID");
                 if (string.IsNullOrWhiteSpace(titleId) && directory != null &&
                     Regex.IsMatch(directory.Name, @"^[A-Z]{4}\d{5}$", RegexOptions.IgnoreCase))
                     titleId = directory.Name.ToUpperInvariant();
@@ -1151,8 +1139,10 @@ namespace Doorpi
             string executablePath,
             string catalogId,
             IReadOnlyCollection<string> romFolders,
-            IReadOnlyCollection<string> requestedExtensions)
+            IReadOnlyCollection<string> requestedExtensions,
+            EmulatorScanStatus? status = null)
         {
+            if (status != null && romFolders.Any(folder => !Directory.Exists(folder))) status.Complete = false;
             var catalog = EmulatorCatalog.FirstOrDefault(entry => entry.Id == catalogId) ?? DetectEmulator(executablePath);
             string scanMode = catalog?.ScanMode ?? "files";
             var extensions = new HashSet<string>(
@@ -1161,6 +1151,8 @@ namespace Doorpi
                 StringComparer.OrdinalIgnoreCase);
             if ((catalog?.Id ?? catalogId).Equals("duckstation", StringComparison.OrdinalIgnoreCase))
                 extensions.Add(".m3u");
+            // Existing RPCS3 configurations predate ISO support and retain their saved extensions.
+            if (scanMode == "rpcs3") extensions.Add(".iso");
             var results = new List<EmulatorRomPreview>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -1179,7 +1171,7 @@ namespace Doorpi
             foreach (var scanFolder in scanFolders)
             {
                 string folder = scanFolder.Path;
-                foreach (string file in EnumerateFilesSafely(folder))
+                foreach (string file in EnumerateFilesSafely(folder, status: status))
                 {
                     string fileName = Path.GetFileName(file);
                     string extension = Path.GetExtension(file);
@@ -1187,9 +1179,15 @@ namespace Doorpi
                     if (scanMode == "rpcs3")
                     {
                         var gameDirectory = FindParentContainingFile(file, "PARAM.SFO");
-                        include = fileName.Equals("EBOOT.BIN", StringComparison.OrdinalIgnoreCase) &&
-                                  gameDirectory != null &&
-                                  IsRpcS3InternalInstalledGame(file, gameDirectory);
+                        // Disc images and standalone executables belong to configured ROM folders.
+                        // Keep the bootable-game check for installed titles to exclude update data.
+                        include = (scanFolder.IsConfigured && extensions.Contains(extension) &&
+                                   (extension.Equals(".iso", StringComparison.OrdinalIgnoreCase) ||
+                                    extension.Equals(".elf", StringComparison.OrdinalIgnoreCase) ||
+                                    extension.Equals(".self", StringComparison.OrdinalIgnoreCase)) &&
+                                   (gameDirectory == null || IsRpcS3InternalInstalledGame(file, gameDirectory))) ||
+                                  (fileName.Equals("EBOOT.BIN", StringComparison.OrdinalIgnoreCase) &&
+                                   gameDirectory != null && IsRpcS3InternalInstalledGame(file, gameDirectory));
                     }
                     else if (scanMode == "vita3k")
                         include = extensions.Contains(extension) ||
@@ -1419,6 +1417,9 @@ namespace Doorpi
 
         private async Task SaveEmulatorAndGamesAsync(JsonElement root)
         {
+            string ownerAtStart = currentUserId;
+            string configurationPath = EmulatorConfigFile;
+            long configurationRevision = Doorpi.Storage.StateStorage.GetRevision(configurationPath);
             if (!root.TryGetProperty("config", out var configEl) || configEl.ValueKind != JsonValueKind.Object)
                 return;
 
@@ -1518,15 +1519,15 @@ namespace Doorpi
                 configs[existingConfigIndex] = config;
             }
             else configs.Add(config);
-            SaveEmulatorConfigs(configs);
 
             var games = LoadGames();
+            var obsoleteArtwork = new List<GameModel>();
             var retainedPaths = previewGames.Select(item => item.RomPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var stale in games.Where(game =>
                 string.Equals(game.EmulatorId, configId, StringComparison.OrdinalIgnoreCase) &&
                 !retainedPaths.Contains(game.RomPath)).ToList())
             {
-                DeleteGameImages(stale);
+                obsoleteArtwork.Add(stale);
                 games.Remove(stale);
             }
             var addedIds = new List<string>();
@@ -1587,7 +1588,12 @@ namespace Doorpi
                 existing.ArtworkSource = "pending";
                 if (newlyAdded) addedIds.Add(existing.Path);
             }
-            SaveGames(games);
+            if (!string.Equals(ownerAtStart, currentUserId, StringComparison.OrdinalIgnoreCase))
+                throw new OperationCanceledException("O perfil mudou antes de salvar o emulador.");
+            SaveGames(games,
+                new Dictionary<string, string?> { [configurationPath] = JsonSerializer.Serialize(configs, IndentedJsonOptions) },
+                new Dictionary<string, long> { [configurationPath] = configurationRevision });
+            foreach (var stale in obsoleteArtwork) DeleteGameImages(stale);
 
             Dispatcher.Invoke(() =>
             {
@@ -1679,13 +1685,14 @@ namespace Doorpi
                             game.HeroSourceUrl = heroUrl;
                             game.IsPendingArtwork = false;
                             game.ArtworkSource = !string.IsNullOrWhiteSpace(game.GridImage) ? "steamgriddb" : "no-art";
-                            SaveGames(currentGames);
+                            SaveGameArtwork(currentGames, game);
                             SendGameUpdateToUI(game);
                         }
                     }
                     catch (Exception ex)
                     {
                         Debug.WriteLine("[Emulators] Download de capa falhou: " + ex.Message);
+                        if (!string.Equals(currentUserId, userAtStart, StringComparison.OrdinalIgnoreCase)) return;
                         try
                         {
                             var currentGames = LoadGames();
@@ -1696,7 +1703,7 @@ namespace Doorpi
                             {
                                 game.IsPendingArtwork = false;
                                 game.ArtworkSource = string.IsNullOrWhiteSpace(game.GridImage) ? "no-art" : game.ArtworkSource;
-                                SaveGames(currentGames);
+                                SaveGameArtwork(currentGames, game);
                                 SendGameUpdateToUI(game);
                             }
                         }
@@ -1824,21 +1831,25 @@ namespace Doorpi
                 if (configs.Count == 0) return;
 
                 var scannedByConfig = new Dictionary<string, List<EmulatorRomPreview>>(StringComparer.OrdinalIgnoreCase);
+                var completeByConfig = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
                 foreach (var config in configs)
                 {
                     if (!string.Equals(currentUserId, userAtStart, StringComparison.OrdinalIgnoreCase)) return;
+                    var scanStatus = new EmulatorScanStatus();
                     var scanned = await Task.Run(() => ScanEmulatorRoms(
                         config.ExecutablePath,
                         config.CatalogId,
                         config.RomFolders,
-                        config.Extensions)).ConfigureAwait(false);
+                        config.Extensions, scanStatus)).ConfigureAwait(false);
                     scannedByConfig[config.Id] = scanned;
+                    completeByConfig[config.Id] = scanStatus.Complete;
                 }
 
                 if (!string.Equals(currentUserId, userAtStart, StringComparison.OrdinalIgnoreCase)) return;
                 var games = LoadGames();
                 int removed = 0;
                 int updated = 0;
+                var removedArtwork = new List<GameModel>();
                 var added = new List<(EmulatorConfigModel Config, EmulatorRomPreview Preview)>();
 
                 foreach (var config in configs)
@@ -1846,11 +1857,11 @@ namespace Doorpi
                     var scanned = scannedByConfig[config.Id];
                     var currentPaths = scanned.Select(item => Path.GetFullPath(item.RomPath))
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    foreach (var stale in games.Where(game =>
+                    foreach (var stale in games.Where(game => completeByConfig[config.Id] &&
                         string.Equals(game.EmulatorId, config.Id, StringComparison.OrdinalIgnoreCase) &&
                         (string.IsNullOrWhiteSpace(game.RomPath) || !currentPaths.Contains(Path.GetFullPath(game.RomPath)))).ToList())
                     {
-                        DeleteGameImages(stale);
+                        removedArtwork.Add(stale);
                         games.Remove(stale);
                         removed++;
                     }
@@ -1906,6 +1917,7 @@ namespace Doorpi
                 if (removed > 0 || added.Count > 0 || updated > 0)
                 {
                     SaveGames(games);
+                    foreach (var stale in removedArtwork) DeleteGameImages(stale);
                     Dispatcher.Invoke(() =>
                     {
                         if (!string.Equals(currentUserId, userAtStart, StringComparison.OrdinalIgnoreCase)) return;

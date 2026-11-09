@@ -1,0 +1,110 @@
+/* Home de console: mais espaço para contexto e uma prateleira mais densa. */
+.main-content-wrapper {
+    --card-w: clamp(132px, min(10.2vw, 18.9vh), 268px);
+    padding-top: clamp(72px, 8vh, 108px);
+    gap: clamp(7px, .9vh, 14px);
+}
+
+.home-feature-stage {
+    height: min(38vh, 540px);
+    gap: clamp(30px, 4vw, 76px);
+}
+
+.home-feature-copy {
+    width: min(100%, 760px);
+    gap: clamp(9px, 1.05vh, 16px);
+}
+
+#gameLogo {
+    max-width: min(31vw, 500px);
+    max-height: min(16vh, 168px);
+}
+
+.home-feature-title {
+    max-width: 18ch;
+    font-size: clamp(1.7rem, 2.55vw, 3.65rem);
+    line-height: 1.04;
+}
+
+.home-feature-stage.has-logo .home-feature-title {
+    font-size: clamp(1.02rem, 1.28vw, 1.55rem);
+}
+
+.home-feature-meta,
+.home-feature-description {
+    font-size: clamp(.84rem, .92vw, 1.08rem);
+}
+
+.home-feature-playtime strong {
+    font-size: clamp(1.38rem, 1.75vw, 2.2rem);
+}
+
+.home-feature-primary {
+    font-size: clamp(.9rem, .98vw, 1.16rem);
+}
+
+.home-library-toolbar {
+    min-height: clamp(40px, 4.8vh, 58px);
+}
+
+.main-content-wrapper .home-tab,
+.home-library-count {
+    font-size: clamp(.82rem, .92vw, 1.08rem);
+}
+
+body.home-trailer-playing .home-feature-copy {
+    width: clamp(420px, 30vw, 620px);
+    max-width: min(64vw, 620px);
+    padding: clamp(18px, 1.45vw, 26px);
+    gap: clamp(8px, .8vh, 13px);
+}
+
+body.home-trailer-playing .home-feature-copy #gameLogo {
+    max-width: min(20vw, 300px);
+    max-height: min(11vh, 110px);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-title,
+body.home-trailer-playing .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
+    font-size: clamp(1rem, 1.25vw, 1.48rem);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-meta,
+body.home-trailer-playing .home-feature-copy .home-feature-playtime-label,
+body.home-trailer-playing .home-feature-copy .home-feature-playtime small {
+    font-size: clamp(.7rem, .72vw, .86rem);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-playtime strong {
+    font-size: clamp(1.22rem, 1.5vw, 1.8rem);
+}
+
+body.home-trailer-playing .home-feature-copy .home-feature-primary {
+    font-size: clamp(.82rem, .88vw, 1rem);
+}
+
+@media (max-height: 900px), (max-width: 1500px) {
+    .main-content-wrapper {
+        --card-w: clamp(121px, min(9.55vw, 17.65vh), 202px);
+        padding-top: clamp(62px, 7.5vh, 78px);
+    }
+
+    .home-feature-stage {
+        height: min(34vh, 340px);
+        gap: clamp(22px, 3vw, 46px);
+    }
+
+    .home-feature-copy {
+        width: min(100%, 650px);
+    }
+}
+
+@media (max-height: 720px) {
+    .main-content-wrapper {
+        --card-w: clamp(107px, min(8.95vw, 16.45vh), 161px);
+    }
+
+    .home-feature-stage {
+        height: min(28vh, 205px);
+    }
+}

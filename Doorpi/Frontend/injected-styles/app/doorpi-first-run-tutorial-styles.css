@@ -1,0 +1,173 @@
+
+                .doorpi-first-run-tutorial {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 18500;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    padding: clamp(28px, 6vw, 92px);
+                    background: radial-gradient(circle at 50% 45%, rgba(32,52,92,.26), transparent 42%), rgba(0,0,8,.74);
+                    backdrop-filter: blur(14px) brightness(.72);
+                    -webkit-backdrop-filter: blur(14px) brightness(.72);
+                    color: #fff;
+                    text-align: center;
+                }
+                .doorpi-first-run-tutorial.visible { display: flex; }
+                .first-run-panel {
+                    width: min(920px, 90vw);
+                    display: grid;
+                    gap: clamp(16px, 2.1vh, 30px);
+                    animation: firstRunIn .36s cubic-bezier(.2,.9,.2,1) both;
+                }
+                @keyframes firstRunIn {
+                    from { opacity: 0; transform: translateY(18px) scale(.985); }
+                    to { opacity: 1; transform: none; }
+                }
+                .first-run-title {
+                    margin: 0;
+                    font-size: clamp(1.8rem, 3.8vw, 4.8rem);
+                    line-height: .95;
+                    font-weight: 300;
+                    letter-spacing: -.035em;
+                    text-shadow: 0 0 42px rgba(125,203,255,.22), 0 18px 80px rgba(0,0,0,.72);
+                }
+                .first-run-copy {
+                    display: grid;
+                    gap: clamp(10px, 1.35vh, 17px);
+                    margin: 0 auto;
+                    max-width: 780px;
+                    color: rgba(255,255,255,.82);
+                    font-size: clamp(1rem, 1.28vw, 1.58rem);
+                    line-height: 1.34;
+                    font-weight: 340;
+                }
+                .first-run-copy p {
+                    margin: 0;
+                }
+                .first-run-action {
+                    justify-self: center;
+                    min-width: clamp(170px, 14vw, 260px);
+                    min-height: clamp(46px, 5vh, 62px);
+                    border: 1px solid rgba(255,255,255,.18);
+                    border-radius: 10px;
+                    background: rgba(255,255,255,.88);
+                    color: #050711;
+                    font: inherit;
+                    font-size: clamp(.9rem, 1.02vw, 1.18rem);
+                    font-weight: 760;
+                    letter-spacing: .02em;
+                    outline: none;
+                    cursor: pointer;
+                    box-shadow: 0 20px 60px rgba(0,0,0,.42), 0 0 34px rgba(125,203,255,.16);
+                    transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+                }
+                .first-run-action:focus,
+                .first-run-action:hover {
+                    transform: translateY(-2px) scale(1.03);
+                    background: #fff;
+                    box-shadow: 0 24px 70px rgba(0,0,0,.52), 0 0 0 5px rgba(255,255,255,.16), 0 0 44px rgba(125,203,255,.26);
+                }
+                .first-run-hint {
+                    color: rgba(255,255,255,.48);
+                    font-size: clamp(.84rem, 1vw, 1.12rem);
+                    letter-spacing: .12em;
+                    text-transform: uppercase;
+                }
+                .doorpi-shortcut-combo {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: .34em;
+                    white-space: nowrap;
+                    vertical-align: middle;
+                    transform: translateY(-.04em);
+                }
+                .doorpi-shortcut-plus {
+                    color: rgba(255,255,255,.42);
+                    font-size: .72em;
+                    font-weight: 760;
+                }
+                .doorpi-keycap {
+                    min-width: 2.45em;
+                    height: 1.62em;
+                    padding: 0 .62em;
+                    border-radius: .5em;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.055));
+                    border: 1px solid rgba(255,255,255,.30);
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.20), 0 .32em .9em rgba(0,0,0,.30);
+                    color: rgba(255,255,255,.94);
+                    font-size: .58em;
+                    font-weight: 860;
+                    letter-spacing: .08em;
+                }
+                .doorpi-xbox-logo-btn {
+                    width: 2.08em;
+                    height: 2.08em;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(180deg, #f6f6f7, #c9ccd2);
+                    border: 1px solid rgba(255,255,255,.48);
+                    box-shadow: inset 0 .12em .22em rgba(255,255,255,.58), inset 0 -.18em .34em rgba(0,0,0,.22), 0 .34em .82em rgba(0,0,0,.34);
+                    color: #151820;
+                }
+                .doorpi-xbox-logo-btn svg {
+                    width: 1.18em;
+                    height: 1.18em;
+                    display: block;
+                    fill: currentColor;
+                }
+                .doorpi-face-x {
+                    width: 1.45em;
+                    height: 1.45em;
+                    border-radius: 50%;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #003e92;
+                    color: #fff;
+                    font-size: .72em;
+                    font-weight: 900;
+                    line-height: 1;
+                    box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 .24em .6em rgba(0,0,0,.28);
+                    vertical-align: middle;
+                    transform: translateY(-.07em);
+                }
+                .first-run-em {
+                    color: rgba(255,255,255,.96);
+                    font-weight: 620;
+                    text-shadow: 0 0 26px rgba(125,203,255,.20);
+                }
+                .doorpi-stickcap {
+                    width: 2.08em;
+                    height: 2.08em;
+                    border-radius: 50%;
+                    position: relative;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background:
+                        radial-gradient(circle at 38% 30%, rgba(255,255,255,.26), transparent 18%),
+                        radial-gradient(circle at 50% 55%, rgba(255,255,255,.08), transparent 46%),
+                        linear-gradient(180deg, #303340, #11131b);
+                    border: 1px solid rgba(255,255,255,.22);
+                    box-shadow: inset 0 .18em .32em rgba(255,255,255,.08), inset 0 -.24em .42em rgba(0,0,0,.42), 0 .38em .9em rgba(0,0,0,.36);
+                    color: rgba(255,255,255,.95);
+                    font-size: .58em;
+                    font-weight: 900;
+                    letter-spacing: .04em;
+                }
+                .doorpi-stickcap::after {
+                    content: '';
+                    position: absolute;
+                    inset: 28%;
+                    border-radius: 50%;
+                    border: 1px solid rgba(255,255,255,.28);
+                    box-shadow: 0 0 0 .18em rgba(0,0,0,.14);
+                }
+            

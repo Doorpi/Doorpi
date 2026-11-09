@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "output": "wwwroot/style.css",
+  "baselineSha256": "e0041f9fabd98ba1d8bf1a10236a0ddaf4b0466e1478492cf5582b85a6cbdb7e",
+  "sources": [
+    {
+      "path": "foundation/010-fonts-and-display.css",
+      "originalStartLine": 1,
+      "originalEndLine": 40
+    },
+    {
+      "path": "components/020-loading-and-library-tokens.css",
+      "originalStartLine": 41,
+      "originalEndLine": 163
+    },
+    {
+      "path": "components/030-controller-hints.css",
+      "originalStartLine": 164,
+      "originalEndLine": 250
+    },
+    {
+      "path": "shell/040-document-and-home.css",
+      "originalStartLine": 251,
+      "originalEndLine": 449
+    },
+    {
+      "path": "components/050-library-cards-and-keyboard.css",
+      "originalStartLine": 450,
+      "originalEndLine": 873
+    },
+    {
+      "path": "features/060-add-dialog.css",
+      "originalStartLine": 874,
+      "originalEndLine": 1338
+    },
+    {
+      "path": "features/070-folders-and-dialog-actions.css",
+      "originalStartLine": 1339,
+      "originalEndLine": 1764
+    },
+    {
+      "path": "features/080-scrollbars-and-library-loading.css",
+      "originalStartLine": 1765,
+      "originalEndLine": 2593
+    },
+    {
+      "path": "features/090-loading-media-and-card-transitions.css",
+      "originalStartLine": 2594,
+      "originalEndLine": 2925
+    },
+    {
+      "path": "shell/100-reset-and-demo-controls.css",
+      "originalStartLine": 2926,
+      "originalEndLine": 2967
+    },
+    {
+      "path": "features/110-launch-overlay.css",
+      "originalStartLine": 2968,
+      "originalEndLine": 3392
+    },
+    {
+      "path": "shell/120-session-visibility.css",
+      "originalStartLine": 3393,
+      "originalEndLine": 3404
+    },
+    {
+      "path": "features/130-launch-presentation.css",
+      "originalStartLine": 3405,
+      "originalEndLine": 3777
+    },
+    {
+      "path": "components/140-home-tabs-and-controller-hints.css",
+      "originalStartLine": 3778,
+      "originalEndLine": 3911
+    },
+    {
+      "path": "cascade/150-console-direction.css",
+      "originalStartLine": 3912,
+      "originalEndLine": 4302
+    },
+    {
+      "path": "cascade/160-tv-readability.css",
+      "originalStartLine": 4303,
+      "originalEndLine": 4503
+    },
+    {
+      "path": "cascade/170-console-legibility.css",
+      "originalStartLine": 4504,
+      "originalEndLine": 4745
+    },
+    {
+      "path": "cascade/180-unified-shell.css",
+      "originalStartLine": 4746,
+      "originalEndLine": 4960
+    },
+    {
+      "path": "cascade/190-dialog-and-keyboard-refinements.css",
+      "originalStartLine": 4961,
+      "originalEndLine": 5107
+    },
+    {
+      "path": "features/200-emulators.css",
+      "originalStartLine": 5108,
+      "originalEndLine": 5785
+    },
+    {
+      "path": "features/210-editorial-home.css",
+      "originalStartLine": 5786,
+      "originalEndLine": 6817
+    },
+    {
+      "path": "cascade/220-home-density.css",
+      "originalStartLine": 6818,
+      "originalEndLine": 6927
+    }
+  ]
+}

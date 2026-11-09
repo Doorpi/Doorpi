@@ -49,30 +49,6 @@ namespace Doorpi
 
 
         // =====================================================================
-        // MÓDULO 2 — PERMISSÕES DE IMERSÃO E DRM
-        // =====================================================================
-        // Anexar ao PermissionRequested de _ytWebView E _popupWebView.
-        // Aprovação silenciosa para DRM (Netflix/Prime/Max em HD).
-        // Negação silenciosa para permissões invasivas (quebram imersão de console).
-        // =====================================================================
-        private void OnWebViewPermissionRequested(
-            object? sender,
-            CoreWebView2PermissionRequestedEventArgs e)
-        {
-            switch (e.PermissionKind)
-            {
-                case CoreWebView2PermissionKind.Notifications:
-                case CoreWebView2PermissionKind.Geolocation:
-                case CoreWebView2PermissionKind.Camera:
-                case CoreWebView2PermissionKind.Microphone:
-                default:
-                    e.State = CoreWebView2PermissionState.Deny;
-                    break;
-            }
-        }
-
-
-        // =====================================================================
         // MÓDULO 3 — SMTC (SYSTEM MEDIA TRANSPORT CONTROLS)
         // =====================================================================
         // Integra a barra de mídia nativa do Windows com o player do WebView2.

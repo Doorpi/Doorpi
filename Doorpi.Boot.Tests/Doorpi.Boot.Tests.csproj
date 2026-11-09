@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Doorpi/Boot/BootSessionSignals.cs" Link="BootSessionSignals.cs" />
+    <Compile Include="../Doorpi/Boot/BootSessionSupervisor.cs" Link="BootSessionSupervisor.cs" />
+    <Compile Include="../Doorpi/Boot/BootConfiguration.cs" Link="BootConfiguration.cs" />
+    <Compile Include="../Doorpi/Boot/BootLaunchPolicy.cs" Link="BootLaunchPolicy.cs" />
+    <Compile Include="../Doorpi/Boot/BootStartupSelection.cs" Link="BootStartupSelection.cs" />
+    <Compile Include="../Doorpi/Boot/BootStartupTrace.cs" Link="BootStartupTrace.cs" />
+    <Compile Include="../Doorpi/Boot/BootProcessHandoff.cs" Link="BootProcessHandoff.cs" />
+    <Compile Include="../Doorpi/Boot/InProcessBootSession.cs" Link="InProcessBootSession.cs" />
+    <Compile Include="../Doorpi/Boot/LatestStartupProbe.cs" Link="LatestStartupProbe.cs" />
+  </ItemGroup>
+</Project>
