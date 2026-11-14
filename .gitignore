@@ -85,6 +85,20 @@ artifacts/
 /docs/architecture/current-inventory.json
 /Doorpi/Frontend/style-inventory.json
 
+# Private engineering instructions and working documentation stay local.
+AGENTS.md
+/.internal-docs/
+/docs/
+/Doorpi.Storage/README.md
+/Doorpi/Boot/README.md
+/Doorpi/Frontend/README.md
+/Doorpi/Frontend/module-map.md
+/Doorpi/Frontend/themes/README.md
+/Doorpi/wwwroot/intros/README.md
+/Doorpi/wwwroot/native-assets/README.md
+/ThemeSDK/README.md
+/ThemeSDK/ORBIT.md
+
 # Local SQLite state, journals and migration snapshots
 *.db
 *.db-journal
