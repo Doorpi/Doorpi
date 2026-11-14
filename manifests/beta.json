@@ -1,45 +1,63 @@
 {
   "schemaVersion": 1,
   "channel": "beta",
-  "manifestVersion": 1794204851452,
-  "publishedAt": "2026-11-09T06:16:17.0450312Z",
-  "expiresAt": "2026-11-23T06:16:17.0450312Z",
+  "manifestVersion": 1794672052431,
+  "publishedAt": "2026-11-14T16:02:34.7250017Z",
+  "expiresAt": "2026-11-28T16:02:34.7250017Z",
   "minimumSupportedManifestVersion": 1,
   "doorpi": {
-    "version": "0.4.31",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.4.31/doorpi-0.4.31.doorpiupdate.zip",
-    "sha256": "676d0ff273c51c833f65dbefdf2b0e47eca54c4afb7171127cd2a27bd9f940c4",
-    "sizeBytes": 137932888,
-    "minUpdaterVersion": "0.1.2",
+    "version": "0.5.30",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.5.30/doorpi-0.5.30.doorpiupdate.zip",
+    "sha256": "d3ab93ad4f55b5a4a3b09c0ef5fa5df50709f359501f86789108d305cb9aa6cf",
+    "sizeBytes": 138000245,
+    "minUpdaterVersion": "0.1.3",
     "forceUpdate": false,
     "allowRollback": false
   },
   "updater": {
-    "version": "0.1.2",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.4.31/updater-0.1.2.doorpiupdate.zip",
-    "sha256": "5ebfc81f6e17d90e43cd6965cbdab824327647102a8600bde0ce02805aed5c2d",
-    "sizeBytes": 73546282,
+    "version": "0.1.3",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.5.30/updater-0.1.3.doorpiupdate.zip",
+    "sha256": "7990031de4743c04ef53db21406688998bcc79a09465f66b0ab9db2b7494da77",
+    "sizeBytes": 73552334,
     "forceUpdate": false,
     "allowRollback": false
   },
   "changelog": [
     {
-      "version": "0.4.31",
-      "title": "Doorpi 0.4.31",
+      "version": "0.5.30",
+      "title": "Doorpi 0.5.30",
       "items": [
-        "Descreva as mudanças desta versão."
+        "Novo sistema de criação de temas da comunidade.",
+        "Adicionado gerenciamento de armazenamento do sistema.",
+        "Melhorias de desempenho e otimização.",
+        "Mudanças na identidade visual do programa.",
+        "Melhorias na navegação da biblioteca.",
+        "Novo bootstrap de inicialização no modo imersivo.",
+        "Mudanças na arquitetura de armazenamento dos dados do usuário."
       ],
       "locales": {
         "pt-BR": {
-          "title": "Doorpi 0.4.31",
+          "title": "Doorpi 0.5.30",
           "items": [
-            "Descreva as mudanças desta versão."
+            "Novo sistema de criação de temas da comunidade.",
+            "Adicionado gerenciamento de armazenamento do sistema.",
+            "Melhorias de desempenho e otimização.",
+            "Mudanças na identidade visual do programa.",
+            "Melhorias na navegação da biblioteca.",
+            "Novo bootstrap de inicialização no modo imersivo.",
+            "Mudanças na arquitetura de armazenamento dos dados do usuário."
           ]
         },
         "en": {
-          "title": "Doorpi 0.4.31",
+          "title": "Doorpi 0.5.30",
           "items": [
-            "Descreva as mudanças desta versão."
+            "New community theme creation system.",
+            "Added system storage management.",
+            "Performance improvements and optimizations.",
+            "Updated visual identity and appearance.",
+            "Improved library navigation.",
+            "New startup bootstrap for immersive mode.",
+            "Changes to the user data storage architecture."
           ]
         }
       }
@@ -48,6 +66,6 @@
   "signature": {
     "algorithm": "RSA-SHA256-PKCS1",
     "keyId": "6b65ba1c963d49d6",
-    "value": "YEfB8jRukMgF3hLDXHVIDZuGw8Pd8ZtbKvD7+IrVYZoOmTG4wOMHkDw0EfA3EjoFxsSIw9w+HW/Gpyd1gQZEHuTfuyyp6nVJxDMPyfXDkxDIoFAsbGPZR6+c03CqEcOB4dMy4pAICkxjgbPUEd/wILexDZqjuS3fhr919xS4Ix7SnMhKuz2lUjU+9+1Gx4OhnUl/KWZugNQPgLYBm6z9NMutyCX28VeLZUSvgcZ5vY98uVQYIj2g9iQTvHEbDapKI/mF69wtl3PjBebhsm0dUGveWQSfSHOEoJL/Qm5lQ1xQ+GsBlevZ15KzWR2O2hyAfBYenVl0UfY4O5THLoAkNuojrEN45dF74IKsVdTO/ecvKIMX/w3Orsp6UqANFQTlF7jQaJveceindUG151RN0lNS/VQcXMtLX8k7Sn+apgRjaL1/HxfF4tgZj36Eh3b+AoQl7LgpsJSZ4KMPH2eZmmBPkwnxS0f1pzipxnlCh2naAWEbU+/bup9LZ66DMwHk"
+    "value": "IacfQpFQqtUCYiDsap+qEaDuuJILFy6bfpWrQakwTABSNxaDxu7XfTRjPQLRFRZ61ONXDSLFzXRwNWMxzXWD4Wt0fGQggu2dVbxJZ3csssysZCw3dU7AsQniKRWGY9yICXPuAmKWwyBr7b2AdEozoG8atIyAufW4gH1lahao7s93bc/b+xWlik4GYtvrIWJKJkN1anwpcydLu4CtIJ9u++KJVCrkQdRLHAIbGcpld20vt5WztxRB7xONq+r5thA5ttKyo/bI0lYT3yLNC7xGLSX0zrrUWcFoDAIwpKm7B8p25lentHUxXmvFYo7lzOpbL1lDdT97WVeWOlYTNm5J/93uWWYFRi0yObK4GkAbozxWFWJAMPaqn1m6SCDoUHid96BqHNQonluVvkbOWsR+YVnjn/VUy98rGY5oKYJT0VPjsVwyMNT1amLO/iQBf2TRk21i2X7e1DzD/rvDmET4HvPquPteuj7R1RYWdNzU38hRFuu0XKwzyQm4R/fGbYKA"
   }
 }
