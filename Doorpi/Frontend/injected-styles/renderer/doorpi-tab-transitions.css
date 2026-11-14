@@ -3,7 +3,7 @@
         @keyframes slideInFromLeft {
             0% {
                 opacity: 0;
-                transform: translateX(-150px); /* Distância maior e mais perceptível */
+                transform: translateX(-12px);
             }
             100% {
                 opacity: 1;
@@ -15,7 +15,7 @@
         @keyframes slideInFromRight {
             0% {
                 opacity: 0;
-                transform: translateX(150px);
+                transform: translateX(12px);
             }
             100% {
                 opacity: 1;
@@ -26,7 +26,7 @@
         #gameGrid,
         #view-apps.active {
             /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
-            animation: slideInFromLeft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            animation: slideInFromLeft var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both !important;
             will-change: transform, opacity;
             backface-visibility: hidden; /* Força 2D por hardware, evita tremulação nos pixels */
         }
@@ -35,8 +35,11 @@
         #storesGrid,
         #view-media-apps.active,
         #view-folders.active {
-            animation: slideInFromRight 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            animation: slideInFromRight var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both !important;
             will-change: transform, opacity;
             backface-visibility: hidden;
         }
-    
+        @media (prefers-reduced-motion: reduce) {
+            #gameGrid, #mediaGrid, #storesGrid, #view-apps.active,
+            #view-media-apps.active, #view-folders.active { animation:none !important; }
+        }

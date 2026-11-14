@@ -1,0 +1,125 @@
+{
+  "id": "orbit",
+  "manifest": {
+    "schemaVersion": 1,
+    "apiVersion": 1,
+    "id": "orbit",
+    "name": "Orbit",
+    "version": "2.0.1",
+    "author": "Doorpi",
+    "parts": {
+      "home": {
+        "css": "parts/home.css",
+        "appearance": "parts/home.json"
+      },
+      "nav-menu": {
+        "css": "parts/nav-menu.css"
+      },
+      "side-panels": {
+        "css": "parts/side-panels.css"
+      },
+      "popups": {
+        "css": "parts/popups.css"
+      },
+      "login": {
+        "css": "parts/login.css"
+      }
+    }
+  },
+  "parts": {
+    "home": {
+      "css": "/* Orbit 2 — independent dossier + gallery. Only public SDK roots/regions. */\n:scope { color:#f2f1eb; }\n.main-content-wrapper {\n padding:clamp(112px, 14vh, 250px) 0 clamp(20px, 3vh, 64px);\n column-gap:clamp(24px, 3vw, 100px); row-gap:clamp(12px, 2vh, 38px);\n}\n.home-feature-stage {\n width:auto; height:100%; min-height:0; margin:0 0 0 clamp(30px, 4vw, 160px);\n align-self:stretch; align-content:stretch; transform:none;\n gap:clamp(18px, 3vh, 65px);\n}\n.home-feature-copy {\n width:100%; max-width:100%; padding:0; align-self:center;\n gap:clamp(8px, 1.3vh, 24px); align-content:center;\n}\n.home-feature-eyebrow { display:none; }\n.home-feature-copy #gameLogo { margin:0 0 1vh; max-width:95%; max-height:clamp(64px, 10vh, 200px); }\n.home-feature-title { max-width:25ch; }\n.home-feature-meta span { padding:0; }\n.home-feature-playtime {\n display:flex; flex-direction:column; align-items:flex-start;\n gap:4px; margin:clamp(6px, 1vh, 20px) 0; border:0; padding:0;\n}\n.home-feature-playtime[hidden] { display:none; }\n.home-feature-playtime-label { color:#a5b2ae; font-size:clamp(12px, .8vw, 25px); letter-spacing:.06em; }\n.home-feature-playtime strong { font-weight:400; }\n.home-feature-primary { margin:0; }\n.home-feature-art-shell {\n width:100%; height:auto; aspect-ratio:16 / 9; max-height:28vh;\n justify-self:stretch; align-self:end; transform:none;\n}\n.home-library-toolbar {\n width:100%; margin:0; min-height:40px; padding:0 clamp(24px, 2vw, 80px);\n align-self:end;\n}\n.home-library-rail { height:100%; display:flex; align-items:center; }\n.home-library-rail .game-grid { padding-top:30px; padding-bottom:30px; }\n.home-library-rail .card { border-radius:8px; }\n.home-library-rail .card:focus, .home-library-rail .card.nav-focused-el { transform:translateY(-4px); }\n.home-library-rail .card .title { font-size:clamp(13px, .95vw, 30px); font-weight:500; }\n.main-content-wrapper .home-tab { border-radius:3px; color:#a5b2ae; font-size:clamp(14px, 1.05vw, 32px); }\n.main-content-wrapper .home-tab.active { color:#f2f1eb; }\n.main-content-wrapper .home-tab:focus, .main-content-wrapper .home-tab.nav-focused-el {\n background:#d9eee510; border-color:#d7eee1;\n}\n.home-controls-bar { width:calc(100% - 8vw); margin:0 auto; padding-top:2vh; border-top:1px solid #d6eee21a; }\n.home-trailer-fullscreen-hint { bottom:0; right:0; font-size:clamp(12px, .8vw, 25px); }\n@media (max-aspect-ratio: 4 / 3) {\n .main-content-wrapper { column-gap:20px; grid-template-columns:minmax(0, 40fr) minmax(0, 60fr); }\n .home-feature-stage { margin-left:28px; }\n .home-feature-copy #gameLogo { max-width:90%; }\n}\n@media (max-height: 800px) {\n .main-content-wrapper { padding-top:110px; padding-bottom:16px; row-gap:8px; }\n .home-feature-copy { gap:7px; }\n .home-feature-copy #gameLogo { max-height:58px; margin-bottom:2px; }\n .home-feature-art-shell { max-height:23vh; }\n .home-feature-stage { gap:12px; }\n .home-controls-bar { display:flex; padding-top:10px; }\n}\n@media (prefers-reduced-motion: reduce) {\n .card, .home-feature-copy { transition:none; }\n}\n\n/* Native cinema is entered only by the user. Contextual CSS stays inside Home. */\n:scope:where(body.home-trailer-cinema *) .home-feature-copy {\n width:clamp(280px, 23vw, 600px); max-width:45vw; padding:18px;\n gap:10px; background:#101a1cdd; border-color:#d6eee226; border-radius:8px;\n}\n:scope:where(body.home-trailer-cinema *) .home-feature-copy #gameLogo {\n max-width:85%; max-height:10vh; margin:0;\n}\n:scope:where(body.home-trailer-cinema *) .home-feature-playtime { align-items:center; }\n\n.home-controls-bar .gp-hint-label, .home-controls-bar .gp-hint-key { font-size:clamp(12px, .8vw, 25px); }\n\nbutton, input, select, textarea { font-family:inherit; }\n",
+      "appearance": {
+        "schemaVersion": 1,
+        "apiVersion": 1,
+        "id": "orbit",
+        "name": "Orbit",
+        "tokens": {
+          "--doorpi-font-family": "'Segoe UI', system-ui, sans-serif",
+          "--doorpi-text-primary": "#f2f1eb",
+          "--doorpi-home-background": "linear-gradient(115deg, #101a1c, #14191c 44%, #0b0f12)",
+          "--doorpi-home-hero-height": "100%",
+          "--doorpi-home-hero-position": "center",
+          "--doorpi-home-hero-opacity": ".12",
+          "--doorpi-home-hero-filter": "saturate(.3)",
+          "--doorpi-home-hero-mask": "linear-gradient(90deg, transparent, #000 75%)",
+          "--doorpi-home-shade": "linear-gradient(90deg, #11191bee, #11191b99 32%, #0b0f1233)",
+          "--doorpi-home-glow": "radial-gradient(ellipse at 0% 100%, #77bca014, transparent 65%)",
+          "--doorpi-home-title-color": "#f2f1eb",
+          "--doorpi-home-secondary-title-color": "#e2e4e0",
+          "--doorpi-home-title-size": "clamp(24px, 2vw, 64px)",
+          "--doorpi-home-secondary-title-size": "clamp(20px, 1.35vw, 44px)",
+          "--doorpi-home-title-weight": "500",
+          "--doorpi-home-title-line-height": "1.15",
+          "--doorpi-home-meta-color": "#b0bbb8",
+          "--doorpi-home-meta-background": "transparent",
+          "--doorpi-home-meta-border": "0",
+          "--doorpi-home-meta-size": "clamp(13px, .9vw, 27px)",
+          "--doorpi-home-playtime-color": "#f2f1eb",
+          "--doorpi-home-playtime-label-color": "#a5b2ae",
+          "--doorpi-home-playtime-size": "clamp(22px, 1.75vw, 52px)",
+          "--doorpi-home-action-color": "#c1dfd1",
+          "--doorpi-home-action-key-background": "transparent",
+          "--doorpi-home-action-size": "clamp(16px, 1vw, 32px)",
+          "--doorpi-home-logo-width": "min(100%, 24vw)",
+          "--doorpi-home-logo-height": "clamp(64px, 10vh, 200px)",
+          "--doorpi-card-radius": "8px",
+          "--doorpi-card-gap": "clamp(20px, 2vw, 68px)",
+          "--doorpi-card-focus-color": "#e5f5ed",
+          "--doorpi-home-card-ratio": "1.5",
+          "--doorpi-home-card-filter": "saturate(.8) brightness(.8)",
+          "--doorpi-home-card-focus-filter": "none",
+          "--doorpi-home-card-focus-shadow": "0 12px 32px #00000044",
+          "--doorpi-home-card-width": "clamp(160px, min(20vw, 34vh), 720px)",
+          "--doorpi-home-card-width-compact": "clamp(160px, min(20vw, 34vh), 720px)",
+          "--doorpi-home-card-width-short": "clamp(140px, min(20vw, 34vh), 720px)",
+          "--doorpi-home-art-radius": "8px",
+          "--doorpi-home-art-border": "1px solid #d6eee21f",
+          "--doorpi-home-art-background": "#090e11",
+          "--doorpi-home-art-shadow": "none",
+          "--doorpi-home-art-shade": "none",
+          "--doorpi-clock-color": "#d5dfda",
+          "--doorpi-home-controls-color": "#a5b2ae"
+        },
+        "layout": {
+          "trailer": "feature-art",
+          "home": {
+            "areas": [
+              "feature toolbar",
+              "feature library",
+              "controls controls"
+            ],
+            "rows": "auto minmax(0, 1fr) auto",
+            "columns": "minmax(0, 34fr) minmax(0, 66fr)"
+          },
+          "feature": {
+            "areas": [
+              "copy",
+              "art"
+            ],
+            "rows": "minmax(0, 1fr) auto",
+            "columns": "minmax(0, 1fr)"
+          },
+          "copy": "title-first"
+        }
+      }
+    },
+    "nav-menu": {
+      "css": "/* Main menu: architectural frame, quiet categories, generous content canvas. */\n:scope { background:#0c1215; color:#f2f1eb; font-family:'Segoe UI', system-ui, sans-serif; }\n#navMenuBg { opacity:.06; }\n.nav-layout { padding:clamp(28px, 4vw, 140px); gap:clamp(22px, 3vh, 60px); }\n.nav-topbar { padding-top:0; border-bottom:1px solid #d6eee226; padding-bottom:clamp(14px, 2vh, 40px); }\n.nav-cat-list { gap:clamp(12px, 1.5vw, 48px); }\n.nav-cat-item { background:transparent; border-radius:3px; color:#a5b2ae; }\n.nav-cat-item.active { color:#f2f1eb; border-color:transparent; box-shadow:inset 0 -2px 0 #b7dccc; }\n.nav-cat-item.nav-focused { background:#e7eee7; color:#14211d; outline:2px solid #e7eee7; outline-offset:3px; }\n.nav-content { border:1px solid #d6eee21a; border-radius:10px; background:#141d20; padding:clamp(20px, 2.5vw, 80px); }\n.nav-content-title { color:#f2f1eb; font-weight:400; letter-spacing:-.03em; }\n.nav-content-subtitle { color:#a5b2ae; }\n.nav-settings-home-item { border-radius:5px; background:#1b2629; border:1px solid #d6eee21f; box-shadow:none; }\n.nav-settings-home-item.nav-focused-el { background:#243731; border-color:#c6e9d8; box-shadow:inset 3px 0 0 #c6e9d8; }\n.nav-settings-home-icon { background:transparent; color:#c6e9d8; }\n\n/* Library: permanent, labelled tools beside a fluid catalogue wall.\n   Keep the vertical tools at the left: core navigation traverses this boundary. */\n:scope { --orbit-library-tools:clamp(150px, 13vw, 420px); }\n.nav-library-pane { padding-left:calc(var(--orbit-library-tools) + 28px) !important; }\n.nav-library-actions { left:clamp(24px, 4vw, 140px); top:clamp(180px, 24vh, 500px); width:var(--orbit-library-tools); gap:12px; }\n.nav-library-action {\n width:100%; height:clamp(54px, 5vh, 108px); display:flex; align-items:center; justify-content:flex-start;\n gap:clamp(10px, 1vw, 32px); padding:12px; border:1px solid #d6eee226; border-left:0; border-radius:0 5px 5px 0;\n background:#1d2a2d; color:#c9d8d0; box-shadow:none;\n}\n.nav-library-action svg { width:clamp(22px, 1.7vw, 50px); height:clamp(22px, 1.7vw, 50px); flex-shrink:0; }\n.nav-library-action > span, .nav-library-action.nav-focused-el > span {\n position:static; padding:0; opacity:1; transform:none; background:none; color:inherit;\n font-size:clamp(13px, 1vw, 30px); font-weight:500;\n}\n.nav-library-action.nav-focused-el { transform:none; background:#e7eee7; color:#14211d; border-color:#e7eee7; box-shadow:none; }\n.nav-library-action.has-value::after { background:#b7dccc; }\n.nav-big-grid { grid-template-columns:repeat(auto-fill,minmax(clamp(145px, 11.5vw, 360px),1fr)); gap:clamp(18px, 2vw, 60px); align-content:start; }\n.nav-vertical-card { border-radius:6px; background:#223034; border:2px solid #d6eee21f; }\n.nav-vertical-card.nav-focused { transform:translateY(-3px); border-color:#d7eee1; box-shadow:0 10px 28px #00000044; }\n.nav-card-gradient { opacity:1; height:32%; background:linear-gradient(0deg,#081015f5,transparent); }\n.nav-vertical-card-title { opacity:1; transform:none; text-align:left; font-size:clamp(13px, .9vw, 28px); padding:12px; }\n.nav-library-search-sheet { background:#1c2b2d; border:1px solid #b7dccc; border-radius:6px; box-shadow:0 18px 56px #00000055; }\n.nav-library-expanded-search input { color:#f2f1eb; font-weight:400; }\n.nav-library-search-cancel { color:#c6e9d8; }\n.nav-library-filter-panel { background:#172628; border:1px solid #b7dccc66; border-radius:8px; box-shadow:0 18px 56px #00000066; }\n.nav-library-filter-option { border-radius:4px; color:#f2f1eb; }\n.nav-library-filter-option.nav-focused-el { background:#293f36; border-color:#c6e9d8; box-shadow:none; }\n.nav-library-filter-option.selected .nav-library-switch { background:#b7dccc; }\n.nav-library-filter-option.selected .nav-library-switch i { background:#14211d; }\n.nav-library-filter-footer button { border-radius:4px; }\n.nav-library-filter-footer button.nav-focused-el { background:#e7eee7; color:#14211d; box-shadow:none; }\n/* Profile and system settings keep their native controls inside the same frame. */\n.nav-profile-cover, .nav-profile-recent-card { border-radius:6px; border-color:#d6eee226; box-shadow:none; }\n.nav-profile-avatar-large { border-radius:10px; border-color:#b7dccc; }\n.nav-settings-section-title { color:#b7dccc; letter-spacing:.06em; }\n@media (max-height:800px) {\n .nav-layout { padding:22px; gap:14px; }\n .nav-topbar { padding-top:0; padding-bottom:12px; }\n .nav-content { padding:18px; }\n .nav-library-actions { left:30px; top:180px; }\n .nav-library-filter-panel { top:140px; max-height:calc(100vh - 180px); }\n}\n\n/* The header aligns with the cards, leaving a separate lane for the tools. */\n.nav-content:has(.dual-pane-active) .nav-content-header { margin-left:calc(var(--orbit-library-tools) + 28px); }\n\n/* Explicit readable floors also apply when the core uses a compact rem scale. */\n.nav-cat-label { font-size:clamp(16px, 1vw, 36px); }\n.nav-cat-item { padding:10px 16px; }\n.nav-content-title { font-size:clamp(28px, 2vw, 64px); }\n.nav-content-subtitle { font-size:clamp(14px, .95vw, 30px); }\n.nav-library-action > span { font-size:clamp(15px, 1vw, 30px); }\n\nbutton, input, select, textarea { font-family:inherit; }\n",
+      "appearance": null
+    },
+    "side-panels": {
+      "css": "/* Docked command panel + spacious two-column editors. Geometry of input is retained. */\n:scope { color:#f2f1eb; background:#0c1215; font-family:'Segoe UI', system-ui, sans-serif; }\n:scope.is-menu-only { background:#070d1199; }\n.dq-content { color:#f2f1eb; background:#0c1215; }\n.dq-heading, .dq-card h3 { color:#f2f1eb; }\n.dq-kicker, .dq-sub, .dq-card p { color:#b5c4bd; }\n.dq-card, .dq-action, .dq-release-notes, .dq-storage-category, .dq-program-row,\n.dq-drive-tab, .dq-storage-node-group, .dq-program-action, .dq-storage-back {\n background:#172428; color:#f2f1eb; border-color:#d6eee226;\n}\n.dq-release-head { background:#172428; color:#b5c4bd; }\n.dq-tab.active { color:#c6e9d8; border-bottom-color:#c6e9d8; }\n.dq-card:focus, .dq-card.nav-focused-el, .dq-action:focus, .dq-action.nav-focused-el,\n.dq-drive-tab:focus, .dq-drive-tab.nav-focused-el, .dq-program-action:focus,\n.dq-storage-node-group:focus, .dq-storage-back:focus {\n background:#263c33; color:#f2f1eb; border-color:#c6e9d8; box-shadow:0 0 0 2px #c6e9d8;\n}\n.dq-action.primary { background:#e7eee7; color:#14211d; }\n.dq-action.danger, .dq-program-action.danger { color:#ffc4c4; border-color:#ff969644; }\n.dq-progress-fill, .dq-storage-drive-track i { background:#b7dccc; }\n/* Embedded sound/network screens belong to the same scoped quick panel. */\n.sound-panel, .sound-drawer, .sound-volume-card,\n.wifi-detail-hero, .wifi-network-card, .wifi-toggle-row, .wifi-button, .wifi-back,\n.bt-detail-hero, .bt-device-card, .bt-toggle-row, .bt-button, .bt-back, .bt-pairing-panel {\n background:#172428; color:#f2f1eb; border-color:#d6eee226;\n}\n.sound-focus:focus, .sound-focus.nav-focused-el,\n.wifi-focus:focus, .wifi-focus.nav-focused-el,\n.bluetooth-focus:focus, .bluetooth-focus.nav-focused-el {\n background:#263c33; border-color:#c6e9d8; box-shadow:0 0 0 2px #c6e9d8;\n}\n.sound-slider-rail i, .sound-slider-shell.active:focus-within .sound-slider-rail i,\n.sound-volume-card.editing .sound-slider-rail i,\n.wifi-toggle.on, .bt-toggle.on { background:#b7dccc; box-shadow:none; }\n.wifi-eyebrow, .wifi-detail-hero p.connected, .wifi-network-state.connected,\n.wifi-network-card.connected .wifi-network-copy span,\n.bt-eyebrow, .bt-device-state.connected, .bt-detail-hero p.connected,\n.bt-device-card.connected .bt-device-copy span, .bt-device-card.pairing .bt-device-copy span { color:#b7dccc; }\n.wifi-network-card.connected, .bt-device-card.connected, .bt-device-card.pairing { border-color:#b7dccc66; background:#20372e; }\n.wifi-button.primary, .bt-button.primary,\n.bt-button.primary.bluetooth-focus:focus, .bt-button.primary.bluetooth-focus.nav-focused-el { background:#e7eee7; color:#14211d; }\n.wifi-spinner, .bt-spinner, .bt-card-spinner { border-color:#b7dccc40; border-top-color:#b7dccc; }\n.dq-sidebar {\n width:clamp(340px, 28vw, 900px); flex-basis:clamp(340px, 28vw, 900px); max-width:46vw;\n margin:clamp(16px, 2vh, 48px); border:1px solid #d6eee226; border-radius:12px;\n background:#131d20; box-shadow:0 20px 80px #00000055;\n padding:clamp(24px, 2.2vw, 72px); gap:clamp(16px, 2vh, 40px);\n}\n.dq-brand { padding:0 8px 2vh; border-bottom:1px solid #d6eee226; }\n.dq-brand-name { color:#b7dccc; letter-spacing:.24em; }\n.dq-title { color:#f2f1eb; font-weight:400; }\n.dq-menu { gap:8px; }\n.dq-menu-btn { border-radius:4px; color:#d3dfda; padding:12px 10px; }\n.dq-menu-btn.active { background:#22332e; color:#f2f1eb; border-color:#d6eee226; box-shadow:inset 2px 0 0 #b7dccc; }\n.dq-menu-btn:focus, .dq-menu-btn.nav-focused-el { background:#e7eee7; color:#14211d; border-color:#e7eee7; box-shadow:none; }\n.dq-menu-ico { background:transparent; color:inherit; }\n.dq-menu-label { font-weight:500; }\n.modal-layout { width:92vw; height:86vh; border:1px solid #d6eee226; border-radius:12px; background:#141d20 !important; box-shadow:0 24px 80px #00000055; }\n.modal-sidebar { background:#0e1619; border-right:1px solid #d6eee226; padding:clamp(24px, 2.5vw, 80px); }\n.modal-content-area { padding:clamp(24px, 3vw, 100px); }\n.menu-tab { border-radius:4px; color:#b5c4bd; }\n.menu-tab.active, .menu-tab:focus { color:#f2f1eb; background:#263c33; }\n.filter-btn { border-radius:4px; }\n.filter-btn.active, .filter-btn:focus { border-color:#b7dccc; }\n@media (max-height:800px) {\n .dq-sidebar { padding:20px; gap:12px; }\n .dq-menu-btn { padding:9px 8px; }\n .dq-menu { gap:4px; }\n .modal-sidebar, .modal-content-area { padding:22px; }\n}\n\nbutton, input, select, textarea { font-family:inherit; }\n",
+      "appearance": null
+    },
+    "popups": {
+      "css": "/* Dialogs share the command panel's edge and quiet accent. */\n:scope { font-family:'Segoe UI', system-ui, sans-serif; color:#f2f1eb; }\n:scope.edit-modal-overlay { background:#060b0fbb !important; }\n:scope.context-menu { background:#172328; border:1px solid #c6e9d83d; border-radius:8px; padding:10px; box-shadow:0 18px 56px #00000066; }\n.edit-modal { background:#172328 !important; border:1px solid #c6e9d83d; border-radius:10px; box-shadow:0 24px 80px #00000066; }\n.edit-modal-header { border-bottom:1px solid #d6eee226; }\n.edit-modal-title { color:#f2f1eb; font-weight:400; }\n.modal-btn { border-radius:4px; }\n.modal-btn.primary { background:#c6e9d8; color:#14211d; }\n.modal-btn:focus-visible { outline:2px solid #f2f1eb; outline-offset:4px; }\n.ctx-item:focus, .ctx-item.selected { background:#c6e9d8; color:#14211d; }\n.doorpi-update-shell { background:#172328; border:1px solid #c6e9d83d; border-radius:10px; }\n\n/* Editing becomes a right-hand sheet; its fields/actions retain the same DOM. */\n:scope.edit-modal-overlay { justify-content:flex-end; align-items:center; padding:4vw; }\n.edit-modal { width:clamp(420px, 38vw, 1080px); max-width:92vw; max-height:88vh; }\n.edit-modal-header, .edit-modal-body, .edit-modal-actions { padding:clamp(20px, 2vw, 56px); }\n.edit-modal-input { border-radius:4px; background:#0e191d; border-color:#d6eee23d; color:#f2f1eb; }\n.edit-modal-input:focus { border-color:#b7dccc; box-shadow:0 0 0 1px #b7dccc; }\n@media (max-width:1100px) { .edit-modal { width:min(640px, 92vw); } }\n\nbutton, input, select, textarea { font-family:inherit; }\n.edit-modal-input { font-size:clamp(16px, 1vw, 30px); min-height:48px; }\n.edit-modal-label { font-size:clamp(12px, .8vw, 24px); color:#b5c4bd; }\n.edit-modal-title { font-size:clamp(24px, 1.5vw, 48px); }\n",
+      "appearance": null
+    },
+    "login": {
+      "css": "/* Arrival lounge: asymmetrical heading and square portraits. No new controls or DOM. */\n:scope { background:radial-gradient(ellipse at 85% 15%, #29463e 0%, transparent 52%), linear-gradient(115deg, #11191c, #0c1115) !important; color:#f2f1eb; font-family:'Segoe UI', system-ui, sans-serif; }\n:scope::before { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(115deg, transparent 52%, #b7dccc0a 52.1%, transparent 72%); }\n.doorpi-user-main { align-items:stretch; justify-content:center; }\n.doorpi-user-panel .doorpi-panel-head { align-items:flex-start; text-align:left; width:auto; padding-left:0; margin-left:8vw; margin-bottom:clamp(16px, 4vh, 80px); }\n.doorpi-panel-title { max-width:15ch; font-size:clamp(30px, 3vw, 88px); font-weight:350; color:#f2f1eb; text-shadow:none; }\n.doorpi-panel-sub { color:#b5c4bd; text-align:left; font-size:clamp(14px, 1vw, 30px); }\n.doorpi-user-panel .doorpi-avatar { border-radius:14px; background:#233b33; border:1px solid #c6e9d83d; box-shadow:0 18px 40px #00000033; }\n.doorpi-user-card:focus .doorpi-avatar, .doorpi-user-card:hover .doorpi-avatar { border-color:#f2f1eb; box-shadow:0 0 0 4px #11191c, 0 0 0 6px #c6e9d8; }\n.doorpi-user-card:focus, .doorpi-user-card:hover { transform:translateY(-5px); }\n.doorpi-user-card .doorpi-user-name { color:#f2f1eb; font-weight:500; }\n.doorpi-user-footer { padding-top:2vh; }\n.doorpi-user-clock { color:#b5c4bd; }\n.doorpi-power-row { border:1px solid #d6eee226; border-radius:5px; background:#11191c; }\nbutton:focus-visible { outline-color:#c6e9d8; }\n@media (max-height:800px) {\n .doorpi-user-panel .doorpi-panel-head { margin-bottom:12px; }\n .doorpi-panel-title { font-size:34px; }\n}\n\nbutton, input, select, textarea { font-family:inherit; }\n",
+      "appearance": null
+    }
+  },
+  "assets": {}
+}

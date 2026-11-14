@@ -17,6 +17,7 @@ como já auditados ou desacoplados.
 | `DoorpiWindowsUpdateHelper` | Operações auxiliares de atualização do Windows | Não incorporar silenciosamente ao frontend ou alterar elevação |
 | `DoorpiUpdater` | Aplicação externa de atualização e rollback do Doorpi | Precisa coordenar liberação de arquivos, relançamento e saúde da versão |
 | `Doorpi.UpdateCore` | Manifestos, confiança, verificação, download, extração, planejamento e instalação | Já possui separação própria; incluir na revisão sem confundir com atualização Windows/GPU |
+| `Doorpi.Storage` | Estado interno em SQLite, importação e recuperação | Regra de armazenamento vigente; não criar preferências físicas em JSON |
 | `Doorpi.Boot.Tests` | Harness de sinais e supervisão do boot | Processos do próprio harness; não demonstra um logon real |
 | `Doorpi.Browser.Tests` | Harness de política, store e coordenação de permissões | Testes isolados; não acessa câmera/microfone reais |
 
@@ -26,6 +27,10 @@ experimental, com a mesma preparação de Explorer e apresentação existente, p
 comparação no PC lento. O padrão continua supervisionado; a necessidade de
 preservar o segundo processo depende de medição. Ver
 [comparação controlada](bootstrap-comparison.md).
+
+A rota experimental `monitored` agora delega apresentação, armazenamento e preparo
+ao host. O supervisor inicia o filho sem ante-sala própria e abre UI apenas na
+recuperação. Ainda usa o mesmo executável WPF; não é um monitor nativo separado.
 
 ## Responsabilidades nativas e fontes correspondentes
 
@@ -73,7 +78,7 @@ Um arquivo partial menor continua usando os campos e o dispatcher da mesma janel
 A extração de serviços de verdade requer revisar proprietário do estado, chamadas,
 eventos, cancelamento e tempo de vida.
 
-## Cobertura dos 19 bundles do frontend
+## Cobertura dos 20 bundles do frontend
 
 Fontes em `Doorpi/Frontend/scripts`; saídas em `Doorpi/wwwroot`.
 
@@ -87,8 +92,8 @@ Fontes em `Doorpi/Frontend/scripts`; saídas em `Doorpi/wwwroot`.
 | `grid-controller.js` | 1 | Integração de grade e controle |
 | `intro-system.js` | 8 | Configuração, preparação, handoff, entrada, mensagens, startup e API da intro |
 | `media.js` | 1 | Catálogo/apresentação de mídia e apps integrados |
-| `nav-menu.js` | 30 | Navegação e configuração por área, incluindo permissões |
-| `navigation.js` | 12 | Foco espacial, teclado, entrada e despacho de controle |
+| `nav-menu.js` | 31 | Navegação e configuração por área, incluindo permissões e temas |
+| `navigation.js` | 13 | Regiões semânticas, foco espacial, teclado, entrada e despacho de controle |
 | `profile-photo-picker.js` | 1 | Escolha e tratamento visual de foto |
 | `profile-sync-ui.js` | 1 | Fluxos de sincronização |
 | `renderer.js` | 5 | Cards, destaque, trailers e apresentação de artwork |
@@ -97,11 +102,13 @@ Fontes em `Doorpi/Frontend/scripts`; saídas em `Doorpi/wwwroot`.
 | `store.js` | 1 | Estado compartilhado `AppStore` de jogos/mídia/lojas; não é a aba Lojas |
 | `stores.js` | 1 | Aba Lojas, menus e bridge de sessão |
 | `strings.js` | 1 | Traduções |
+| `themes.js` | 4 | Runtime, seleção por área, apresentação do trailer e compilação CSS de pacotes |
 | `wifi-ui.js` | 1 | Apresentação/ações Wi-Fi |
 
 São fragmentos ordenados para concatenação. Não são módulos ES independentes nem
 serviços com estado isolado. Fontes pequenas ainda podem estar acopladas a globais.
-CSS principal: 22 fragmentos. CSS literal injetado: 40 blocos. Estilos inline,
+CSS principal: 32 fragmentos, incluindo padrões de aparência e adaptadores opcionais
+de regiões. CSS literal injetado: 41 blocos. Estilos inline,
 templates interpolados, CSSOM, scripts injetados por C# e os pacotes de intro
 continuam na fila de revisão.
 

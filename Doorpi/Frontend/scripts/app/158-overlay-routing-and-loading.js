@@ -49,6 +49,12 @@
         const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .profile-sync-overlay'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
+        if (top?.id === 'doorpiUserSwitchLogout' && window.isDoorpiHomeEntryRecoveryOpen?.()) {
+            const profiles = top.querySelector('[data-recovery-action="profiles"]');
+            if (profiles) profiles.click();
+            else top.querySelector('.logout-recovery-actions button')?.focus();
+            return;
+        }
         if (top?.id === 'emulatorDiscSelector') {
             window.closeEmulatorDiscSelector(true);
             return;

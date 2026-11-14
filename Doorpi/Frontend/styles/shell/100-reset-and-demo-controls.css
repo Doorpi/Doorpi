@@ -7,7 +7,7 @@
 
 body {
     background: #0d0d0d;
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: var(--doorpi-font-family);
     display: flex;
     align-items: center;
     justify-content: center;

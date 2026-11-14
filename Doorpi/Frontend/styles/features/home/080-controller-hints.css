@@ -1,0 +1,38 @@
+.home-controls-bar {
+    width: calc(100% - var(--grid-pad-side) - var(--grid-pad-side));
+    min-height: clamp(34px, 4vh, 50px);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: clamp(24px, 4vw, 70px);
+    color: var(--doorpi-home-controls-color);
+    justify-self: center;
+    position: relative;
+    left: 0;
+    contain: layout;
+}
+
+.home-controls-bar .gp-hints {
+    flex: 0 1 auto;
+}
+
+.home-controls-bar .gp-hints-inner {
+    gap: clamp(9px, 1vw, 18px);
+}
+
+.home-controls-bar .gp-hint-label {
+    color: var(--doorpi-home-hint-color);
+    font-size: clamp(.68rem, .7vw, .82rem);
+}
+
+.home-controls-bar .gp-face-btn {
+    width: clamp(19px, 1.2vw, 25px);
+    height: clamp(19px, 1.2vw, 25px);
+}
+
+.home-controls-bar .home-tabs-hint {
+    margin: 0;
+    font-size: clamp(.68rem, .76vw, .9rem);
+}
+

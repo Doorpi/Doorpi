@@ -1,7 +1,6 @@
     return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch, syncDOM };
 })();
-// ── Transição Estilo "Swipe / Scroll" (Otimizada para 60fps) ───────────
-// ── Transição Estilo "Swipe / Scroll" (Otimizada e Longa) ───────────
+// Short directional feedback; changing tabs never waits for its animation.
 (function injectScrollTabTransitions() {
     if (document.getElementById('doorpiTabTransitions')) {
         document.getElementById('doorpiTabTransitions').remove();

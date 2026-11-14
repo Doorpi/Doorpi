@@ -4,6 +4,12 @@ Resultados do PC principal: [leitura dos logs em 08/11/2026](bootstrap-local-res
 A primeira coleta foi supervisionada, sem falha percebida pelo autor. A atualização
 do relatório confirma uma execução direta posterior com prontidão e foco do documento.
 
+Evolução de 09/11: a rota opcional `monitored` deixa apresentação e preparo com o
+host e mantém supervisão sem janela no processo supervisor. Ver
+[fluxo e limites atuais](../../Doorpi/Boot/README.md). As medições antigas abaixo
+continuam sendo de `direct` e `supervised`; não foram reutilizadas como benchmark
+da rota nova. O padrão não foi trocado automaticamente.
+
 ## Objetivos e limites de cada responsabilidade
 
 O autor esclareceu que o bootstrap nasceu para evitar o frontend travado no primeiro

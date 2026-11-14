@@ -1,3 +1,4 @@
+    let _doorpiSessionTransitionVersion = 0;
     function _delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -43,40 +44,56 @@
         });
     }
 
-    async function _waitForDoorpiHomeReady() {
-        const started = performance.now();
+    async function _waitForDoorpiHomeReady(valid = () => true, deadline = performance.now() + 8000) {
         await _afterFrames(1);
 
-        // Libera assim que a aba ativa possui uma superfície utilizável. Downloads,
-        // esqueletos de outras abas e renders em segundo plano não bloqueiam a entrada.
-        while (performance.now() - started < 1000) {
-            const grid = _getActiveHomeGrid();
-            const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card)');
-            const hasActiveLoadingCards = !!grid?.querySelector('.card.loading-card');
-            const hasNavigableTarget = typeof getNavigableItems === 'function' &&
-                getNavigableItems().some(el =>
-                    el &&
-                    el.offsetWidth > 0 &&
-                    el.offsetHeight > 0 &&
-                    !el.disabled &&
-                    el.getAttribute('aria-disabled') !== 'true');
-            const isHomeStillLoading = !!window.isSystemLoading || !!window.isGlobalLoading;
+        await window.DoorpiThemeSelection?.whenReady?.();
 
-            if (!isHomeStillLoading &&
-                (hasRenderableCard || (!hasActiveLoadingCards && hasNavigableTarget))) break;
+        // Add appears during clearGamesGrid too. Only the host's committed batch
+        // distinguishes an empty library from one that has not rendered yet.
+        let target = null;
+        while (valid() && performance.now() < deadline) {
+            const grid = _getActiveHomeGrid();
+            const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card):not(.add-card)');
+            const hasActiveLoadingCards = !!grid?.querySelector('.card.loading-card');
+            target = window.DoorpiNavigation?.getEntryTarget?.('home') || null;
+            const isHomeStillLoading = !!window.isSystemLoading || !!window.isGlobalLoading;
+            const batch = window.getDoorpiGamesPresentation?.();
+            const batchReady = batch?.committed && batch.profileId === String(window._doorpiCurrentUserId || '');
+            const trulyEmpty = batchReady && batch.count === 0;
+
+            if (batchReady && !isHomeStillLoading && target &&
+                (hasRenderableCard || (trulyEmpty && !hasActiveLoadingCards))) break;
+            target = null;
             await _delay(40);
         }
+        if (!valid() || !target) return null;
+        const preparedBatch = window.getDoorpiGamesPresentation?.();
+        target.scrollIntoView?.({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
 
         // Inicia o primeiro hero atrás da tela "Entrando", com uma espera curta:
         // artes ainda em download continuam sendo substituídas depois do fade.
-        _focusDoorpiInteractiveTarget();
+        window.updateHomeFeatureStage?.(target);
+        if (!target.classList.contains('add-card') && typeof switchHeroBackground === 'function') {
+            const art = target.dataset;
+            switchHeroBackground(art.staticVertical || art.vertical || '', null,
+                art.staticHero || art.hero || art.staticHorizontal || art.horizontal || art.staticVertical || art.vertical || '',
+                { prepareSession: true });
+        }
         await _afterFrames(1);
+        const visibleCards = [...(_getActiveHomeGrid()?.querySelectorAll('.card img, .store-card img') || [])]
+            .filter(image => { const rect = image.getBoundingClientRect(); return rect.right > 0 && rect.left < window.innerWidth; });
         await Promise.all([
+            ...visibleCards.map(image => _waitImageReady(image, 400)),
             _waitImageReady(document.getElementById('bgBlur'), 200),
             _waitImageReady(document.getElementById('heroImage'), 200),
             _waitImageReady(document.getElementById('gridBgImg'), 200)
         ]);
         await _afterFrames(1);
+        if (!valid()) return null;
+        if (preparedBatch !== window.getDoorpiGamesPresentation?.() || !target.isConnected)
+            return performance.now() < deadline ? _waitForDoorpiHomeReady(valid, deadline) : null;
+        return target;
     }
 
     function _focusDoorpiInteractiveTarget() {
@@ -88,8 +105,10 @@
                 return userPicker._doorpiFocusInitialCard('auto');
         }
 
-        if (!window.isDoorpiOverlayOpen?.() && window.focusFeaturedCard?.() === true)
-            return true;
+        if (!window.isDoorpiOverlayOpen?.()) {
+            if (window.DoorpiNavigation) return window.DoorpiNavigation.enter('home');
+            if (window.focusFeaturedCard?.() === true) return true;
+        }
 
         const items = typeof getNavigableItems === 'function'
             ? getNavigableItems().filter(el =>
@@ -120,7 +139,8 @@
                 mode: data.mode || '',
                 activeTag: document.activeElement?.tagName || '',
                 activeId: document.activeElement?.id || '',
-                activeClass: document.activeElement?.className || ''
+                activeClass: document.activeElement?.className || '',
+                activeRegion: window.DoorpiNavigation?.getRegionId?.() ?? null
             });
         } catch { }
     }
@@ -132,6 +152,7 @@
     }
 
     window._releaseDoorpiSessionInputNow = function (reason = '') {
+        _doorpiSessionTransitionVersion++;
         window._doorpiSessionTransitionBlockUntil = 0;
         window._userSwitching = false;
         window._doorpiPointerSuppressUntil = 0;
@@ -172,6 +193,8 @@
     };
 
     async function _completeUserSwitchInteraction(data = {}) {
+        if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
+        if (data._transitionProfileId != null && data._transitionProfileId !== String(window._doorpiCurrentUserId || '')) return;
         window._doorpiSessionTransitionBlockUntil = 0;
         window._userSwitching = false;
         window._doorpiPointerSuppressUntil = 0;
@@ -182,15 +205,20 @@
         window.clearDoorpiInputQuarantine?.({ dropPending: true });
         window._setDoorpiHomeInteractionBlocked?.(false);
 
+        window.scheduleDoorpiExtensionUpdateCheck?.();
         if (_runDeferredFirstRunTutorial()) {
             window.resetDoorpiGamepadInputState?.();
             return;
         }
 
         requestAnimationFrame(async () => {
+            if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
+            if (data._transitionProfileId != null && data._transitionProfileId !== String(window._doorpiCurrentUserId || '')) return;
             await _waitForDoorpiInteractiveReady(data);
+            if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
             window.updateDoorpiTopClusterVisibility?.();
             scheduleDoorpiFocusRecovery?.();
+            window.DoorpiUpdatePrompt?.evaluate?.();
         });
     }
 
@@ -199,7 +227,7 @@
             return {
                 mark: 'Conta',
                 title: 'Entrando',
-                sub: 'Preparando sua tela inicial',
+                sub: '',
             };
         }
 
@@ -249,7 +277,7 @@
                 <div class="logout-title">${copy.title}</div>
                 <div class="logout-mark">${escapeHtml(markText)}</div>
                 <div class="logout-avatar-slot">${_userSwitchAvatarHtml(user)}</div>
-                <div class="logout-sub">${copy.sub}</div>
+                <div class="logout-sub"${copy.sub ? '' : ' hidden'}>${copy.sub}</div>
                 <div class="logout-spinner" aria-hidden="true"></div>
             `;
             document.body.appendChild(overlay);
@@ -261,13 +289,16 @@
             if (avatar) avatar.innerHTML = _userSwitchAvatarHtml(user);
             if (mark) mark.textContent = markText;
             if (title) title.textContent = copy.title;
-            if (sub) sub.textContent = copy.sub;
+            if (sub) { sub.textContent = copy.sub; sub.hidden = !copy.sub; }
         }
+        overlay.dataset.transitionMode = mode;
         return overlay;
     }
 
     function _userSwitchFadeOut(data = {}) {
+        _doorpiSessionTransitionVersion++;
         if (data.showTransition === false) return;
+        if (!data.reuseCurrentLibrary) window.resetDoorpiGamesPresentation?.();
         closeUserPinPrompt({ immediate: true, restoreFocus: false });
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
@@ -295,6 +326,9 @@
         if (userPicker?.style.display !== 'none') userPicker.classList.add('doorpi-switching-out');
 
         const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch', data.user || window._doorpiProfile || {});
+        logoutOverlay.classList.remove('home-entry-recovery', 'doorpi-manager-overlay');
+        logoutOverlay.querySelector('.logout-recovery-actions')?.remove();
+        logoutOverlay.querySelector('.logout-spinner').hidden = false;
         logoutOverlay.style.display = 'flex';
         logoutOverlay.style.pointerEvents = 'auto';
         window._setDoorpiHomeInteractionBlocked?.(true);
@@ -307,7 +341,52 @@
         wrap.style.pointerEvents = 'none';
     }
 
+    window.isDoorpiHomeEntryRecoveryOpen = () => {
+        const overlay = document.getElementById('doorpiUserSwitchLogout');
+        return !!overlay && overlay.style.display !== 'none' && overlay.classList.contains('home-entry-recovery');
+    };
+
+    function _showDoorpiHomeEntryRecovery(data, valid) {
+        if (!valid()) return;
+        const overlay = document.getElementById('doorpiUserSwitchLogout');
+        if (!overlay) return;
+        overlay.style.display = 'flex'; overlay.style.pointerEvents = 'auto';
+        overlay.classList.add('visible', 'home-entry-recovery', 'doorpi-manager-overlay');
+        overlay.querySelector('.logout-sub').textContent = t('sessionHomePrepareError');
+        overlay.querySelector('.logout-sub').hidden = false;
+        overlay.querySelector('.logout-spinner').hidden = true;
+        overlay.querySelector('.logout-recovery-actions')?.remove();
+        const actions = document.createElement('div'); actions.className = 'logout-recovery-actions';
+        const retry = document.createElement('button'); retry.textContent = t('sessionHomePrepareRetry');
+        retry.onclick = () => { if (valid()) void _userSwitchFadeIn({ ...data, _delayed: true }); };
+        actions.appendChild(retry);
+        if (Array.isArray(window._doorpiUsers) && window._doorpiUsers.length) {
+            const back = document.createElement('button'); back.textContent = t('sessionHomePrepareProfiles');
+            back.dataset.recoveryAction = 'profiles';
+            back.onclick = () => {
+                if (!valid()) return;
+                _doorpiSessionTransitionVersion++; window._userSwitching = false;
+                document.body.classList.remove('doorpi-session-transition');
+                overlay.classList.remove('visible', 'home-entry-recovery', 'doorpi-manager-overlay');
+                overlay.style.display = 'none';
+                window.DoorpiIntro?.resumeUserPickerAmbient?.();
+                showUserPicker(window._doorpiUsers, true);
+            };
+            actions.appendChild(back);
+        }
+        overlay.appendChild(actions); retry.focus();
+    }
+
     async function _userSwitchFadeIn(data = {}) {
+        if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
+        if (data._transitionProfileId != null && data._transitionProfileId !== String(window._doorpiCurrentUserId || '')) return;
+        if (data.mode === 'initial' && data.showTransition !== false && !window._userSwitching)
+            _userSwitchFadeOut({ mode: 'initial', user: window._doorpiProfile || {}, reuseCurrentLibrary: true });
+        const version = data._transitionVersion ?? _doorpiSessionTransitionVersion;
+        const profile = data._transitionProfileId ?? String(window._doorpiCurrentUserId || '');
+        const valid = () => version === _doorpiSessionTransitionVersion && profile === String(window._doorpiCurrentUserId || '');
+        if (!valid()) return;
+        data = { ...data, _transitionVersion: version, _transitionProfileId: profile };
         const shouldShowTransition = data.showTransition !== false && window._userSwitching;
         const shouldRestartAudio = !!data.restartAudio;
         const resumeTransitionAudio = () => {
@@ -324,14 +403,6 @@
                 setTimeout(() => _userSwitchFadeIn({ ...data, _delayed: true }), minVisibleMs - elapsed);
                 return;
             }
-        }
-
-        if (shouldShowTransition) {
-            window._doorpiSessionTransitionBlockUntil = 0;
-            window._userSwitching = false;
-            document.body.classList.remove('doorpi-session-transition');
-            const wrap = document.querySelector('.main-content-wrapper');
-            if (wrap) wrap.style.pointerEvents = '';
         }
 
         if (!shouldShowTransition) {
@@ -415,63 +486,53 @@
             return;
         }
 
-        if (data.waitForHomeReady === true && !data._homeReadyWaited) {
-            try { await _waitForDoorpiHomeReady(); } catch { }
-            _userSwitchFadeIn({ ...data, _homeReadyWaited: true, _delayed: true });
-            return;
-        }
-
         const wrap = document.querySelector('.main-content-wrapper');
-        if (!wrap) {
-            const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
-            if (logoutOverlay) {
-                logoutOverlay.classList.remove('visible');
-                logoutOverlay.style.pointerEvents = 'none';
-                logoutOverlay.style.display = 'none';
-            }
-            resumeTransitionAudio();
-            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            window._setDoorpiHomeInteractionBlocked?.(false);
-            window.DoorpiIntro?.finishHandoff?.();
-            await _completeUserSwitchInteraction(data);
-            return;
-        }
-
-        wrap.style.setProperty('transition', 'none', 'important');
-        wrap.style.opacity = '0';
-        wrap.style.transform = 'scale(0.98) translateY(10px)'; 
-
-        void wrap.offsetWidth;
-
-        wrap.style.setProperty(
-            'transition',
-            'opacity 0.25s ease, transform 0.3s cubic-bezier(0.23, 1, 0.32, 1)',
-            'important'
-        );
-        wrap.style.opacity = '1';
-        wrap.style.transform = 'none';
-        wrap.style.pointerEvents = '';
-
+        const ui = document.getElementById('doorpi-app-ui');
         const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+        if (ui) { ui.style.transition = 'none'; ui.style.display = 'block'; ui.style.opacity = '1'; }
         if (logoutOverlay) {
-            logoutOverlay.classList.remove('visible');
-            logoutOverlay.style.pointerEvents = 'none';
-            setTimeout(() => {
-                if (!logoutOverlay.classList.contains('visible')) {
-                    logoutOverlay.style.display = 'none';
-                }
-            }, 300);
+            logoutOverlay.classList.remove('home-entry-recovery', 'doorpi-manager-overlay');
+            logoutOverlay.querySelector('.logout-recovery-actions')?.remove();
+            logoutOverlay.querySelector('.logout-spinner').hidden = false;
+            const sub = logoutOverlay.querySelector('.logout-sub');
+            sub.textContent = _getUserSwitchOverlayCopy(logoutOverlay.dataset.transitionMode || data.mode).sub;
+            sub.hidden = !sub.textContent;
         }
+        window._setDoorpiHomeInteractionBlocked?.(true);
+        const target = await _waitForDoorpiHomeReady(valid);
+        if (!valid()) return;
+        if (!wrap || !target) { _showDoorpiHomeEntryRecovery(data, valid); return; }
 
-        requestAnimationFrame(async () => {
-            wrap.style.removeProperty('transition');
-            wrap.style.transform = '';
-            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            window._setDoorpiHomeInteractionBlocked?.(false);
-            resumeTransitionAudio();
-            window.DoorpiIntro?.finishHandoff?.();
-            await _completeUserSwitchInteraction(data);
-        });
+        await window.prepareDoorpiNavMenuEntry?.(valid);
+        if (!valid()) return;
+
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const remaining = reducedMotion ? 0 : Math.max(0, 120 - (performance.now() - (window._userSwitchStartedAt || 0)));
+        if (remaining) await _delay(remaining);
+        if (!valid()) return;
+        wrap.style.setProperty('transition', 'none', 'important');
+        wrap.style.opacity = '0'; wrap.style.transform = 'translateY(4px)';
+        void wrap.offsetWidth;
+        wrap.style.setProperty('transition', reducedMotion ? 'none' : 'opacity .12s ease, transform .18s cubic-bezier(.22,1,.36,1)', 'important');
+        wrap.style.opacity = '1'; wrap.style.transform = 'none';
+        window.DoorpiIntro?.finishHandoff?.({ fadeMs: reducedMotion ? 0 : 180 });
+        logoutOverlay?.classList.remove('visible');
+        // Keep input/inert locked during the crossfade, not just during loading.
+        if (!reducedMotion) await _delay(180);
+        if (!valid()) return;
+        if (logoutOverlay) { logoutOverlay.style.display = 'none'; logoutOverlay.style.pointerEvents = 'none'; }
+        window._userSwitching = false;
+        document.body.classList.remove('doorpi-session-transition');
+        window._setDoorpiHomeInteractionBlocked?.(false);
+        if (!window.DoorpiNavigation?.enter('home')) {
+            window._userSwitching = true; document.body.classList.add('doorpi-session-transition');
+            window._setDoorpiHomeInteractionBlocked?.(true);
+            _showDoorpiHomeEntryRecovery(data, valid); return;
+        }
+        wrap.style.removeProperty('transition'); wrap.style.transform = '';
+        window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+        resumeTransitionAudio();
+        await _completeUserSwitchInteraction(data);
     }
 
     function clearLoadingCards(tab = 'games') {
@@ -501,6 +562,7 @@
 
             if (bgBlur) { bgBlur.style.opacity = '0'; bgBlur.removeAttribute('src'); }
             if (heroImg) { heroImg.style.opacity = '0'; }
+            window.clearHomeFeatureLogo?.();
             if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
             if (gridBgImg) { gridBgImg.style.opacity = '0'; gridBgImg.removeAttribute('src'); }
 
@@ -516,10 +578,7 @@
             window._heroCleanupTimer = setTimeout(doClear, 80);
         }
     }
-    document.getElementById('btnAdd')?.addEventListener('mouseenter', clearHero);
-    document.getElementById('btnAdd')?.addEventListener('focus', clearHero);
-
-    document.getElementById('btnAddMedia')?.addEventListener('mouseenter', clearHero);
-    document.getElementById('btnAddMedia')?.addEventListener('focus', clearHero);
+    // Moving to Add or the system controls keeps the last selection's artwork.
+    // Session resets and screen changes still clear it explicitly through clearHero.
 
 

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "orbit",
+  "name": "Orbit",
+  "version": "2.0.1",
+  "author": "Doorpi",
+  "parts": {
+    "home": { "css": "parts/home.css", "appearance": "parts/home.json" },
+    "nav-menu": { "css": "parts/nav-menu.css" },
+    "side-panels": { "css": "parts/side-panels.css" },
+    "popups": { "css": "parts/popups.css" },
+    "login": { "css": "parts/login.css" }
+  }
+}

@@ -184,6 +184,8 @@
     }
 
     async function _loadJSONs() {
+        const requestedProfile = String(window._doorpiCurrentUserId || '');
+        const requestedRevision = _menuReloadToken;
         const domCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
         if (domCards.length > 0 && _menuData.games.length > 0) {
             const domMeta = new Map();
@@ -235,6 +237,8 @@
             }
             if (gRes.status === 'fulfilled' && gRes.value.ok) {
                 const games = await gRes.value.json();
+                if (requestedProfile !== String(window._doorpiCurrentUserId || '') || requestedRevision !== _menuReloadToken) return;
+                _menuData.gamesTotal = Array.isArray(games) ? games.length : null;
                 _menuData.games = Array.isArray(games)
                     ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'))
                     : games;
@@ -276,6 +280,7 @@
         const loadedUserId = _userId(_menuData.user) || window._doorpiCurrentUserId || '';
         if (loadedUserId) _menuDataUserId = loadedUserId;
 
+        if (!loadedGamesFromJson) _menuData.gamesTotal = null;
         if (!loadedGamesFromJson && (!_menuData.games || _menuData.games.length === 0)) {
             const gameCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
             _menuData.games = gameCards.map(c => {

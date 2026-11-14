@@ -46,6 +46,7 @@
     };
 
     window._navMenuHandleKey = function (key) {
+        if (window.isDoorpiFileBrowserOpen?.()) return false;
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -63,6 +64,7 @@
     };
 
     document.addEventListener('keydown', e => {
+        if (window.isDoorpiFileBrowserOpen?.()) return;
         // Modais de sincronizacao ficam acima do nav-menu e recebem a navegacao primeiro.
         // O controlador global trata as setas; nao as consuma neste listener de captura.
         if (window.DoorpiProfileSync?.isOpen?.()) return;
@@ -294,6 +296,11 @@
     function _navContent(key) {
         const cols = _gridCols();
         const total = _contentItems.length;
+
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'themes' &&
+            ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','Backspace'].includes(key)) {
+            return _navigateThemeSettings(key);
+        }
 
         if (CATS[_catIdx]?.id === 'settings' &&
             _settingsSubView === 'system' &&

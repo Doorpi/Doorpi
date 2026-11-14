@@ -1,0 +1,21 @@
+/* Arrival lounge: asymmetrical heading and square portraits. No new controls or DOM. */
+:scope { background:radial-gradient(ellipse at 85% 15%, #29463e 0%, transparent 52%), linear-gradient(115deg, #11191c, #0c1115) !important; color:#f2f1eb; font-family:'Segoe UI', system-ui, sans-serif; }
+:scope::before { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(115deg, transparent 52%, #b7dccc0a 52.1%, transparent 72%); }
+.doorpi-user-main { align-items:stretch; justify-content:center; }
+.doorpi-user-panel .doorpi-panel-head { align-items:flex-start; text-align:left; width:auto; padding-left:0; margin-left:8vw; margin-bottom:clamp(16px, 4vh, 80px); }
+.doorpi-panel-title { max-width:15ch; font-size:clamp(30px, 3vw, 88px); font-weight:350; color:#f2f1eb; text-shadow:none; }
+.doorpi-panel-sub { color:#b5c4bd; text-align:left; font-size:clamp(14px, 1vw, 30px); }
+.doorpi-user-panel .doorpi-avatar { border-radius:14px; background:#233b33; border:1px solid #c6e9d83d; box-shadow:0 18px 40px #00000033; }
+.doorpi-user-card:focus .doorpi-avatar, .doorpi-user-card:hover .doorpi-avatar { border-color:#f2f1eb; box-shadow:0 0 0 4px #11191c, 0 0 0 6px #c6e9d8; }
+.doorpi-user-card:focus, .doorpi-user-card:hover { transform:translateY(-5px); }
+.doorpi-user-card .doorpi-user-name { color:#f2f1eb; font-weight:500; }
+.doorpi-user-footer { padding-top:2vh; }
+.doorpi-user-clock { color:#b5c4bd; }
+.doorpi-power-row { border:1px solid #d6eee226; border-radius:5px; background:#11191c; }
+button:focus-visible { outline-color:#c6e9d8; }
+@media (max-height:800px) {
+ .doorpi-user-panel .doorpi-panel-head { margin-bottom:12px; }
+ .doorpi-panel-title { font-size:34px; }
+}
+
+button, input, select, textarea { font-family:inherit; }

@@ -169,3 +169,206 @@ Não se concluiu a causa histórica do travamento nem a remoção definitiva do
 supervisor. O caminho direto não oferece supervisão externa de um dispatcher
 completamente travado. Procedimento e limites em
 [bootstrap-comparison.md](bootstrap-comparison.md).
+
+## Etapa 4 — monitor, composição de temas e navegação por regiões
+
+O repositório já incorporava `Doorpi.Storage`/SQLite ao iniciar esta etapa. Essa
+política foi preservada; não houve novo schema, migração ou preferência persistida.
+
+- Rota opcional `monitored`: supervisor sem ante-sala no boot saudável, host
+  responsável pelo preparo, armazenamento e apresentação. Os caminhos anteriores
+  foram preservados e o arquivo de seleção do usuário não foi alterado.
+- A ante-sala do host cobre também a validação assíncrona de armazenamento. O
+  supervisor não inicializa o banco nessa rota. A recuperação de atualização
+  interrompida aguarda detach antes de lançar o updater.
+- Correção do orçamento: dois minutos saudáveis passam a ser contados da prontidão,
+  evitando que uma inicialização longa renove prematuramente as tentativas.
+- Home dividida em nove fragmentos ordenados. 73 parâmetros públicos centralizados
+  sem mudar valores padrão. O bundle principal passou de 22 a 32 módulos.
+- O contrato distribuído de temas é gerado dos metadados e dos padrões CSS: os
+  valores não precisam ser mantidos simultaneamente em CSS e JSON.
+- Temas têm tokens e composição por regiões. O exemplo Aurora move o carrossel
+  para cima, arte para a direita, metadados para antes do título e barra lateral da
+  janela de adicionar itens para a direita. Grades personalizadas preservam todos
+  os nomes de região e não substituem HTML nem comandos.
+- O autor confirmou aparência/disposição dos componentes existentes como escopo e
+  definiu o carrossel como região de navegação 0 da home. Retorno recupera o card
+  anterior; memória volátil separada por perfil/aba, sem novo armazenamento físico.
+- A política de foco foi centralizada; GridController deixou de substituir
+  silenciosamente o adaptador de foco da navegação. As transições de entrada e
+  chamadas do host continuam usando a API de compatibilidade.
+- Testes de CSS reconstituem exatamente o bundle anterior ao substituir os tokens
+  pelos padrões e excluir o adaptador opcional inativo. O navegador também compara
+  propriedades computadas/geometria do padrão em quatro resoluções.
+- Prévias usam CSS/runtime reais em fixture isolada: 24 imagens de home/diálogo
+  em 720p, 1080p, 4:3 e 4K; verificam posição das regiões, foco 0, restauração de
+  card e prioridade modal. Não são sessões completas do Doorpi/WebView2.
+- Agora são 20 bundles, 133 fontes JS e 40 blocos CSS injetados. O inventário passa
+  a descobrir todos os diretórios de projetos, incluindo Storage e harnesses novos.
+- `DesktopVkbWindow.cs` permanece com o hash anterior a esta etapa.
+- Compilação Release validada com zero avisos/erros; harness de boot e ferramentas
+  passaram, assim como integridade, intro, permissões, temas, regiões e navegação
+  com layouts alternativos. Storage passou 18 grupos/107 verificações, incluindo
+  corrupção, interrupção e rollback, sem usar dados reais.
+
+Ficam pendentes: logon real na rota monitorada, atualização/rollback completos com
+ela, retorno de jogos/controle físico, migração do menu principal e das outras telas
+para regiões, e UI de instalação de temas da comunidade. A seleção instalada e a
+persistência SQLite por perfil foram implementadas na etapa seguinte.
+A matriz de cobertura em [temas](../../Doorpi/Frontend/themes/README.md) mantém essas
+áreas explícitas. Nenhum pacote de atualização, manifesto de distribuição ou
+assinatura de produção foi gerado nesta entrega de código.
+
+## Etapa 5 — seleção de temas instalados
+
+- Configurações → Temas oferece Doorpi padrão e Orbit. Orbit reorganiza a home,
+  move o destaque à direita e usa tons azuis/violetas. A proporção 2:3 dos cards é
+  fixa no contrato; Default continua disponível durante carregamento/gravação.
+- Preferência por perfil via Doorpi.Storage/SQLite, em documento lógico já existente,
+  sem novo schema. CAS valida revisões do perfil/documento e geração da sessão.
+  Carregamentos e respostas atrasados não afetam outro perfil ou uma escolha nova.
+- Erros preservam a origem; tema indisponível recua ao padrão apenas nesta sessão.
+  A UI informa falhas de persistência e permite restaurar o visual original.
+- Controller, tela, CSS, catálogo e store permanecem separados. São 20 bundles,
+  135 fragmentos JS, 41 blocos CSS injetados e 32 fragmentos CSS principais.
+- Testes do store/catálogo: 30 verificações, incluindo conflitos, isolamento,
+  corrupção preservada, importação legada e backup/rollback. Testes JS cobrem
+  filas, respostas atrasadas, troca de perfil/ABA e restauração imediata.
+- Chrome isolado: 36 casos/40 capturas em quatro resoluções, com cards verticais,
+  seleção pelo menu real, direções/Enter/Voltar e comparação exata do padrão com
+  baseline local. São fixtures; controle físico e sessão completa WebView2 permanecem
+  para teste no aplicativo. Não houve alteração de perfis reais ou modo de boot.
+- Nenhum instalador, pacote de atualização, manifesto ou assinatura de produção
+  foi gerado. A build Release local serve para testar a implementação.
+
+### Correções da seleção e do Orbit
+
+- O hub passa a obter a ordem navegável do DOM agrupado, usando IDs para associar
+  descrições e ações. Corrige o salto de Temas: a ordem de declaração anterior era
+  diferente da ordem visual dos grupos Conta/Experiência/Sistema.
+- A seleção virou lista rolável de nomes, sem mockups, com indicador Em uso.
+  Cabeçalho/restauração permanecem fora da rolagem; cima/baixo percorrem os nomes e
+  Voltar recupera Temas no hub. Não implementa a futura loja de temas.
+- Cinco tokens de enquadramento do hero elevam o contrato a 78 padrões. Orbit usa
+  imagem de fundo de tela inteira com máscara inferior; os padrões antigos seguem
+  reconstituindo exatamente o CSS anterior.
+- Validação visual ampliada a 40 casos/44 capturas em quatro resoluções, incluindo
+  ordem do hub nos dois sentidos, lista com 32 temas e imagem real no hero da fixture.
+
+## Etapa 6 — pacote visual por área e ambiente de autoria
+
+- Decisões de produto: pacote inicial sem JS; pasta local + editor externo + prévia
+  ao salvar; login como preferência do dispositivo. Efeitos JS isolados são futuros.
+- Importação manual `.doorpitheme` adicionada. Arquivos externos imutáveis por hash,
+  versões preservadas, validação de caminhos, tipos e limites, staging ignorado após
+  interrupção. CSS é validado pelo navegador antes de aplicar a área. A importação
+  não declara o pacote certificado para a loja nem o aplica automaticamente.
+- Seleção independente de Home, nav-menu, painéis laterais, popups e login, com
+  escopos/raízes explícitos. Preferências de perfil permanecem no documento lógico
+  existente; login usa novo documento lógico genérico SQLite, sem novo schema.
+  Revisões/geração são verificadas; corrupção não é convertida em preferências vazias.
+- Trailer ganhou camada de apresentação própria desde o HTML inicial. Adaptador
+  mede a arte com ResizeObserver, sem polling contínuo ou reparent de player ativo.
+  Orbit seleciona `feature-art`; cinema preserva o caminho existente.
+- Theme SDK separa projeto, Studio e empacotamento. Preview usa iframe sem origem
+  compartilhada ou ponte nativa, fixtures e CSS reais. Modo sem CSS é inspeção, não
+  remoção dos estados funcionais do app. Há exemplo Orbit Modular de cinco áreas.
+- O runtime não mantém todos os payloads testados em cache indefinidamente. Temas
+  lentos no início recuam ao padrão com prazo e recuperação, sem apagar a escolha.
+- São 20 bundles, 137 fragmentos JS, 41 blocos CSS injetados e 32 fragmentos CSS.
+  O inventário passa a incluir os fontes do ThemeSDK.
+- Referência de validação: 45 casos/48 capturas em quatro resoluções; Studio com
+  atualização real de arquivo/SSE e recuperação de CSS inválido; harness nativo de
+  preferências e pacotes, incluindo interoperabilidade com o ZIP produzido pelo SDK.
+- Restam validação no WebView2/controle físico e reprodução real de mídia, ampliação
+  de regiões/navegação das outras telas, separação da dívida CSS funcional/visual,
+  loja/assinaturas/publicação e a API futura de efeitos. A UI nativa WPF não recebe CSS.
+  Nenhum instalador, pacote de atualização ou manifesto assinado de aplicativo foi gerado.
+
+Verificação final desta etapa: Release com zero avisos/erros; 54 verificações no
+harness de temas/pacotes; Storage com 18 grupos/108 verificações; 45 casos visuais
+e teste de edição/SSE no Studio aprovados. O pacote local Orbit Modular 1.0.0 tem
+5.316 bytes e SHA-256 `ced3dc9dd4615f5e4614f8c36840ca73a6855a9f30dcf06d4a38a1744fa672ee`.
+É um exemplo para testes, sem assinatura/publicação de produção; metadados de
+artefato estão em `artifacts/themes/orbit-modular-1.0.0.artifact.json`.
+
+### Correções da seleção e importação de temas
+
+- Navegação vertical passa pelas áreas e pelos botões do cabeçalho antes de subir
+  às categorias. O cabeçalho continua fora da rolagem da lista de temas.
+- Restaurar padrão redefine as quatro áreas do perfil atual e o login do dispositivo
+  em uma transação SQLite com revisão dos dois documentos e do perfil. Preserva
+  outras configurações, outros perfis e pacotes instalados. A linha Doorpi padrão
+  continua sendo a restauração individual da área. O atalho de recuperação usa a
+  mesma operação completa, invalidando aplicações pendentes.
+- Adicionar pacote usa ShowDoorpiFileBrowserAsync, com filtro .doorpitheme. O menu
+  cede os eventos de entrada ao explorador e não recupera foco enquanto ele está aberto.
+  Perfil/geração/revisão são revalidados após a seleção e leitura do pacote.
+- Studio disponível externamente por `node scripts/theme-sdk.cjs dev <pasta>`;
+  ainda não existe prévia integrada na sessão real do Doorpi ou hot reload de pasta
+  no aplicativo. Essa distinção está explícita no guia do SDK.
+- Verificados: build Release sem avisos/erros; 65 verificações nativas de temas;
+  integridade dos bundles, fila de seleção e reset completo, contratos de navegação.
+  A validação física do explorador e controle no WebView2 continua necessária.
+  Nenhum instalador ou release de aplicativo foi produzido nesta correção.
+
+## Etapa 7 — primeira composição do visual padrão para TV
+
+- Pesquisa anterior à implementação: Sony/PS5, Nintendo/Switch 2, Xbox, Valve/Steam
+  Deck, diretrizes de acessibilidade Xbox e conceito independente de designer.
+  Fontes, limites da pesquisa e plano completo em [direção visual](console-visual-direction.md).
+- Primeiras superfícies revisadas: seleção de perfis e estrutura do painel rápido,
+  incluindo a hierarquia básica de títulos/descrições/cards do conteúdo. Fundo
+  azul profundo, luz ciano, nomes/ações maiores, foco com anel e perfis vizinhos
+  legíveis. Os mesmos destinos, ordem, ações e regras de sessão permanecem.
+- Vocabulário interno compartilhado separado em `016-console-surfaces.css`;
+  estrutura do painel extraída para `doorpi-quick-panel-shell.css`. São agora
+  33 módulos CSS principais, 42 blocos injetados, 137 fontes JS e 20 bundles.
+- CSS de blur de tela inteira retirado destas superfícies, luz estática sem novo
+  loop de animação. O ambient existente da intro não foi refeito; não há medição
+  de FPS/CPU/GPU nem promessa de ganho numérico.
+- Capturas e verificação dos controladores reais em quatro resoluções, com host
+  falso: centralização/rolagem de perfis, foco e retorno, ações visíveis, avatar
+  sem foto, login obrigatório, guardas da intro, PT/EN e movimento reduzido.
+  Studio continua atualizando CSS via SSE e recuperando erro de edição nas cinco áreas.
+- Restam TV/WebView2/controle físico e a continuação para Home/nav-menu, adição e
+  edição, páginas especializadas, PIN e transições do conjunto. Não se considera
+  resolvida toda a navegação. Não há instalador ou release de aplicativo nesta etapa.
+
+### Ajuste de escala e handoff após avaliação em 1440p
+
+- Referência do autor: 2560×1440 a 100%, abertura normal. Unidade visual limitada
+  no desktop e faixa própria para 4K. O menu passa de 768 para 475,2 CSS px nessa
+  referência; rótulos de 34,56 para 24,2 px e nomes de perfis de 42,24 para 25,3 px.
+- Superfícies neutras, foco claro e cores variadas nos destinos/avatares. Removida
+  a marca repetida sobre os perfis. Retirada a camada diagonal que se sobrepunha
+  ao ambient, preservando o fundo e os tempos da intro existente.
+- Harness ampliado para cinco resoluções e sequência real Neon → seletor, além
+  das guardas estáticas: registra múltiplos frames do handoff, verifica geometria
+  estável, ausência de camada adicional e continuidade do ambient após sair o iframe.
+  É um teste isolado Chromium; a percepção final no WebView2 do autor permanece a avaliar.
+
+## Etapa 8 — Entrando como passagem para a Home
+
+- Alinhamento: horas e última sessão continuam na Home. Reutilizar Entrando para
+  preparar o carrossel por trás; somente depois do crossfade entregar foco à região 0
+  e liberar a entrada. Fluxo e auditoria em [Entrando e Home](home-session-entry.md).
+- A espera anterior de um segundo podia terminar sem alvo. O novo preparo verifica
+  a aba ativa, itens utilizáveis e loading; não recua para a primeira aba do DOM.
+  Biblioteca vazia com Adicionar é válida. Falha oferece recuperação com entrada
+  protegida. Perfil e versão de transição são revalidados após as esperas.
+- Preparação da arte é explícita e não requer foco no conteúdo bloqueado. Input
+  permanece bloqueado durante o crossfade. Estado e ações dos outros fluxos não
+  foram migrados para um novo armazenamento.
+- Home padrão agrupa logo/nome, contexto, horas e última sessão à esquerda e usa
+  um destaque de fundo. A moldura horizontal fica disponível para fallback/temas.
+  Descrições do painel rápido vão para ajuda contextual, sem cores por categoria.
+- São 34 módulos CSS, 42 blocos injetados, 137 fragmentos JS e 20 bundles. Os 78
+  tokens públicos continuam ativos; defaults e bindings foram atualizados juntos.
+- Harness cobre cinco resoluções, biblioteca atrasada/vazia, falha/retentativa,
+  perfil invalidado, token de tipografia, composição com cópias de arte e intro
+  real. Temas/escopos/trailer têm 45 casos adicionais de navegador; Studio ao vivo
+  continua verificado. Referência histórica de CSS agora é optativa no renderizador,
+  porque o redesenho é autorizado; não se afirma igualdade com o padrão antigo.
+- Pendentes: validação WebView2/TV/controle físico, atmosfera dos blobs e refinamento
+  das demais telas. Nenhum instalador, release ou manifesto de produção nesta etapa.

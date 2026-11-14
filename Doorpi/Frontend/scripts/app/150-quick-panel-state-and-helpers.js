@@ -24,7 +24,8 @@
             if (document.getElementById('doorpiQuickPanelStyles')) return;
             const s = document.createElement('style');
             s.id = 'doorpiQuickPanelStyles';
-            s.textContent = __doorpiCss("injected-styles/app/doorpi-quick-panel-styles.css");
+            s.textContent = __doorpiCss("injected-styles/app/doorpi-quick-panel-shell.css") +
+                __doorpiCss("injected-styles/app/doorpi-quick-panel-styles.css");
             document.head.appendChild(s);
         }
 
@@ -178,15 +179,15 @@
             ];
             return `
                 <aside class="dq-sidebar">
-                    <div class="dq-brand" aria-hidden="true"></div>
+                    <header class="dq-brand"><span class="dq-brand-name">DOORPI</span><h2 class="dq-title">${t('quickPanel')}</h2></header>
                     <div class="dq-menu">
                         ${items.map(([id, label, badge]) => `
                             <button class="dq-menu-btn ${section === id ? 'active' : ''}" data-section="${id}" tabindex="0">
                                 <span class="dq-menu-label">
                                     <span class="dq-menu-ico">${iconSvg(id)}</span>
-                                    <span>${label}</span>
+                                    <span class="dq-menu-copy"><strong>${label}</strong></span>
                                 </span>
-                                ${badge}
+                                ${badge}<span class="dq-menu-next" aria-hidden="true">${iconSvg('arrowRight')}</span>
                             </button>
                         `).join('')}
                     </div>

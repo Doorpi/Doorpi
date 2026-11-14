@@ -1,0 +1,20 @@
+/* Shared default language for system surfaces. Internal tokens, not theme API v1. */
+:root {
+    --doorpi-shell-motion-feedback: 120ms;
+    --doorpi-shell-motion-panel: 180ms;
+    /* Stop desktop surfaces growing after 1080p; reserve a separate step for 4K. */
+    --doorpi-shell-unit: clamp(.8px, .05208333vw, 1.1px);
+    --doorpi-shell-ink: #f3f3fa;
+    --doorpi-shell-muted: #bbc0d0;
+    --doorpi-shell-accent: #b9b2ed;
+    --doorpi-shell-surface: #1b1d2b;
+    --doorpi-shell-edge: #3b3e50;
+    --doorpi-shell-focus: #f0efff;
+    --doorpi-shell-focus-fill: #343646;
+    --doorpi-shell-radius: calc(10 * var(--doorpi-shell-unit));
+    --doorpi-shell-background: radial-gradient(ellipse at 15% 30%, #34306755, transparent 56%),
+        radial-gradient(ellipse at 85% 85%, #22425538, transparent 55%), #10111d;
+}
+@media (min-width: 3000px) and (min-height: 1600px) {
+    :root { --doorpi-shell-unit: 1.7px; }
+}

@@ -77,16 +77,37 @@ internal static class BootSessionClient
         catch (WaitHandleCannotBeOpenedException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
     }
-    internal static void PresentationPrepared() { if (InProcess != null) InProcess.MarkPrepared(); else Signal("Presentation"); }
-    internal static void InteractiveReady() { if (InProcess != null) InProcess.MarkReady(); else Signal("Ready"); }
+    internal static void PresentationPrepared()
+    {
+        InProcess?.MarkPrepared();
+        Signal("Presentation");
+    }
+    internal static void InteractiveReady()
+    {
+        if (InProcess != null)
+        {
+            InProcess.MarkReady();
+            if (!InProcess.Ready.IsCompleted) return;
+        }
+        Signal("Ready");
+    }
     internal static bool RequestRestart() => Signal("Restart");
     internal static bool IsPresentationReleased()
     {
         if (InProcess != null) return InProcess.Released;
+        return IsSupervisorPresentationReleased();
+    }
+    internal static bool IsSupervisorPresentationReleased()
+    {
         if (Token == null) return true;
         try { using var signal = EventWaitHandle.OpenExisting(BootSessionSignals.Name(Token, "Released")); return signal.WaitOne(0); }
         catch (WaitHandleCannotBeOpenedException) { return true; } // Parent is gone; never strand the intro.
         catch (UnauthorizedAccessException) { return true; }
+    }
+
+    internal static async Task WaitForSupervisorPresentationAsync()
+    {
+        while (!IsSupervisorPresentationReleased()) await Task.Delay(100);
     }
 
     internal static async Task DetachForUpdateAsync()

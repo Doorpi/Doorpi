@@ -287,6 +287,7 @@
     };
 
     window.isDoorpiSessionTransitionActive = function () {
+        if (window.isDoorpiHomeEntryRecoveryOpen?.()) return false;
         const overlay = document.getElementById('doorpiUserSwitchLogout');
         const overlayActive = !!overlay &&
             overlay.style.display !== 'none' &&

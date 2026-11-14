@@ -20,7 +20,7 @@
 .modal-layout {
     width: min(93vw, 1680px);
     height: min(85vh, 940px);
-    border-radius: 8px;
+    border-radius: var(--doorpi-dialog-radius);
     background: linear-gradient(110deg, rgba(12,13,22,0.82), rgba(10,11,19,0.62));
     border-color: rgba(255,255,255,0.075);
     box-shadow: 0 34px 90px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.045);

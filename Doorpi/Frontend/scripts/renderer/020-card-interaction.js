@@ -12,7 +12,8 @@ const CardInteraction = (() => {
     let trailerOwnsAudio = false;
     let trailerVolumeTimer = null;
     let youtubeRevealTimer = null;
-    let trailerCinemaTimer = null;
+    let fullscreenHintTimer = null;
+    let fullscreenHintShown = false;
     const cinemaConsumedKeys = new Set();
     const cinemaDirectionByKey = Object.freeze({
         ArrowLeft: 'LEFT',
@@ -26,53 +27,42 @@ const CardInteraction = (() => {
     const DEFAULT_TRAILER_VOLUME = 34;
     const TRAILER_VOLUME_FADE_MS = 1400;
     const TRAILER_START_DELAY_MS = 4500;
-    const TRAILER_CINEMA_DELAY_MS = 12000;
     const TRAILER_EXIT_FADE_MS = 580;
-    const TRAILER_FULLSCREEN_STORAGE_KEY = 'doorpi.homeTrailerFullscreenEnabled';
-    let trailerFullscreenEnabled = true;
+    const FULLSCREEN_HINT_DURATION_MS = 4000;
+    function hideTrailerFullscreenHint() {
+        if (fullscreenHintTimer !== null) clearTimeout(fullscreenHintTimer);
+        fullscreenHintTimer = null;
+        document.getElementById('homeTrailerFullscreenHint')?.setAttribute('aria-hidden', 'true');
+    }
 
-    try {
-        trailerFullscreenEnabled = localStorage.getItem(TRAILER_FULLSCREEN_STORAGE_KEY) !== 'false';
-    } catch { }
+    function showTrailerFullscreenHint() {
+        hideTrailerFullscreenHint();
+        if (!document.body.classList.contains('home-trailer-playing')) return;
+        document.getElementById('homeTrailerFullscreenHint')?.setAttribute('aria-hidden', 'false');
+        fullscreenHintTimer = setTimeout(hideTrailerFullscreenHint, FULLSCREEN_HINT_DURATION_MS);
+    }
 
     function syncTrailerFullscreenHint() {
-        document.body.classList.toggle('home-trailer-fullscreen-disabled', !trailerFullscreenEnabled);
+        const fullscreen = document.body.classList.contains('home-trailer-cinema');
+        document.body.classList.toggle('home-trailer-fullscreen-disabled', !fullscreen);
         const hint = document.getElementById('homeTrailerFullscreenHint');
         const label = document.getElementById('homeTrailerFullscreenHintLabel');
         if (!hint || !label) return;
-        const key = trailerFullscreenEnabled
+        const key = fullscreen
             ? 'homeTrailerDisableFullscreen'
             : 'homeTrailerEnableFullscreen';
         label.dataset.i18n = key;
         label.textContent = typeof t === 'function' ? t(key) :
-            (trailerFullscreenEnabled ? 'Desativar tela cheia' : 'Ativar tela cheia');
-        const visible = document.body.classList.contains('home-trailer-playing') &&
-            (!trailerFullscreenEnabled || document.body.classList.contains('home-trailer-cinema'));
-        hint.setAttribute('aria-hidden', String(!visible));
-    }
-
-    function setTrailerFullscreenEnabled(enabled, options = {}) {
-        trailerFullscreenEnabled = enabled !== false;
-        try {
-            localStorage.setItem(TRAILER_FULLSCREEN_STORAGE_KEY, String(trailerFullscreenEnabled));
-        } catch { }
-
-        if (!trailerFullscreenEnabled) {
-            leaveTrailerCinemaMode();
-        } else if (options.enterNow !== false &&
-                   document.body.classList.contains('home-trailer-playing')) {
-            if (trailerCinemaTimer) {
-                clearTimeout(trailerCinemaTimer);
-                trailerCinemaTimer = null;
-            }
-            document.body.classList.add('home-trailer-cinema');
-        }
-        syncTrailerFullscreenHint();
+            (fullscreen ? 'Sair da tela cheia' : 'Ver em tela cheia');
+        if (!document.body.classList.contains('home-trailer-playing')) hideTrailerFullscreenHint();
     }
 
     function toggleTrailerFullscreen() {
         if (!document.body.classList.contains('home-trailer-playing')) return false;
-        setTrailerFullscreenEnabled(!trailerFullscreenEnabled);
+        // Fullscreen is a transient, explicit action. No idle timer or saved auto-entry preference.
+        document.body.classList.toggle('home-trailer-cinema');
+        syncTrailerFullscreenHint();
+        showTrailerFullscreenHint();
         return true;
     }
 
@@ -126,38 +116,12 @@ const CardInteraction = (() => {
             clearTimeout(youtubeRevealTimer);
             youtubeRevealTimer = null;
         }
-        if (trailerCinemaTimer) {
-            clearTimeout(trailerCinemaTimer);
-            trailerCinemaTimer = null;
-        }
         youtubePlaybackStartedAt = 0;
     }
 
     function leaveTrailerCinemaMode() {
-        if (trailerCinemaTimer) {
-            clearTimeout(trailerCinemaTimer);
-            trailerCinemaTimer = null;
-        }
         document.body.classList.remove('home-trailer-cinema');
         syncTrailerFullscreenHint();
-    }
-
-    function scheduleTrailerCinemaMode() {
-        if (trailerCinemaTimer) clearTimeout(trailerCinemaTimer);
-        if (!trailerFullscreenEnabled) {
-            trailerCinemaTimer = null;
-            syncTrailerFullscreenHint();
-            return;
-        }
-        trailerCinemaTimer = setTimeout(() => {
-            trailerCinemaTimer = null;
-            if (!document.body.classList.contains('home-trailer-playing') ||
-                document.body.classList.contains('home-trailer-suspended') ||
-                document.hidden || window._isExternalAppRunning ||
-                !trailerFullscreenEnabled) return;
-            document.body.classList.add('home-trailer-cinema');
-            syncTrailerFullscreenHint();
-        }, TRAILER_CINEMA_DELAY_MS);
     }
 
     function consumeCinemaWakeInput(event) {
@@ -183,7 +147,6 @@ const CardInteraction = (() => {
 
         const wasCinemaActive = document.body.classList.contains('home-trailer-cinema');
         leaveTrailerCinemaMode();
-        scheduleTrailerCinemaMode();
         if (!wasCinemaActive) return;
 
         if (keyId) cinemaConsumedKeys.add(keyId);
@@ -294,6 +257,7 @@ const CardInteraction = (() => {
         syncTrailerFullscreenHint();
         preparedTrailerCard = null;
         trailerPlayRequested = false;
+        fullscreenHintShown = false;
 
         if (trailerExitTimer) {
             clearTimeout(trailerExitTimer);
@@ -335,8 +299,11 @@ const CardInteraction = (() => {
         document.body.classList.remove('home-trailer-suspended');
         document.body.classList.add('home-trailer-playing');
         syncTrailerAudioOwnership();
-        scheduleTrailerCinemaMode();
         syncTrailerFullscreenHint();
+        if (!fullscreenHintShown) {
+            fullscreenHintShown = true;
+            showTrailerFullscreenHint();
+        }
     }
 
     function suspendYoutubeTrailerSurface(player) {
@@ -731,17 +698,7 @@ const CardInteraction = (() => {
             switchHeroBackground(liveBgSrc, null, liveHeroSrc);
         }
 
-        // ← MUDANÇA: logo tratado aqui exclusivamente (sem concorrência com setImgSrc)
-        // Usa animado se existir, senão usa estático — NUNCA há race condition
-        const logoEl = document.getElementById('gameLogo');
-        if (logoEl) {
-            const logoToSet = card.dataset.logo || card.dataset.staticLogo;
-            if (logoToSet) {
-                safeLoadImage(logoEl, logoToSet, () => currentActiveCard === card, () => {
-                    if (currentActiveCard === card) logoEl.classList.add('visible');
-                });
-            }
-        }
+        // updateHomeFeatureStage owns the logo, including animated/static fallback.
     }
 
     // Versão estável — sem decode(), sem double rAF, sem off-thread.

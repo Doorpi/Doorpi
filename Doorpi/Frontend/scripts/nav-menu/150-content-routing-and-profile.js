@@ -60,6 +60,7 @@
         _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
         body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
+        body.classList.toggle('theme-settings-active', id === 'settings' && _settingsSubView === 'themes');
         body.classList.toggle('storage-management-active', id === 'settings' && _settingsSubView === 'system' && _systemSubView === 'storage');
 
         switch (id) {

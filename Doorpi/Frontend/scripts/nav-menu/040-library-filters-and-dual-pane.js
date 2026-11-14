@@ -92,6 +92,10 @@
     function _rebuildLibraryGrid(catId, { resetScroll = false } = {}) {
         const pane = _libraryPane(catId);
         if (!pane) return;
+        if (catId === 'games' && CATS[_catIdx]?.id === 'games') {
+            const sub = document.getElementById('navContentSub');
+            if (sub) sub.textContent = _subtitle('games');
+        }
 
         const previousScroll = pane.scrollTop;
         const oldGrid = _libraryGrid(catId);
@@ -128,6 +132,7 @@
         else _lazyGrid = nextGrid;
         pane.scrollTop = resetScroll ? 0 : previousScroll;
         _syncLibraryContentItems(catId);
+        nextGrid.resumeBuild();
     }
 
     function _availableLibraryFilters() {
@@ -437,8 +442,10 @@
         if (nextUserId) _menuDataUserId = nextUserId;
 
         if (!changed && !forceReload) return;
+        ++_menuReloadToken;
 
         _menuData.games = [];
+        _menuData.gamesTotal = null;
         _menuData.history = [];
         _menuData.mediaHistory = [];
         _menuData.media = [];
@@ -498,24 +505,24 @@
         mediaPane.id = 'navPaneMedia';
         _dualPaneContainer.appendChild(mediaPane);
 
-        const gamesItems = _menuData.games || [];
-        if (gamesItems.length) {
-            _buildLibraryControls(gamesPane, 'games');
-            _rebuildLibraryGrid('games', { resetScroll: true });
-        } else {
-            gamesPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">⊞</div><div class="nav-placeholder-text">${_t('navNoGames', 'Nenhum jogo encontrado')}</div></div>`;
-        }
+    }
 
-        const mediaItems = _menuData.media || [];
-        if (mediaItems.length) {
-            _buildLibraryControls(mediaPane, 'media');
-            _rebuildLibraryGrid('media', { resetScroll: true });
+    function _ensureLibraryPane(catId) {
+        const pane = _libraryPane(catId);
+        if (!pane || pane.dataset.composed === 'true') return;
+        pane.dataset.composed = 'true';
+        const items = _menuData[catId] || [];
+        if (items.length) {
+            _buildLibraryControls(pane, catId);
+            _rebuildLibraryGrid(catId, { resetScroll: true });
         } else {
-            mediaPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">▶</div><div class="nav-placeholder-text">${_t('navNoMedia', 'Nenhum aplicativo configurado')}</div></div>`;
+            const games = catId === 'games';
+            pane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">${games ? '⊞' : '▶'}</div><div class="nav-placeholder-text">${games ? _t('navNoGames', 'Nenhum jogo encontrado') : _t('navNoMedia', 'Nenhum aplicativo configurado')}</div></div>`;
         }
     }
 
     function _applyPaneVisibility(catId) {
+        _ensureLibraryPane(catId);
         const gamesPane = _dualPaneContainer?.querySelector('#navPaneGames');
         const mediaPane = _dualPaneContainer?.querySelector('#navPaneMedia');
         if (!gamesPane || !mediaPane) return;
@@ -540,12 +547,17 @@
         const grid = showGames ? _lazyGrid : _lazyGridMedia;
         grid?.hydrateInitialPage?.();
         grid?.hydrateViewportBand?.();
+        grid?.resumeBuild?.();
         _libraryInteractionMode = null;
         _syncLibraryContentItems(catId);
     }
 
     function _switchDualPane(catId) {
         _applyPaneVisibility(catId);
+        if (catId === 'games') {
+            const sub = document.getElementById('navContentSub');
+            if (sub) sub.textContent = _subtitle('games');
+        }
         _contentIdx = 0;
         _updateContentFocus();
     }

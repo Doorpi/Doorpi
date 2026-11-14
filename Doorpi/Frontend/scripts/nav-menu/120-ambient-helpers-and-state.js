@@ -221,7 +221,7 @@
     let _storagePendingUninstallId = '';
     let _storageUninstallStatus = null;
     const _storageExpandedCategories = new Set();
-    const NAV_MENU_TRANSITION_MS = 600;
+    const NAV_MENU_TRANSITION_MS = 180;
     let _navMenuTransitionTimer = 0;
     let _navMenuTransitionToken = 0;
     let _navMenuTransitionCleanup = null;

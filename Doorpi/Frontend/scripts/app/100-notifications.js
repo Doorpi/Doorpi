@@ -78,11 +78,11 @@
             });
 
             root.addEventListener('click', (e) => {
-                const close = e.target?.closest?.('[data-notification-close]');
-                if (close) {
+                const dismissButton = e.target?.closest?.('[data-notification-close]');
+                if (dismissButton) {
                     e.preventDefault();
                     e.stopPropagation();
-                    remove(close.dataset.notificationClose || '');
+                    remove(dismissButton.dataset.notificationClose || '');
                     return;
                 }
 
@@ -91,6 +91,9 @@
                     window.DoorpiUpdatePrompt?.show?.();
                 } else if (row?.dataset.action === 'windows-update') {
                     window.DoorpiQuickPanel?.open?.('updates');
+                } else if (row?.dataset.action === 'extensions') {
+                    close({ restoreFocus: false });
+                    window.openExtensionsManager?.();
                 } else if (row?.dataset.action === 'profile-sync-conflict') {
                     close();
                     postToHost?.({
@@ -262,7 +265,7 @@
             });
         }
 
-        function close() {
+        function close(options = {}) {
             const root = ensureRoot();
             const restoreButtonFocus = root.querySelector('#doorpiNotificationPanel')?.contains(document.activeElement);
             isOpen = false;
@@ -271,7 +274,7 @@
                 if (isForCurrentProfile(n) && !n.persistent && n.read) items.delete(n.id);
             });
             render();
-            if (restoreButtonFocus) {
+            if (restoreButtonFocus && options.restoreFocus !== false) {
                 requestAnimationFrame(() => root.querySelector('#doorpiNotificationButton')?.focus?.({ preventScroll: true }));
             }
         }
@@ -357,6 +360,7 @@
                 message: t('notificationsExtensionUpdateMessage', count),
                 toast: t('notificationsExtensionUpdateTitle'),
                 persistent: true,
+                action: 'extensions',
             });
         }
 

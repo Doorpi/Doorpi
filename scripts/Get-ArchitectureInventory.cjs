@@ -6,10 +6,9 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const folders = [
-    'Doorpi', 'Doorpi.UpdateCore', 'DoorpiUpdater', 'DoorpiInputBridge',
-    'DoorpiWindowsUpdateHelper', 'Doorpi.Boot.Tests', 'Doorpi.Browser.Tests', 'scripts', 'installer', 'manifests'
-].filter(folder => fs.existsSync(path.join(root, folder)));
+const projects = fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() &&
+    fs.readdirSync(path.join(root, entry.name)).some(file => file.endsWith('.csproj'))).map(entry => entry.name).sort();
+const folders = [...projects, 'scripts', 'installer', 'manifests', 'ThemeSDK'].filter(folder => fs.existsSync(path.join(root, folder)));
 const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== '--output')) {
     throw new Error('Usage: node scripts/Get-ArchitectureInventory.cjs [--output <path>]');

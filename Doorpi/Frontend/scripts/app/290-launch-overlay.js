@@ -498,6 +498,26 @@
     })();
 
 
-    setTimeout(() => {
-        postToHost({ action: 'requestExtensionUpdates' });
-    }, 1500);
+    // Announce the installed input/bridge handlers independently of ExecuteScript
+    // health probes, whose reply can time out during debugger startup.
+    const announceFrontendReady = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+        postToHost({ action: 'doorpiFrontendReady' });
+    }));
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', announceFrontendReady, { once:true });
+    else announceFrontendReady();
+
+    let _extensionUpdateTimer = 0;
+    let _extensionUpdatesRequested = false;
+    window.scheduleDoorpiExtensionUpdateCheck = () => {
+        if (_extensionUpdatesRequested || _extensionUpdateTimer || !window._doorpiUserSessionReady) return;
+        const profileId = String(window._doorpiCurrentUserId || '');
+        _extensionUpdateTimer = setTimeout(() => {
+            _extensionUpdateTimer = 0;
+            if (!window._doorpiUserSessionReady || profileId !== String(window._doorpiCurrentUserId || '')) {
+                window.scheduleDoorpiExtensionUpdateCheck();
+                return;
+            }
+            _extensionUpdatesRequested = true;
+            postToHost({ action: 'requestExtensionUpdates' });
+        }, 1500);
+    };

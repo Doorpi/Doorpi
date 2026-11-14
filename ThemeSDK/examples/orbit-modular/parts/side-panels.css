@@ -1,0 +1,72 @@
+/* Docked command panel + spacious two-column editors. Geometry of input is retained. */
+:scope { color:#f2f1eb; background:#0c1215; font-family:'Segoe UI', system-ui, sans-serif; }
+:scope.is-menu-only { background:#070d1199; }
+.dq-content { color:#f2f1eb; background:#0c1215; }
+.dq-heading, .dq-card h3 { color:#f2f1eb; }
+.dq-kicker, .dq-sub, .dq-card p { color:#b5c4bd; }
+.dq-card, .dq-action, .dq-release-notes, .dq-storage-category, .dq-program-row,
+.dq-drive-tab, .dq-storage-node-group, .dq-program-action, .dq-storage-back {
+ background:#172428; color:#f2f1eb; border-color:#d6eee226;
+}
+.dq-release-head { background:#172428; color:#b5c4bd; }
+.dq-tab.active { color:#c6e9d8; border-bottom-color:#c6e9d8; }
+.dq-card:focus, .dq-card.nav-focused-el, .dq-action:focus, .dq-action.nav-focused-el,
+.dq-drive-tab:focus, .dq-drive-tab.nav-focused-el, .dq-program-action:focus,
+.dq-storage-node-group:focus, .dq-storage-back:focus {
+ background:#263c33; color:#f2f1eb; border-color:#c6e9d8; box-shadow:0 0 0 2px #c6e9d8;
+}
+.dq-action.primary { background:#e7eee7; color:#14211d; }
+.dq-action.danger, .dq-program-action.danger { color:#ffc4c4; border-color:#ff969644; }
+.dq-progress-fill, .dq-storage-drive-track i { background:#b7dccc; }
+/* Embedded sound/network screens belong to the same scoped quick panel. */
+.sound-panel, .sound-drawer, .sound-volume-card,
+.wifi-detail-hero, .wifi-network-card, .wifi-toggle-row, .wifi-button, .wifi-back,
+.bt-detail-hero, .bt-device-card, .bt-toggle-row, .bt-button, .bt-back, .bt-pairing-panel {
+ background:#172428; color:#f2f1eb; border-color:#d6eee226;
+}
+.sound-focus:focus, .sound-focus.nav-focused-el,
+.wifi-focus:focus, .wifi-focus.nav-focused-el,
+.bluetooth-focus:focus, .bluetooth-focus.nav-focused-el {
+ background:#263c33; border-color:#c6e9d8; box-shadow:0 0 0 2px #c6e9d8;
+}
+.sound-slider-rail i, .sound-slider-shell.active:focus-within .sound-slider-rail i,
+.sound-volume-card.editing .sound-slider-rail i,
+.wifi-toggle.on, .bt-toggle.on { background:#b7dccc; box-shadow:none; }
+.wifi-eyebrow, .wifi-detail-hero p.connected, .wifi-network-state.connected,
+.wifi-network-card.connected .wifi-network-copy span,
+.bt-eyebrow, .bt-device-state.connected, .bt-detail-hero p.connected,
+.bt-device-card.connected .bt-device-copy span, .bt-device-card.pairing .bt-device-copy span { color:#b7dccc; }
+.wifi-network-card.connected, .bt-device-card.connected, .bt-device-card.pairing { border-color:#b7dccc66; background:#20372e; }
+.wifi-button.primary, .bt-button.primary,
+.bt-button.primary.bluetooth-focus:focus, .bt-button.primary.bluetooth-focus.nav-focused-el { background:#e7eee7; color:#14211d; }
+.wifi-spinner, .bt-spinner, .bt-card-spinner { border-color:#b7dccc40; border-top-color:#b7dccc; }
+.dq-sidebar {
+ width:clamp(340px, 28vw, 900px); flex-basis:clamp(340px, 28vw, 900px); max-width:46vw;
+ margin:clamp(16px, 2vh, 48px); border:1px solid #d6eee226; border-radius:12px;
+ background:#131d20; box-shadow:0 20px 80px #00000055;
+ padding:clamp(24px, 2.2vw, 72px); gap:clamp(16px, 2vh, 40px);
+}
+.dq-brand { padding:0 8px 2vh; border-bottom:1px solid #d6eee226; }
+.dq-brand-name { color:#b7dccc; letter-spacing:.24em; }
+.dq-title { color:#f2f1eb; font-weight:400; }
+.dq-menu { gap:8px; }
+.dq-menu-btn { border-radius:4px; color:#d3dfda; padding:12px 10px; }
+.dq-menu-btn.active { background:#22332e; color:#f2f1eb; border-color:#d6eee226; box-shadow:inset 2px 0 0 #b7dccc; }
+.dq-menu-btn:focus, .dq-menu-btn.nav-focused-el { background:#e7eee7; color:#14211d; border-color:#e7eee7; box-shadow:none; }
+.dq-menu-ico { background:transparent; color:inherit; }
+.dq-menu-label { font-weight:500; }
+.modal-layout { width:92vw; height:86vh; border:1px solid #d6eee226; border-radius:12px; background:#141d20 !important; box-shadow:0 24px 80px #00000055; }
+.modal-sidebar { background:#0e1619; border-right:1px solid #d6eee226; padding:clamp(24px, 2.5vw, 80px); }
+.modal-content-area { padding:clamp(24px, 3vw, 100px); }
+.menu-tab { border-radius:4px; color:#b5c4bd; }
+.menu-tab.active, .menu-tab:focus { color:#f2f1eb; background:#263c33; }
+.filter-btn { border-radius:4px; }
+.filter-btn.active, .filter-btn:focus { border-color:#b7dccc; }
+@media (max-height:800px) {
+ .dq-sidebar { padding:20px; gap:12px; }
+ .dq-menu-btn { padding:9px 8px; }
+ .dq-menu { gap:4px; }
+ .modal-sidebar, .modal-content-area { padding:22px; }
+}
+
+button, input, select, textarea { font-family:inherit; }

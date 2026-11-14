@@ -123,6 +123,101 @@ function getCtxMenuItems() {
         .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 }
 
+// Semantic focus regions belong to the application; themes only position them.
+window.DoorpiNavigation = (() => {
+    const home = Object.freeze({
+        id: 'home', entryRegion: 0,
+        regions: Object.freeze([
+            Object.freeze({ id: 0, key: 'carousel', layoutRegion: 'library' }),
+            Object.freeze({ id: 1, key: 'tabs', layoutRegion: 'toolbar' }),
+            Object.freeze({ id: 2, key: 'system', layoutRegion: 'header' })
+        ])
+    });
+    const remembered = new Map();
+    function activeHome() {
+        const channel = window.getCurrentHomeTab?.() || 'games';
+        const gridId = window.getHomeGridId?.(channel) || (channel === 'media' ? 'mediaGrid' : channel === 'stores' ? 'storesGrid' : 'gameGrid');
+        return { grid: document.getElementById(gridId), scope: String(window._doorpiCurrentUserId || '') + '\0' + channel };
+    }
+    function cardKey(card) {
+        return String(card?.dataset?.id || card?.dataset?.gameId || card?.dataset?.appId || card?.dataset?.appUrl || card?.id || '');
+    }
+    function available(card) {
+        return !!card && card.offsetWidth > 0 && card.offsetHeight > 0 && !card.disabled &&
+            card.getAttribute('aria-disabled') !== 'true' && !card.classList.contains('loading-card');
+    }
+    function cardsIn(grid) {
+        return grid ? [...grid.querySelectorAll('.card, .store-card')].filter(available) : [];
+    }
+    function remember(card, scope) {
+        // Transitional DOM may still contain cards from the previous profile.
+        // Preparing focus/art behind the transition remains allowed.
+        if (window._userSwitching === true) return;
+        // Add is the empty-state entry target, not a selected game to restore
+        // after the first real library arrives. Explicit Add selection in a
+        // populated library still participates in normal return navigation.
+        if (card?.classList.contains('add-card') &&
+            !cardsIn(activeHome().grid).some(item => !item.classList.contains('add-card'))) return;
+        const key = cardKey(card);
+        if (!key) return;
+        remembered.delete(scope);
+        remembered.set(scope, key);
+        if (remembered.size > 48) remembered.delete(remembered.keys().next().value);
+    }
+    function blocked() {
+        return isModalOpen || isEditModalOpen || isSetupOpen || isCtxMenuOpen ||
+            isVkbOpenForNavigation() || window.isNavMenuOpen === true || window.isGlobalLoading === true ||
+            window.isDoorpiOverlayOpen?.() === true || document.body.classList.contains('user-picker-open');
+    }
+    function entryTarget() {
+        const { grid, scope } = activeHome();
+        const cards = cardsIn(grid);
+        return cards.find(card => cardKey(card) === remembered.get(scope)) ||
+            cards.find(card => card.classList.contains('featured') && !card.classList.contains('add-card')) ||
+            cards.find(card => !card.classList.contains('add-card')) || cards[0];
+    }
+    function focusRegion(screenId, regionId) {
+        if (screenId !== 'home' || blocked()) return false;
+        const { grid, scope } = activeHome();
+        let target;
+        if (regionId === 0) {
+            target = entryTarget();
+        } else if (regionId === 1) {
+            target = [...document.querySelectorAll('.home-tab')].filter(available).find(tab => tab.classList.contains('active')) ||
+                [...document.querySelectorAll('.home-tab')].find(available);
+        } else if (regionId === 2) {
+            target = [document.getElementById('btnTopProfile'), document.getElementById('doorpiNotificationButton')].find(available);
+        }
+        if (!target) return false;
+        target.focus({ preventScroll: true });
+        if (document.activeElement !== target) return false;
+        if (regionId === 0) {
+            remember(target, scope);
+            target.scrollIntoView?.({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
+            target._startInteraction?.();
+        }
+        return true;
+    }
+    function getRegionId(element = document.activeElement) {
+        const { grid } = activeHome();
+        if (grid?.contains(element)) return 0;
+        if (element?.closest?.('#homeTabs')) return 1;
+        if (element?.id === 'btnTopProfile' || element?.id === 'doorpiNotificationButton') return 2;
+        return null;
+    }
+    document.addEventListener('focusin', event => {
+        const { grid, scope } = activeHome();
+        const card = event.target?.closest?.('.card, .store-card');
+        if (grid?.contains(card) && available(card)) remember(card, scope);
+    });
+    return Object.freeze({
+        getScreen: id => id === 'home' ? home : null,
+        getRegionId,
+        focusRegion,
+        getEntryTarget: screenId => screenId === 'home' ? entryTarget() : null,
+        enter: screenId => screenId === 'home' && focusRegion('home', home.entryRegion)
+    });
+})();
 function getModalGroups() {
     const activeTabEl = document.querySelector('.view-section.active');
     const activeTab = activeTabEl ? activeTabEl.id : 'view-apps';
@@ -964,6 +1059,12 @@ function moveFocus(direction) {
     }
 
     if (!isModalOpen) {
+        const homeLayout = document.documentElement.getAttribute('data-doorpi-home-layout');
+        const rearrangedHome = homeLayout === 'library-first' || homeLayout === 'custom';
+        if (current?.id === 'btnTopProfile' && direction === 'DOWN') {
+            window.DoorpiNavigation?.enter('home');
+            return;
+        }
         if (current?.id === 'btnTopProfile' && direction === 'LEFT' && window.DoorpiQuickPanel?.open) {
             window.DoorpiQuickPanel.open();
             return;
@@ -994,17 +1095,27 @@ function moveFocus(direction) {
                 const activeTab = document.querySelector('.home-tab.active');
                 if (activeTab) { activeTab.focus(); return; }
             }
-            if (direction === 'DOWN') {
+            if (!rearrangedHome && direction === 'DOWN') {
                 if (typeof window.openNavMenu === 'function' && !window.isNavMenuOpen) { window.openNavMenu(0); return; }
             }
         }
 
-        if (current.classList.contains('home-tab') && direction === 'UP') {
+        if (!rearrangedHome && current.classList.contains('home-tab') && direction === 'UP') {
             const profileBtn = document.getElementById('btnTopProfile');
             if (profileBtn) { profileBtn.focus(); return; }
         }
 
         let target = explicitHomeTarget || findSpatialCandidate(items, current, direction);
+        // A relocated toolbar may be far from the avatar horizontally. Keep a
+        // route to the profile even when the spatial cone finds no candidate.
+        if (rearrangedHome && !target && direction === 'UP') {
+            const profile = document.getElementById('btnTopProfile');
+            if (profile && items.includes(profile) && profile !== current) target = profile;
+        }
+        if (rearrangedHome && !target && direction === 'DOWN' && typeof window.openNavMenu === 'function' && !window.isNavMenuOpen) {
+            window.openNavMenu(0);
+            return;
+        }
         if (!target) {
             const tabs = items.filter(el => el.classList.contains('home-tab'));
             const cards = items.filter(el => !el.classList.contains('home-tab') && !el.classList.contains('top-profile-btn'));
@@ -1044,6 +1155,12 @@ function moveFocus(direction) {
     if (groupName === 'app') _lastFocusedApp = current;
     if (groupName === 'filter') _lastFocusedFilter = current;
     if (groupName === 'sidebar') _lastFocusedSidebar = current;
+
+    if (document.documentElement.getAttribute('data-doorpi-dialog-layout') === 'right' && current.closest('#addGameContainer')) {
+        const target = resolveExplicitNavTarget(current, direction) || findSpatialCandidate(items, current, direction);
+        focusModalNavigationTarget(target, current);
+        return;
+    }
 
     let target = null;
     if (groups.activeTab === 'view-emulators' &&
@@ -1091,31 +1208,19 @@ function moveFocus(direction) {
 
     if (!target) target = current;
 
-    if (target && target !== current) {
-        target.focus();
-        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-        if (window._gpNavigating) window.DoorpiUiSound?.play('move');
-        signalNavigation();
-    }
+    focusModalNavigationTarget(target, current);
+}
+
+function focusModalNavigationTarget(target, current) {
+    if (!target || target === current) return;
+    target.focus();
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    if (window._gpNavigating) window.DoorpiUiSound?.play('move');
+    signalNavigation();
 }
 
 window.focusFeaturedCard = function () {
-    if (isModalOpen || isEditModalOpen || isVkbOpenForNavigation() || isSetupOpen) return;
-    const ht = window.getCurrentHomeTab?.() || 'games';
-    const activeGridId = ht === 'media' ? 'mediaGrid' : (ht === 'stores' ? 'storesGrid' : 'gameGrid');
-    const grid = document.getElementById(activeGridId);
-    if (!grid) return false;
-    const featured = grid.querySelector('.card.featured');
-    if (featured) {
-        featured.focus({ preventScroll: true });
-        grid.scrollLeft = 0;
-        featured._startInteraction?.();
-        return document.activeElement === featured;
-    }
-
-    const first = grid.querySelector('.card');
-    first?.focus({ preventScroll: true });
-    return !!first && document.activeElement === first;
+    return window.DoorpiNavigation.enter('home');
 };
 
 function focusItemByIndex(index) {
@@ -2080,7 +2185,7 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             logDoorpiInputBlock('session-transition');
             return;
         }
-        if (window.isGlobalLoading) {
+        if (window.isGlobalLoading && !window.isDoorpiHomeEntryRecoveryOpen?.()) {
             logDoorpiInputBlock('global-loading');
             return;
         }
@@ -2306,6 +2411,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             if (!isVkbOpenForNavigation()) {
                 if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
                     if (handleArtworkWizardGamepadShortcuts(buttons)) return;
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START))
+                        window._editModalSave?.();
                     if (primaryJustPressed(buttons, GAMEPAD)) {
                         const el = document.activeElement;
                         if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -2435,7 +2542,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             else gamepadCancel();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
-            if (isModalOpen) {
+            if (isEditModalOpen) window._editModalSave?.();
+            else if (isModalOpen) {
                 const activeView = document.querySelector('#addGameContainer .view-section.active');
                 if (activeView?.id === 'view-media-apps') {
                     if (document.getElementById('subview-web')?.classList.contains('active')) document.getElementById('btnAddWebApp')?.click();

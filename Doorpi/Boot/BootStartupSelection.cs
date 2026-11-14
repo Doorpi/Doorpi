@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Doorpi;
 
-internal enum BootStartupPath { Supervised, Direct }
+internal enum BootStartupPath { Supervised, Direct, Monitored }
 
 internal sealed record BootStartupSelection(BootStartupPath Path, string Source, string Issue = "")
 {
@@ -47,6 +47,7 @@ internal sealed record BootStartupSelection(BootStartupPath Path, string Source,
     {
         path = BootStartupPath.Supervised;
         if (string.Equals(value, "supervised", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(value, "monitored", StringComparison.OrdinalIgnoreCase)) { path = BootStartupPath.Monitored; return true; }
         if (!string.Equals(value, "direct", StringComparison.OrdinalIgnoreCase)) return false;
         path = BootStartupPath.Direct;
         return true;

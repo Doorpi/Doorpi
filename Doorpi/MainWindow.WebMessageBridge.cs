@@ -16,6 +16,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -59,6 +60,8 @@ namespace Doorpi
                 var root = doc.RootElement;
                 if (!root.TryGetProperty("action", out var actionElement)) return;
                 string action = actionElement.GetString() ?? "";
+
+                if (await TryHandleThemeSettingsAsync(action, root).ConfigureAwait(true)) return;
 
                 if (await TryHandleWebPermissionSettingsAsync(action, root).ConfigureAwait(true))
                     return;
@@ -202,6 +205,15 @@ namespace Doorpi
                     SaveLayoutScale(layoutScale);
                     SendDisplaySettingsToUI();
                 }
+                else if (action == "doorpiFrontendReady")
+                {
+                    if (Volatile.Read(ref _startupRecoveryActive) == 0)
+                    {
+                        Interlocked.Exchange(ref _homeWebViewHealthy, 1);
+                        DoorpiBootDiagnostics.Log("home-frontend-ready", "input-handlers-installed");
+                        TryReleaseInitialUserGate("frontend-ready");
+                    }
+                }
                 else if (action == "introSystemReadyForFocus")
                 {
                     RestoreDoorpiFocusAfterIntroHandoff();
@@ -216,9 +228,12 @@ namespace Doorpi
                     string activeTag = GetStr(root, "activeTag");
                     string activeId = GetStr(root, "activeId");
                     string activeClass = GetStr(root, "activeClass");
+                    string activeRegion = root.TryGetProperty("activeRegion", out var regionValue) &&
+                        regionValue.ValueKind == JsonValueKind.Number && regionValue.TryGetInt32(out int regionId)
+                        ? regionId.ToString() : "none";
                     DoorpiBootDiagnostics.Log(
                         "home-interactive-ready",
-                        $"mode={mode} active={activeTag}#{activeId}.{activeClass}");
+                        $"mode={mode} active={activeTag}#{activeId}.{activeClass} region={activeRegion}");
 
                     _ = Dispatcher.InvokeAsync(() =>
                     {

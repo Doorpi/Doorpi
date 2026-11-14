@@ -578,7 +578,7 @@ const CardRenderer = (() => {
                 gridEl.insertBefore(card, anchorEl);
             } else {
                 card = _buildCard(item, isFeatured);
-                if (silent) {
+                if (silent && !window._userSwitching) {
                     card.classList.add('bulk-silent-card');
                     setTimeout(() => card.classList.remove('bulk-silent-card'), 750);
                 }

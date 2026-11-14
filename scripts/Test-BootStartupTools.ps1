@@ -12,6 +12,9 @@ $install = Join-Path $folder 'install'
 [IO.Directory]::CreateDirectory($install) | Out-Null
 $utf8 = New-Object Text.UTF8Encoding($false)
 [IO.File]::WriteAllText((Join-Path $install 'Doorpi.dll'), 'binary fixture', $utf8)
+& (Join-Path $PSScriptRoot 'Set-BootStartupExperiment.ps1') -Mode monitored -DataFolder $data
+$monitorConfig = [IO.File]::ReadAllText((Join-Path $data 'boot-startup-experiment.json')) | ConvertFrom-Json
+if ($monitorConfig.path -ne 'monitored') { throw 'Monitor selection was not saved.' }
 $events = @(
     @{ utc='2026-11-07T12:00:00.1Z'; stage='startup-route'; detail='shellEntry=True path=Direct source=experiment' },
     @{ utc='2026-11-07T12:00:00.3Z'; stage='startup-phase-end'; detail='phase=webview-controller durationMs=75' },

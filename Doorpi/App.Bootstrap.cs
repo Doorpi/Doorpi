@@ -7,19 +7,24 @@ namespace Doorpi;
 
 public partial class App
 {
-    private async Task RunShellBootstrapAsync()
+    private async Task RunShellBootstrapAsync(bool prepareInChild = false)
     {
         while (true)
         {
-            var experience = new NativeBootExperience();
+            var experience = new NativeBootExperience(showPreparation: !prepareInChild);
             bool retry = false;
             try
             {
-                await experience.ShowPreparingAsync(false);
-                await PrepareCompatibilityShellAsync();
+                if (!prepareInChild)
+                {
+                    await experience.ShowPreparingAsync(false);
+                    await PrepareCompatibilityShellAsync();
+                }
                 string executable = Environment.ProcessPath ?? throw new InvalidOperationException("Executable path unavailable.");
                 await new BootSessionSupervisor(executable, experience,
-                    introAlreadyPresented: Array.Exists(Environment.GetCommandLineArgs(), a => a == "--doorpi-resume-session")).RunAsync();
+                    startupTimeout: prepareInChild ? TimeSpan.FromSeconds(125) : null,
+                    introAlreadyPresented: Array.Exists(Environment.GetCommandLineArgs(), a => a == "--doorpi-resume-session"),
+                    prepareInChild: prepareInChild).RunAsync();
             }
             catch (Exception ex)
             {
@@ -52,18 +57,24 @@ public partial class App
         DoorpiBootDiagnostics.Log("boot-explorer-available", "graphicsReadiness=not-inferred");
     }
 
-    private sealed class NativeBootExperience : IBootExperience
+    private sealed class NativeBootExperience(bool showPreparation = true) : IBootExperience
     {
         private BootIntroWindow? _window;
         public bool IsSessionAvailable => !DoorpiBootDiagnostics.IsWorkstationLocked();
         public void TransferForegroundTo(int processId)
         {
+            if (!showPreparation) return; // The child already owns both presentation windows.
             bool allowed = AllowSetForegroundWindow((uint)processId);
             DoorpiBootDiagnostics.Log("boot-focus-transfer", $"pid={processId} allowed={allowed}");
         }
         [DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(uint processId);
         public async Task ShowPreparingAsync(bool recovering)
         {
+            if (!showPreparation)
+            {
+                await ReleasePresentationAsync(); // Close a previous recovery before retry.
+                return;
+            }
             _window ??= BootIntroWindow.CreateOnDedicatedThread();
             await _window.ShowPreparingAsync(recovering);
         }
@@ -77,7 +88,11 @@ public partial class App
         public async Task<BootRecoveryChoice> RecoverAsync()
         {
             _window ??= BootIntroWindow.CreateOnDedicatedThread();
-            return await _window.ShowRecoveryAsync();
+            var choice = await _window.ShowRecoveryAsync();
+            // A monitored child can fail before Explorer preparation (including
+            // storage validation). Desktop must work in that case too.
+            if (choice == BootRecoveryChoice.Desktop) WindowsShellEnvironment.EnsureExplorerStarted();
+            return choice;
         }
     }
 }

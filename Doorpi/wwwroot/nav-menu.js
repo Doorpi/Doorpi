@@ -5,7 +5,7 @@ window.isNavMenuOpen = false;
 (function () {
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
-    let _menuData = { user: {}, games: [], history: [], mediaHistory: [], media: [], emulators: [] };
+    let _menuData = { user: {}, games: [], gamesTotal: null, history: [], mediaHistory: [], media: [], emulators: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
     let _profileSyncUi = { status: 'Disconnected', connected: false, busy: false, message: '' };
@@ -321,8 +321,8 @@ window.isNavMenuOpen = false;
 
             // Margens para garantir que o skeleton nunca seja visto:
             // Ele vai carregar as imagens muito antes de entrar e só descarregar muito depois de sair.
-            this.LOAD_MARGIN   = '1200px 0px 1200px 0px';
-            this.UNLOAD_MARGIN = '1600px 0px 1600px 0px';
+            this.LOAD_MARGIN   = '240px 0px 240px 0px';
+            this.UNLOAD_MARGIN = '600px 0px 600px 0px';
             this.BATCH_SIZE    = 40; // Inicial de quantos processar na tela logo de cara
 
             this._cards      = [];           
@@ -361,21 +361,23 @@ window.isNavMenuOpen = false;
             this._initialCount = firstBatch;
             for (let i = 0; i < firstBatch; i++) {
                 const card = this._createCard(i);
-                card._initialPage = true;
                 this._grid.appendChild(card);
                 this._cards.push(card);
                 this._loadObs.observe(card);
                 this._unloadObs.observe(card);
-                this._loadCard(card);
             }
 
             this.onFocusUpdate(this._cards, -1);
             if (typeof refreshRuntimeCards === 'function') refreshRuntimeCards();
 
-            if (this.items.length > firstBatch) {
-                this._buildRemainder(firstBatch);
-            }
             requestAnimationFrame(() => this.hydrateViewportBand());
+        }
+
+        resumeBuild() {
+            if (this._buildingRemainder || this._aborted || this._cards.length >= this.items.length) return;
+            if (_navMenuPhase !== 'open' || this._grid.closest('.nav-library-pane')?.style.opacity === '0') return;
+            this._buildingRemainder = true;
+            this._buildRemainder(this._cards.length).finally(() => { this._buildingRemainder = false; });
         }
 
         async _buildRemainder(startIdx) {
@@ -391,7 +393,8 @@ window.isNavMenuOpen = false;
                     }
                 });
 
-                if (this._aborted || !this._grid) break;
+                if (this._aborted || !this._grid || _navMenuPhase !== 'open' ||
+                    this._grid.closest('.nav-library-pane')?.style.opacity === '0') break;
 
                 const end = Math.min(i + BATCH, this.items.length);
                 const fragment = document.createDocumentFragment();
@@ -483,6 +486,10 @@ window.isNavMenuOpen = false;
 
         _loadCard(card) {
             if (card._loaded || this._aborted) return;
+            if (_overlay?.style.display === 'none') return;
+            // Both library panes retain lightweight metadata. Only the active
+            // pane may fetch/decode artwork.
+            if (card.closest('.nav-library-pane')?.style.opacity === '0') return;
             card._loaded = true;
             card.classList.remove('nav-skeleton');
 
@@ -531,6 +538,9 @@ window.isNavMenuOpen = false;
 
         _unloadCard(card) {
             if (!card._loaded) return;
+            // Hiding/animating the whole menu is not a library scroll. Keep the
+            // warmed viewport instead of decoding it again on the next opening.
+            if (_navMenuPhase !== 'open' || _overlay?.style.display === 'none') return;
             if (card._initialPage) return;
             if (this._isInViewportBand(card)) return;
             
@@ -552,19 +562,16 @@ window.isNavMenuOpen = false;
             }
         }
         hydrateInitialPage() {
-            const count = Math.min(this._initialCount || this.BATCH_SIZE, this._cards.length);
-            for (let i = 0; i < count; i++) {
-                const card = this._cards[i];
-                if (card) this._loadCard(card);
-            }
+            // Complete layout reads before image insertion invalidates geometry.
+            const visible = this._cards.filter(card => this._isInViewportBand(card));
+            for (const card of visible) this._loadCard(card);
         }
         warmInitialPage() {
-            this.hydrateInitialPage();
-
-            const count = Math.min(this._initialCount || this.BATCH_SIZE, this.items.length);
+            const visible = this._cards.filter(card => this._isInViewportBand(card));
+            for (const card of visible) this._loadCard(card);
             const tasks = [];
-            for (let i = 0; i < count; i++) {
-                const item = this.items[i];
+            for (const card of visible) {
+                const item = card._item;
                 const src = _restingGridSrc(item, this.catId);
                 if (src) tasks.push(this._preloadImage(src));
             }
@@ -604,9 +611,7 @@ window.isNavMenuOpen = false;
             return promise;
         }
         hydrateViewportBand() {
-            for (const card of this._cards) {
-                if (card && this._isInViewportBand(card)) this._loadCard(card);
-            }
+            this.hydrateInitialPage();
         }
         _isInViewportBand(card) {
             const root = this.scrollRoot;
@@ -615,6 +620,7 @@ window.isNavMenuOpen = false;
             try {
                 const rootRect = root.getBoundingClientRect();
                 const cardRect = card.getBoundingClientRect();
+                if (rootRect.height <= 0 || rootRect.width <= 0 || cardRect.height <= 0) return false;
                 return cardRect.bottom >= rootRect.top && cardRect.top <= rootRect.bottom;
             } catch (_) {
                 return false;
@@ -771,6 +777,10 @@ window.isNavMenuOpen = false;
     function _rebuildLibraryGrid(catId, { resetScroll = false } = {}) {
         const pane = _libraryPane(catId);
         if (!pane) return;
+        if (catId === 'games' && CATS[_catIdx]?.id === 'games') {
+            const sub = document.getElementById('navContentSub');
+            if (sub) sub.textContent = _subtitle('games');
+        }
 
         const previousScroll = pane.scrollTop;
         const oldGrid = _libraryGrid(catId);
@@ -807,6 +817,7 @@ window.isNavMenuOpen = false;
         else _lazyGrid = nextGrid;
         pane.scrollTop = resetScroll ? 0 : previousScroll;
         _syncLibraryContentItems(catId);
+        nextGrid.resumeBuild();
     }
 
     function _availableLibraryFilters() {
@@ -1116,8 +1127,10 @@ window.isNavMenuOpen = false;
         if (nextUserId) _menuDataUserId = nextUserId;
 
         if (!changed && !forceReload) return;
+        ++_menuReloadToken;
 
         _menuData.games = [];
+        _menuData.gamesTotal = null;
         _menuData.history = [];
         _menuData.mediaHistory = [];
         _menuData.media = [];
@@ -1177,24 +1190,24 @@ window.isNavMenuOpen = false;
         mediaPane.id = 'navPaneMedia';
         _dualPaneContainer.appendChild(mediaPane);
 
-        const gamesItems = _menuData.games || [];
-        if (gamesItems.length) {
-            _buildLibraryControls(gamesPane, 'games');
-            _rebuildLibraryGrid('games', { resetScroll: true });
-        } else {
-            gamesPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">⊞</div><div class="nav-placeholder-text">${_t('navNoGames', 'Nenhum jogo encontrado')}</div></div>`;
-        }
+    }
 
-        const mediaItems = _menuData.media || [];
-        if (mediaItems.length) {
-            _buildLibraryControls(mediaPane, 'media');
-            _rebuildLibraryGrid('media', { resetScroll: true });
+    function _ensureLibraryPane(catId) {
+        const pane = _libraryPane(catId);
+        if (!pane || pane.dataset.composed === 'true') return;
+        pane.dataset.composed = 'true';
+        const items = _menuData[catId] || [];
+        if (items.length) {
+            _buildLibraryControls(pane, catId);
+            _rebuildLibraryGrid(catId, { resetScroll: true });
         } else {
-            mediaPane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">▶</div><div class="nav-placeholder-text">${_t('navNoMedia', 'Nenhum aplicativo configurado')}</div></div>`;
+            const games = catId === 'games';
+            pane.innerHTML = `<div class="nav-placeholder"><div class="nav-placeholder-icon">${games ? '⊞' : '▶'}</div><div class="nav-placeholder-text">${games ? _t('navNoGames', 'Nenhum jogo encontrado') : _t('navNoMedia', 'Nenhum aplicativo configurado')}</div></div>`;
         }
     }
 
     function _applyPaneVisibility(catId) {
+        _ensureLibraryPane(catId);
         const gamesPane = _dualPaneContainer?.querySelector('#navPaneGames');
         const mediaPane = _dualPaneContainer?.querySelector('#navPaneMedia');
         if (!gamesPane || !mediaPane) return;
@@ -1219,12 +1232,17 @@ window.isNavMenuOpen = false;
         const grid = showGames ? _lazyGrid : _lazyGridMedia;
         grid?.hydrateInitialPage?.();
         grid?.hydrateViewportBand?.();
+        grid?.resumeBuild?.();
         _libraryInteractionMode = null;
         _syncLibraryContentItems(catId);
     }
 
     function _switchDualPane(catId) {
         _applyPaneVisibility(catId);
+        if (catId === 'games') {
+            const sub = document.getElementById('navContentSub');
+            if (sub) sub.textContent = _subtitle('games');
+        }
         _contentIdx = 0;
         _updateContentFocus();
     }
@@ -2869,6 +2887,8 @@ window.isNavMenuOpen = false;
     }
 
     async function _loadJSONs() {
+        const requestedProfile = String(window._doorpiCurrentUserId || '');
+        const requestedRevision = _menuReloadToken;
         const domCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
         if (domCards.length > 0 && _menuData.games.length > 0) {
             const domMeta = new Map();
@@ -2920,6 +2940,8 @@ window.isNavMenuOpen = false;
             }
             if (gRes.status === 'fulfilled' && gRes.value.ok) {
                 const games = await gRes.value.json();
+                if (requestedProfile !== String(window._doorpiCurrentUserId || '') || requestedRevision !== _menuReloadToken) return;
+                _menuData.gamesTotal = Array.isArray(games) ? games.length : null;
                 _menuData.games = Array.isArray(games)
                     ? games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'))
                     : games;
@@ -2961,6 +2983,7 @@ window.isNavMenuOpen = false;
         const loadedUserId = _userId(_menuData.user) || window._doorpiCurrentUserId || '';
         if (loadedUserId) _menuDataUserId = loadedUserId;
 
+        if (!loadedGamesFromJson) _menuData.gamesTotal = null;
         if (!loadedGamesFromJson && (!_menuData.games || _menuData.games.length === 0)) {
             const gameCards = Array.from(document.querySelectorAll('#gameGrid .card:not(.add-card)'));
             _menuData.games = gameCards.map(c => {
@@ -3214,7 +3237,7 @@ window.isNavMenuOpen = false;
     let _storagePendingUninstallId = '';
     let _storageUninstallStatus = null;
     const _storageExpandedCategories = new Set();
-    const NAV_MENU_TRANSITION_MS = 600;
+    const NAV_MENU_TRANSITION_MS = 180;
     let _navMenuTransitionTimer = 0;
     let _navMenuTransitionToken = 0;
     let _navMenuTransitionCleanup = null;
@@ -3561,7 +3584,7 @@ window.isNavMenuOpen = false;
     display: none; opacity: 1; pointer-events: none;
     font-family: 'Inter', 'Segoe UI', sans-serif;
     transform: translate3d(0, 100%, 0);
-    transition: transform 0.60s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1);
     backface-visibility: hidden;
 }
 #navMenuOverlay.visible { transform: translate3d(0, 0, 0); pointer-events: auto; }
@@ -4807,7 +4830,7 @@ window.isNavMenuOpen = false;
         display: none;
     }
 }
-        `;
+`;
         document.head.appendChild(s);
     })();
 
@@ -4903,6 +4926,14 @@ window.isNavMenuOpen = false;
     }
 
     function _subtitle(id) {
+        if (id === 'games' && Number.isInteger(_menuData.gamesTotal)) {
+            const total = _menuData.gamesTotal;
+            if (_librarySearch.games || _gameLibraryFilters.size) {
+                const shown = _filteredLibraryItems('games').length;
+                return _t('navGamesFilteredTotal', `${shown} de ${total} jogos`, shown, total);
+            }
+            return _t('navGamesTotal', `${total} jogos na biblioteca`, total);
+        }
         const map = {
             games: _t('navGamesSub', 'Toda a sua biblioteca de jogos e títulos instalados'),
             media: _t('navMediaSub', 'Aplicativos e serviços de entretenimento'),
@@ -5074,6 +5105,7 @@ window.isNavMenuOpen = false;
         _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
         body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
+        body.classList.toggle('theme-settings-active', id === 'settings' && _settingsSubView === 'themes');
         body.classList.toggle('storage-management-active', id === 'settings' && _settingsSubView === 'system' && _systemSubView === 'storage');
 
         switch (id) {
@@ -6272,6 +6304,7 @@ window.isNavMenuOpen = false;
 
     function _renderSettings(body) {
         body.classList.toggle('settings-home-active', !_settingsSubView);
+        if (_settingsSubView === 'themes') { _renderThemes(body); return; }
         if (_settingsSubView === 'webPermissions') { _renderWebPermissions(body); return; }
         if (_settingsSubView) {
             _renderSettingsLegacy(body);
@@ -6288,6 +6321,12 @@ window.isNavMenuOpen = false;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
         const entries = [
+            {
+                id: 'setThemes', group: 'Experiência', icon: svgVideo,
+                title: 'Temas', short: 'Combine visuais por área da interface',
+                description: 'Adicione pacotes e escolha o visual da home, dos menus, dos popups e da tela de perfis.',
+                scope: ['Temas instalados', 'Escolha por área', 'Padrão disponível', 'Tela de perfis'], action: 'themes'
+            },
             {
                 id: 'setAccount', group: 'Conta', icon: svgUser,
                 title: _t('navSetAccount', 'Conta e perfis'),
@@ -6400,8 +6439,10 @@ window.isNavMenuOpen = false;
                 <div class="nav-settings-home-action"><kbd>A</kbd><span>Abrir configuração</span></div>`;
         };
 
-        _contentItems = entries.map(entry => body.querySelector(`#${entry.id}`)).filter(Boolean);
-        renderPreview(entries[Math.max(0, Math.min(entries.length - 1, _contentIdx))]);
+        // Groups determine the displayed order; navigation must use that same order.
+        const entriesById = new Map(entries.map(entry => [entry.id, entry]));
+        _contentItems = Array.from(body.querySelectorAll('.nav-settings-home-item'));
+        renderPreview(entriesById.get(_contentItems[Math.max(0, Math.min(_contentItems.length - 1, _contentIdx))]?.id));
 
         const openSystemDetail = detail => {
             _settingsReturnToRoot = true;
@@ -6414,7 +6455,7 @@ window.isNavMenuOpen = false;
         };
 
         _contentItems.forEach((button, index) => {
-            const entry = entries[index];
+            const entry = entriesById.get(button.id);
             button.addEventListener('focus', () => renderPreview(entry));
             button.addEventListener('mouseenter', () => {
                 _topbarFocus = false;
@@ -6424,6 +6465,10 @@ window.isNavMenuOpen = false;
             });
             button.addEventListener('click', () => {
                 switch (entry.action) {
+                    case 'themes':
+                        _settingsSubView = 'themes'; _contentIdx = 0;
+                        _renderContent('settings'); _updateContentFocus();
+                        break;
                     case 'account':
                         _settingsReturnToRoot = false;
                         _settingsSubView = 'accountHub';
@@ -6669,6 +6714,172 @@ window.isNavMenuOpen = false;
     }
 
     window.chrome?.webview?.addEventListener('message', _receiveWebPermissions);
+
+    function _renderThemes(body) {
+        if (!document.getElementById('doorpiThemeSettingsStyles')) {
+            const style = document.createElement('style');
+            style.id = 'doorpiThemeSettingsStyles';
+            style.textContent = `.nav-content-body.theme-settings-active { overflow: hidden; padding-bottom: clamp(20px, 3vh, 42px); }
+.theme-settings { display: flex; flex-direction: column; width: min(100%, 1100px); height: 100%; min-height: 0; margin: 0 auto; }
+.theme-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-shrink: 0; }
+.theme-settings-header .nav-settings-subheader { margin: 0; }
+.theme-settings-actions { display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end; }
+.theme-settings-areas { display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;flex-shrink:0; }
+.theme-settings-modules { margin-top:12px; padding-top:12px; border-top:1px solid rgba(255,255,255,.1); }
+.theme-settings-modules[hidden] { display:none; }
+.theme-settings-groups .theme-area { font-size:1rem; }
+.theme-area { border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.025);border-radius:7px;color:rgba(255,255,255,.6);font:inherit;font-size:.85rem;padding:10px 16px;cursor:pointer;outline:none; }
+.theme-area[aria-pressed="true"] { background:rgba(255,255,255,.1);color:#fff; }
+.theme-area.nav-focused-el { border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.16); }
+.theme-restore { min-height: 44px; padding: 10px 20px; flex-shrink: 0; }
+.theme-settings-description { margin: 20px 0 0; color: rgba(255,255,255,.55); font-size: .9rem; line-height: 1.5; }
+.theme-settings-status { flex-shrink: 0; min-height: 1.5em; margin: 10px 0; color: #aebed4; font-size: .85rem; }
+.theme-settings-status.is-error { color: #ffd99e; }
+.theme-settings-status-row { display:flex;align-items:center;gap:16px;flex-shrink:0; }
+.theme-settings-status-row .theme-settings-status { flex:1; }
+.theme-settings-status-row [hidden] { display:none; }
+.theme-settings-list { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 5px 10px 5px 5px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent; scroll-padding: 5px; }
+.theme-choice { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; min-height: clamp(58px, 6.5vh, 82px); flex-shrink: 0; padding: 14px 22px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; color: rgba(255,255,255,.85); background: rgba(255,255,255,.025); font: inherit; text-align: left; cursor: pointer; outline: none; }
+.theme-choice-name { min-width: 0; overflow-wrap: anywhere; font-size: clamp(.95rem, 1.05vw, 1.3rem); }
+.theme-choice-state { color: #b8d7ff; font-size: .8rem; flex-shrink: 0; }
+.theme-choice.is-selected { background: rgba(145,185,255,.07); }
+.theme-choice:focus,.theme-choice.nav-focused-el { color: #fff; border-color: #e4f0ff; box-shadow: 0 0 0 2px rgba(157,202,255,.12); background: rgba(255,255,255,.075); }
+@media(max-width:700px) { .theme-settings-header { gap: 12px; flex-wrap: wrap; } .theme-choice { padding: 12px 16px; } }
+`;
+            document.head.appendChild(style);
+        }
+        body.innerHTML = `<section id="themeSettingsRoot" class="theme-settings">
+            <header class="theme-settings-header"><div class="nav-settings-subheader"><button class="nav-back-btn" id="themeSettingsBack" tabindex="-1">‹ ${_esc(_t('navBack', 'Voltar'))}</button><h2>Temas</h2></div><div class="theme-settings-actions"><button id="themeImportPackage" class="nav-back-btn" tabindex="-1">Adicionar pacote</button><button id="themeRestoreDefault" class="nav-back-btn theme-restore" tabindex="-1">Restaurar padrão</button></div></header>
+            <div class="theme-settings-areas theme-settings-groups" role="group" aria-label="Escopo do tema">
+                <button id="theme-group-system" data-theme-group="system" class="theme-area" tabindex="-1">Temas do sistema</button>
+                <button id="theme-area-login" data-theme-area="login" class="theme-area" tabindex="-1">Tela de Perfis</button>
+            </div>
+            <div class="theme-settings-areas theme-settings-modules" role="group" aria-label="Módulos do sistema">${[['system','Temas'],['home','Home'],['nav-menu','Menu principal'],['side-panels','Menus laterais'],['popups','Popups']].map(([id,label])=>`<button id="theme-area-${id}" data-theme-area="${id}" class="theme-area" tabindex="-1">${label}</button>`).join('')}</div>
+            <p class="theme-settings-description" id="themeSettingsOwner"></p>
+            <div class="theme-settings-status-row"><p id="themeSettingsStatus" class="theme-settings-status" role="status" aria-live="polite"></p><button id="themeSettingsRetry" class="nav-back-btn" tabindex="-1" hidden>Tentar novamente</button></div>
+            <div id="themeSettingsList" class="theme-settings-list" role="group" aria-label="Temas instalados"></div>
+        </section>`;
+        body.querySelector('#themeSettingsBack').addEventListener('click', () => {
+            _leaveThemeSettings();
+        });
+        body.querySelector('#themeRestoreDefault').addEventListener('click', () => { void window.DoorpiThemeSelection?.resetAll(); });
+        body.querySelector('#themeImportPackage').addEventListener('click', () => { if(!window.DoorpiThemeSelection?.getState().busy) void window.DoorpiThemeSelection?.importPackage(); });
+        body.querySelector('#themeSettingsRetry').addEventListener('click',()=>{void window.DoorpiThemeSelection?.refresh();});
+        body.querySelectorAll('[data-theme-area]').forEach(button=>button.addEventListener('click',()=>window.DoorpiThemeSelection?.selectPart(button.dataset.themeArea)));
+        body.querySelector('[data-theme-group]').addEventListener('click',()=>window.DoorpiThemeSelection?.selectPart('system'));
+        window.DoorpiThemeSelection?.selectPart('system');
+        if (window.DoorpiThemeSelection?.getState().profileId !== String(window._doorpiCurrentUserId || ''))
+            void window.DoorpiThemeSelection?.refresh();
+        _refreshThemeSettings();
+        const selected = _contentItems.findIndex(button => button.dataset.themeId === window.DoorpiThemeSelection?.getState().activeId);
+        if (selected >= 0) { _contentIdx = selected; _updateContentFocus(); }
+    }
+
+    function _leaveThemeSettings() {
+        _settingsSubView = null; _contentIdx = 0; _renderContent('settings');
+        const index = _contentItems.findIndex(button => button.id === 'setThemes');
+        if (index >= 0) _contentIdx = index;
+        _setTopbarFocus(false); _updateContentFocus();
+    }
+
+    function _refreshThemeSettings() {
+        if (!window.isNavMenuOpen || _settingsSubView !== 'themes' || CATS[_catIdx]?.id !== 'settings') return;
+        const root = document.getElementById('themeSettingsRoot');
+        if (!root) return;
+        const state = window.DoorpiThemeSelection?.getState() || { themes: [], activeId: 'default', busy: false, error: 'Não foi possível carregar a seleção de temas.' };
+        const list = root.querySelector('#themeSettingsList');
+        const part=state.part||'home';
+        const themes=state.themes.filter(theme=>theme.id==='default'||(part==='system'
+            ? ['home','nav-menu','side-panels','popups'].every(area=>(theme.parts||[]).includes(area))
+            : (theme.parts||['home','side-panels']).includes(part)));
+        const key = part+'|'+themes.map(theme => theme.id).join('|');
+        root.querySelectorAll('[data-theme-area]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.themeArea===part)));
+        root.querySelector('[data-theme-group]').setAttribute('aria-pressed',String(part!=='login'));
+        root.querySelector('.theme-settings-modules').hidden=part==='login';
+        root.querySelector('#themeSettingsOwner').textContent=part==='login'?'Tela de perfis: escolha geral deste dispositivo.':part==='system'
+            ? 'Aplica Home, menu principal, menus laterais e popups neste perfil. Você pode personalizar cada módulo depois.'+(state.activeId?'':' Combinação personalizada em uso.')
+            : 'Escolha salva neste perfil, apenas para este módulo.';
+        const activeId = document.activeElement?.id;
+        if (list.dataset.catalog !== key) {
+            list.replaceChildren(); list.dataset.catalog = key;
+            for (const theme of themes) {
+                const button = document.createElement('button');
+                button.id = `theme-choice-${theme.id}`;
+                button.className = 'theme-choice'; button.tabIndex = -1;
+                button.dataset.themeId = theme.id;
+                const title = document.createElement('span'); title.className = 'theme-choice-name'; title.textContent = theme.name;
+                const selected = document.createElement('span'); selected.className = 'theme-choice-state';
+                button.append(title, selected); list.appendChild(button);
+                button.addEventListener('click', () => {
+                    if (theme.id === 'default' || !window.DoorpiThemeSelection.getState().busy)
+                        void window.DoorpiThemeSelection.select(theme.id);
+                });
+            }
+        }
+        for (const button of list.querySelectorAll('.theme-choice')) {
+            const selected = button.dataset.themeId === state.activeId;
+            button.classList.toggle('is-selected', selected);
+            button.setAttribute('aria-pressed', String(selected));
+            button.setAttribute('aria-busy', String(state.busy && selected));
+            button.querySelector('.theme-choice-state').textContent = state.busy && selected ? 'Aplicando…' : selected ? 'Em uso' : '';
+        }
+        const status = root.querySelector('#themeSettingsStatus');
+        status.classList.toggle('is-error', !!state.error);
+        status.textContent = state.error || (state.busy ? 'Aplicando e salvando o tema…' : '');
+        root.querySelector('#themeSettingsRetry').hidden=!state.error||state.busy;
+        _contentItems = [...root.querySelectorAll('button')].filter(item => item && !item.disabled && !item.closest('[hidden]'));
+        const remembered = _contentItems.findIndex(item => item.id === activeId);
+        _contentIdx = remembered >= 0 ? remembered : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        _contentItems.forEach((button, index) => {
+            button.onmouseenter = () => { _topbarFocus = false; _contentIdx = index; _updateContentFocus(); };
+        });
+        if (!_topbarFocus && !window.isDoorpiFileBrowserOpen?.()) _updateContentFocus();
+    }
+    window.addEventListener('doorpi:theme-selection-state', _refreshThemeSettings);
+
+    function _themeSettingsLineTarget(items, current, direction) {
+        const origin = current.getBoundingClientRect();
+        const x = origin.left + origin.width / 2, y = origin.top + origin.height / 2;
+        const sign = direction === 'UP' ? -1 : 1;
+        const candidates = items.filter(item => item && item !== current && !item.hidden && !item.disabled)
+            .map(item => ({ item, rect: item.getBoundingClientRect() }))
+            .filter(({ rect }) => rect.width > 0 && rect.height > 0 && (rect.top + rect.height / 2 - y) * sign > 4);
+        if (!candidates.length) return null;
+        const distance = Math.min(...candidates.map(({ rect }) => Math.abs(rect.top + rect.height / 2 - y)));
+        return candidates.filter(({ rect }) => Math.abs(Math.abs(rect.top + rect.height / 2 - y) - distance) < 8)
+            .sort((a, b) => Math.abs(a.rect.left + a.rect.width / 2 - x) - Math.abs(b.rect.left + b.rect.width / 2 - x))[0]?.item || null;
+    }
+
+    function _navigateThemeSettings(key) {
+        if(key==='Escape'||key==='Backspace'){_leaveThemeSettings();return true;}
+        const current=_contentItems[_contentIdx];if(!current)return true;
+        const rows=_contentItems.filter(item=>item.classList.contains('theme-choice'));
+        const headers=_contentItems.filter(item=>item.closest('.theme-settings-header'));
+        const areas=_contentItems.filter(item=>item.dataset.themeArea||item.dataset.themeGroup);
+        const retry=_contentItems.find(item=>item.id==='themeSettingsRetry');
+        const selected=rows.find(item=>item.dataset.themeId===window.DoorpiThemeSelection?.getState().activeId)||rows[0];
+        const index=rows.indexOf(current),direction={ArrowUp:'UP',ArrowDown:'DOWN',ArrowLeft:'LEFT',ArrowRight:'RIGHT'}[key];
+        let target=null;
+        if(index>=0){
+            if(key==='ArrowUp')target=index>0?rows[index-1]:retry||document.getElementById('theme-area-'+(window.DoorpiThemeSelection?.getState().part||'home'));
+            if(key==='ArrowDown')target=rows[Math.min(rows.length-1,index+1)];
+        }else if(headers.includes(current)){
+            if(key==='ArrowUp'){
+                target=_themeSettingsLineTarget(headers,current,'UP');
+                if(!target){_setTopbarFocus(true);return true;}
+            }else if(key==='ArrowDown')target=_themeSettingsLineTarget(headers,current,'DOWN')||_themeSettingsLineTarget(areas,current,'DOWN')||selected;
+            else target=findSpatialCandidate(headers,current,direction);
+        }else if(areas.includes(current)){
+            if(key==='ArrowUp')target=_themeSettingsLineTarget(areas,current,'UP')||_themeSettingsLineTarget(headers,current,'UP');
+            else if(key==='ArrowDown')target=_themeSettingsLineTarget(areas,current,'DOWN')||retry||selected;
+            else target=findSpatialCandidate(areas,current,direction);
+        }else if(current===retry){
+            if(key==='ArrowUp')target=_themeSettingsLineTarget(areas,current,'UP');
+            else if(key==='ArrowDown')target=selected;
+        }
+        if(target){_contentIdx=_contentItems.indexOf(target);_updateContentFocus();}
+        return true;
+    }
 
     function _renderSettingsDevicesHub(body) {
         const svgBluetooth = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20l6-6-6-4 6-4-6-6Z"/><path d="M6.5 6.5 12 12l-5.5 5.5"/></svg>`;
@@ -8867,9 +9078,10 @@ window.isNavMenuOpen = false;
         _libraryRapidScrollTarget = nextTarget;
         if (_libraryRapidScrollRaf) return;
 
-        const step = () => {
+        let previousTime = performance.now();
+        const step = (now) => {
             const activePane = _libraryRapidScrollPane;
-            if (!activePane || !_libraryRapidNavigation) {
+            if (!activePane) {
                 _stopRapidLibraryScrollAnimation();
                 return;
             }
@@ -8883,19 +9095,39 @@ window.isNavMenuOpen = false;
 
             // Um único movimento segue o alvo mais recente. O fator alto mantém
             // resposta imediata sem os saltos do scroll instantâneo.
-            activePane.scrollTop += distance * 0.38;
+            const elapsed = Math.min(40, Math.max(1, now - previousTime));
+            previousTime = now;
+            const response = _libraryRapidNavigation ? 65 : 95;
+            activePane.scrollTop += distance * (1 - Math.exp(-elapsed / response));
             _libraryRapidScrollRaf = requestAnimationFrame(step);
         };
 
         _libraryRapidScrollRaf = requestAnimationFrame(step);
     }
 
+    function _revealLibraryCard(card, pane, firstRow = false) {
+        if (!card || !pane) return;
+        const viewport = pane.getBoundingClientRect();
+        const bounds = card.getBoundingClientRect();
+        // Reserve space for the focus scale while its CSS transition is running.
+        const edge = Math.max(24, bounds.height * 0.04);
+        const maxTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+        const minimum = Math.max(0, pane.scrollTop + bounds.bottom - viewport.bottom + edge);
+        const maximum = Math.min(maxTop, pane.scrollTop + bounds.top - viewport.top - edge);
+        const pending = _libraryRapidScrollPane === pane && _libraryRapidScrollRaf
+            ? _libraryRapidScrollTarget : pane.scrollTop;
+        const target = firstRow ? 0 : minimum <= maximum
+            ? Math.max(minimum, Math.min(maximum, pending))
+            : pane.scrollTop + (bounds.top + bounds.bottom - viewport.top - viewport.bottom) / 2;
+        // Retarget even when the card is visible now: a previous pending scroll
+        // could otherwise carry the NEW focused card outside the viewport.
+        _animateRapidLibraryScroll(pane, target);
+    }
+
     function _cancelLibraryScrollAnimation() {
         const pane = _libraryPane(CATS[_catIdx]?.id);
         if (!pane) return;
-        _stopRapidLibraryScrollAnimation();
         pane.classList.add('nav-rapid-navigation');
-        pane.scrollTo({ top: pane.scrollTop, behavior: 'auto' });
     }
 
     function _settleLibraryScroll() {
@@ -8913,15 +9145,14 @@ window.isNavMenuOpen = false;
     function _stopLibraryDirectionHold({ settle = true } = {}) {
         if (_libraryHoldRaf) cancelAnimationFrame(_libraryHoldRaf);
         _libraryHoldRaf = 0;
-        const wasRapid = _libraryRapidNavigation;
         _libraryHoldDirection = '';
         _libraryHoldStartedAt = 0;
         _libraryHoldSawNativeInput = false;
         _libraryRapidNavigation = false;
-        _stopRapidLibraryScrollAnimation();
+        if (!settle) _stopRapidLibraryScrollAnimation();
         document.querySelectorAll('.nav-library-pane.nav-rapid-navigation')
             .forEach(pane => pane.classList.remove('nav-rapid-navigation'));
-        if (settle && wasRapid) requestAnimationFrame(_settleLibraryScroll);
+        // Keep following the same target on release; do not recenter a second time.
     }
 
     function _trackLibraryDirectionHold(key) {
@@ -8931,7 +9162,7 @@ window.isNavMenuOpen = false;
         if (!direction || !_isLazyCat()) return;
         if (_libraryHoldDirection === direction && _libraryHoldRaf) return;
 
-        _stopLibraryDirectionHold({ settle: false });
+        _stopLibraryDirectionHold();
         _libraryHoldDirection = direction;
         _libraryHoldStartedAt = performance.now();
 
@@ -8975,6 +9206,8 @@ window.isNavMenuOpen = false;
     function _updateTopbarFocusVisual() {
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
+            if (_topbarFocus && i === _catIdx && document.activeElement !== el)
+                el.focus({ preventScroll: true });
         });
     }
 
@@ -9078,31 +9311,8 @@ window.isNavMenuOpen = false;
                 _rememberLibraryCard(CATS[_catIdx]?.id, card, cardIdx);
 
     
-                if (cardIdx >= 0 && cardIdx < cols && container) {
-                   
-                    if (container.scrollTop > 4) {
-                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, 0);
-                        else container.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
-                } else {
-                    
-                    const paneRect = container?.getBoundingClientRect();
-                    const cardRect = card.getBoundingClientRect();
-                    const PADDING = 10; 
-
-                    if (paneRect && cardRect.bottom > paneRect.bottom - PADDING) {
-                        const delta = cardRect.bottom - paneRect.bottom + PADDING;
-                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, container.scrollTop + delta);
-                        else container.scrollBy({ top: delta, behavior: 'smooth' });
-                    } else if (paneRect && cardRect.top < paneRect.top + PADDING) {
-                        const delta = cardRect.top - paneRect.top - PADDING;
-                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, container.scrollTop + delta);
-                        else container.scrollBy({ top: delta, behavior: 'smooth' });
-                    }
-                }
-
-             
                 card.classList.add('nav-focused');
+                _revealLibraryCard(card, container, cardIdx < cols);
                 if (document.activeElement !== card) card.focus?.({ preventScroll: true });
                 card._startInteraction?.();
 
@@ -9123,6 +9333,7 @@ window.isNavMenuOpen = false;
                 const isProfileShowcase = CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history';
                 const isExtensionsView = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions';
                 const isSettingsHome = CATS[_catIdx]?.id === 'settings' && !_settingsSubView;
+                const isThemeSettings = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'themes';
                 const isStorageView = CATS[_catIdx]?.id === 'settings'
                     && _settingsSubView === 'system'
                     && _systemSubView === 'storage';
@@ -9131,6 +9342,8 @@ window.isNavMenuOpen = false;
                     // scrollIntoView aqui: ele tenta centralizar o item e acaba
                     // deslocando a pagina mesmo quando a opcao ja esta visivel.
                     _revealInsideScrollContainer(focused, focused.closest?.('.nav-settings-home-nav'));
+                } else if (isThemeSettings) {
+                    _revealInsideScrollContainer(focused, focused.closest?.('.theme-settings-list'));
                 } else if (isExtensionsView) {
                     const list = focused.closest?.('.nav-ext-list');
                     if (list) {
@@ -9226,6 +9439,45 @@ window.isNavMenuOpen = false;
         window.updateNavHint?.();
     }
 
+    // Prepare only the initial games viewport, behind Entrando. No focus,
+    // history/settings reads, inactive app grid or remaining card batches.
+    window.prepareDoorpiNavMenuEntry = async function (sessionValid = () => true) {
+        if (!window._userSwitching || _navMenuPhase !== 'closed') return;
+        const profile = String(window._doorpiCurrentUserId || '');
+        const revision = _menuReloadToken;
+        const valid = () => sessionValid() && window._userSwitching &&
+            profile === String(window._doorpiCurrentUserId || '') && revision === _menuReloadToken &&
+            _navMenuPhase === 'closed';
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 900);
+        try {
+            const response = await fetch(`https://data.local/games.json?t=${Date.now()}`, { signal: controller.signal });
+            if (!response.ok || !valid()) return;
+            const games = await response.json();
+            if (!valid() || !Array.isArray(games)) return;
+            _menuData.gamesTotal = games.length;
+            _menuData.games = games.filter(g => !(g.IsPendingArtwork || g.isPendingArtwork) && !_isArtworkPending(g, 'games'));
+            _buildOverlay();
+            _overlay.inert = true;
+            _overlay.style.display = 'flex';
+            _attachDualPane(document.getElementById('navContentBody'));
+            _applyPaneVisibility('games');
+            await Promise.race([
+                _lazyGrid?.warmInitialPage?.() || Promise.resolve(),
+                new Promise(resolve => setTimeout(resolve, 400))
+            ]);
+        } catch (error) {
+            // Optional preparation: normal opening retains its loading fallback.
+            if (error.name !== 'AbortError') console.warn('Nav-menu preparation deferred', error);
+        } finally {
+            clearTimeout(timeout);
+            if (_navMenuPhase === 'closed' && _overlay) {
+                _overlay.style.display = 'none';
+                _overlay.inert = false;
+            }
+        }
+    };
+
     // ── Abrir / Fechar ────────────────────────────────────────────────────────
     async function open(startIdx = 0) {
         if (window.isDoorpiUpdatePromptOpen?.() || document.querySelector('.doorpi-update-prompt.is-visible')) return;
@@ -9240,11 +9492,9 @@ window.isNavMenuOpen = false;
         _navMenuPhase = 'opening';
         window._navMenuPhase = _navMenuPhase;
 
-        document.body.classList.add('nav-menu-active');
         document.body.classList.remove('nav-menu-closing');
 
         const topProf = document.getElementById('btnTopProfile');
-        if (topProf) topProf.classList.add('nav-menu-hidden');
 
         _lastFocus = document.activeElement;
         window.pauseDoorpiArtworkForTransition?.(_lastFocus);
@@ -9253,7 +9503,8 @@ window.isNavMenuOpen = false;
         _overlay.classList.remove('nav-menu-input-released');
         _overlay.style.display = 'flex';
         window.updateNavHint?.();
-        await _loadJSONs();
+        const loading = _loadJSONs();
+        if (!_dualPaneContainer) await loading;
         if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
 
         const body = document.getElementById('navContentBody');
@@ -9261,24 +9512,32 @@ window.isNavMenuOpen = false;
             const initialPane = CATS[_catIdx]?.id === 'media' ? 'media' : 'games';
             _attachDualPane(body);
             _applyPaneVisibility(initialPane);
-            await Promise.race([
-                _warmDualPaneInitialPages(),
-                new Promise(resolve => setTimeout(resolve, 90))
-            ]);
+            const initialGrid = initialPane === 'media' ? _lazyGridMedia : _lazyGrid;
+            initialGrid?.warmInitialPage?.();
         }
         if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
 
-        requestAnimationFrame(() => {
-            if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') return;
-            _runNavMenuTransition(() => {
-                if (lifecycleToken === _navMenuLifecycleToken && window.isNavMenuOpen && _navMenuPhase === 'opening') {
-                    _navMenuPhase = 'open';
-                    window._navMenuPhase = _navMenuPhase;
-                }
-            });
-            _overlay.classList.add('visible');
-            _selectCat(_catIdx);
-        });
+        // Compose/layout in a separate frame; don't start transform animation
+        // in the same task that inserts cards and synchronously measures them.
+        _selectCat(_catIdx);
+        void _overlay.offsetWidth;
+        await new Promise((resolve, reject) => requestAnimationFrame(() => {
+            if (lifecycleToken !== _navMenuLifecycleToken || !window.isNavMenuOpen || _navMenuPhase !== 'opening') { resolve(); return; }
+            try {
+                // Compose before revealing: the Home remains on screen during cold reads.
+                document.body.classList.add('nav-menu-active');
+                if (topProf) topProf.classList.add('nav-menu-hidden');
+                _runNavMenuTransition(() => {
+                    if (lifecycleToken === _navMenuLifecycleToken && window.isNavMenuOpen && _navMenuPhase === 'opening') {
+                        _navMenuPhase = 'open';
+                        window._navMenuPhase = _navMenuPhase;
+                        (_catIdx === 1 ? _lazyGridMedia : _lazyGrid)?.resumeBuild?.();
+                    }
+                });
+                _overlay.classList.add('visible');
+                resolve();
+            } catch (error) { reject(error); }
+        }));
     }
 
     function close() {
@@ -9362,6 +9621,7 @@ window.isNavMenuOpen = false;
     };
 
     window._navMenuHandleKey = function (key) {
+        if (window.isDoorpiFileBrowserOpen?.()) return false;
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -9379,6 +9639,7 @@ window.isNavMenuOpen = false;
     };
 
     document.addEventListener('keydown', e => {
+        if (window.isDoorpiFileBrowserOpen?.()) return;
         // Modais de sincronizacao ficam acima do nav-menu e recebem a navegacao primeiro.
         // O controlador global trata as setas; nao as consuma neste listener de captura.
         if (window.DoorpiProfileSync?.isOpen?.()) return;
@@ -9610,6 +9871,11 @@ window.isNavMenuOpen = false;
     function _navContent(key) {
         const cols = _gridCols();
         const total = _contentItems.length;
+
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'themes' &&
+            ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','Backspace'].includes(key)) {
+            return _navigateThemeSettings(key);
+        }
 
         if (CATS[_catIdx]?.id === 'settings' &&
             _settingsSubView === 'system' &&
@@ -10608,10 +10874,17 @@ window.isNavMenuOpen = false;
     };
     window._navMenuRemoveItem = function (catId, itemKey) {
         if (catId === 'games' && Array.isArray(_menuData.games)) {
+            const previousCount = _menuData.games.length;
             _menuData.games = _menuData.games.filter(item => {
                 const key = item.LaunchUrl || item.launchUrl || item.Path || item.path || '';
                 return key !== itemKey;
             });
+            if (Number.isInteger(_menuData.gamesTotal))
+                _menuData.gamesTotal = Math.max(0, _menuData.gamesTotal - (previousCount - _menuData.games.length));
+            if (CATS[_catIdx]?.id === 'games') {
+                const sub = document.getElementById('navContentSub');
+                if (sub) sub.textContent = _subtitle('games');
+            }
         }
 
         const grid = catId === 'games' ? _lazyGrid : _lazyGridMedia;

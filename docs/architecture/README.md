@@ -8,6 +8,10 @@ jogar, alternar aplicativos, gerenciar o ambiente e recuperar falhas fazem parte
 do produto. Conforto, previsibilidade e continuidade da sessão são critérios de
 qualidade, além da aparência.
 
+A revisão atual do tema padrão está registrada na [direção visual para console](console-visual-direction.md),
+com referências, primeira etapa de perfis/painel rápido e continuação por telas.
+O fluxo atual de login e a auditoria da Home estão em [Entrando e Home](home-session-entry.md).
+
 O Doorpi é uma alternativa própria a experiências como Big Picture e Xbox mode.
 A integração com Xbox mode/FSE foi retirada das prioridades após esse alinhamento.
 O estudo anterior permanece como pesquisa, não como plano de implementação.
@@ -43,6 +47,12 @@ O estudo anterior permanece como pesquisa, não como plano de implementação.
   causa histórica do travamento.
 - [Comparação do bootstrap](bootstrap-comparison.md): renderização, proteção
   temporária de foco, rota direta experimental e procedimento para o PC lento.
+- [Contrato de temas e cobertura](../../Doorpi/Frontend/themes/README.md): tokens,
+  regiões recomponíveis, exemplos e áreas ainda pendentes.
+- [Theme SDK](../../ThemeSDK/README.md): pacotes por área, autoria local, prévia,
+  distribuição e limites explícitos do primeiro contrato visual.
+- [Navegação por regiões](navigation-regions.md): carrossel como região 0, entrada,
+  restauração por perfil/aba e regras para as próximas telas.
 - [Fontes do frontend](../../Doorpi/Frontend/README.md) e
   [mapa dos fragmentos JS](../../Doorpi/Frontend/module-map.md).
 

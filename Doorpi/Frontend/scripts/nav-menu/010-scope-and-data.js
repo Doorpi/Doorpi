@@ -5,7 +5,7 @@ window.isNavMenuOpen = false;
 (function () {
 
     // ── Dados Locais ──────────────────────────────────────────────────────────
-    let _menuData = { user: {}, games: [], history: [], mediaHistory: [], media: [], emulators: [] };
+    let _menuData = { user: {}, games: [], gamesTotal: null, history: [], mediaHistory: [], media: [], emulators: [] };
     let _menuDataUserId = '';
     let _menuReloadToken = 0;
     let _profileSyncUi = { status: 'Disconnected', connected: false, busy: false, message: '' };

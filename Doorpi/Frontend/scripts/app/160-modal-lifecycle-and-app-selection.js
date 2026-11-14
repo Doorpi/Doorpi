@@ -17,7 +17,7 @@
             modal.style.display = 'none';
             modal.classList.remove('is-closing');
             window.focusFeaturedCard?.();
-        }, 210);
+        }, 180);
     }
 
     function formatBytes(kb) {

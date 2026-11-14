@@ -1994,6 +1994,7 @@ namespace Doorpi
             }
             if (string.IsNullOrWhiteSpace(profile.Id)) profile.Id = MakeUserId(profile.Name);
             currentUserId = profile.Id;
+            _themeProfileGeneration++;
             currentUserDataFolder = Path.Combine(dataFolder, "users", currentUserId);
             Directory.CreateDirectory(currentUserDataFolder);
             ResetControlConfigurationForActiveUser();
@@ -2786,6 +2787,7 @@ namespace Doorpi
 
         private void ResetCurrentUserContext()
         {
+            _themeProfileGeneration++;
             currentUserId = "";
             currentUserDataFolder = "";
             userFile = Path.Combine(dataFolder, "user.json");

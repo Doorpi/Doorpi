@@ -1,4 +1,13 @@
+let _userPickerThemeWaitVersion=0;
 function showUserPicker(users, requireSelection = false) {
+    const themeWaitVersion=++_userPickerThemeWaitVersion;
+    if(window.DoorpiThemeSelection?.devicePending){
+        const profile=String(window._doorpiCurrentUserId||'');
+        window.DoorpiThemeSelection.whenDeviceReady().then(()=>{
+            if(themeWaitVersion===_userPickerThemeWaitVersion&&profile===String(window._doorpiCurrentUserId||''))showUserPicker(users,requireSelection);
+        });
+        return;
+    }
     if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
         window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
         return;
@@ -16,7 +25,9 @@ function showUserPicker(users, requireSelection = false) {
 
     ensureDoorpiOverlayStyles();
     let overlay = document.getElementById('doorpiUserPicker');
-    if (!window.DoorpiIntro?.isHandoffActive?.() && !window.DoorpiIntro?.isRunning?.()) {
+    // Reopening from Home uses the picker backdrop directly. Recreating the
+    // intro ambient here makes transparent themes inherit its 900ms fade.
+    if (requireSelection && !window.DoorpiIntro?.isHandoffActive?.() && !window.DoorpiIntro?.isRunning?.()) {
         window.DoorpiIntro?.startUserPickerAmbient?.();
     }
     const introHandoffClasses = window.DoorpiIntro?.isHandoffActive?.()
@@ -173,13 +184,12 @@ function showUserPicker(users, requireSelection = false) {
     const cards = orderedUsers.map((user, idx) => {
         const isCurrent = !!activeSessionUserId && String(user.Id || '').toLowerCase() === activeSessionUserId;
         return `
-        <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''} style="animation-delay: ${idx * 0.03}s">
+        <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''}>
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
         </button>`;
     }).join('');
 
-    const createUserDelay = users.length * 0.03;
 
     const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
     const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
@@ -198,7 +208,7 @@ function showUserPicker(users, requireSelection = false) {
                             <div class="doorpi-user-track">
                                 <div class="doorpi-user-snap-spacer" aria-hidden="true"></div>
                                 ${cards}
-                                <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                                <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0">
                                     <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
                                     <span class="doorpi-user-name">${t('newUser')}</span>
                                 </button>
@@ -208,8 +218,8 @@ function showUserPicker(users, requireSelection = false) {
                     </div>
                 </div>
                 <div class="doorpi-user-footer">
-                    ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
-                    <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
+                    ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0">${t('btnBackLabel')}</button>`}
+                    <div class="doorpi-power-row">
                         <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
                         <div class="doorpi-power-sep"></div>
                         <button class="doorpi-power-btn" id="doorpiSuspend" tabindex="0">${svgSleep}${t('powerSuspend', 'Suspender')}</button>
@@ -226,6 +236,7 @@ function showUserPicker(users, requireSelection = false) {
     window.__doorpiInitialUiReady = true;
     window.dispatchEvent(new CustomEvent('doorpi:initial-ui-ready', { detail: { target: 'user-picker' } }));
     document.body.classList.add('user-picker-open');
+    window.DoorpiIntro?.freezeUserPickerAmbient?.();
 
     // No retorno da criacao de perfil, o seletor deve estar composto antes de
     // remover o setup. Assim nunca existe um frame intermediario com a Home.
@@ -239,7 +250,7 @@ function showUserPicker(users, requireSelection = false) {
     const hidePicker = (options = {}) => {
         overlay.style.display = 'none';
         document.body.classList.remove('user-picker-open');
-        window.DoorpiIntro?.finishHandoff?.();
+        if (!window._userSwitching) window.DoorpiIntro?.finishHandoff?.({ fadeMs:180 });
         if (options?.returnToQuickPanel !== false && overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
             overlay.dataset.returnToQuickPanel = 'false';
             window.DoorpiQuickPanel?.openMenu?.();
@@ -307,7 +318,7 @@ function showUserPicker(users, requireSelection = false) {
             const distance = Math.abs(index - focusedIndex);
             const opacity = distance === 0
                 ? 1
-                : Math.max(0.22, 0.7 - ((distance - 1) * 0.2));
+                : Math.max(0.82, 0.94 - ((distance - 1) * 0.04));
             card.style.setProperty('--doorpi-card-opacity', String(opacity));
         });
     };
@@ -337,8 +348,17 @@ function showUserPicker(users, requireSelection = false) {
             if (window._doorpiUserSessionReady === true && selectedUserId && selectedUserId === currentUserId) {
                 window._pendingUserSwitchId = '';
                 overlay.dataset.returnToQuickPanel = 'false';
+                const batch = window.getDoorpiGamesPresentation?.();
+                const target = window.DoorpiNavigation?.getEntryTarget?.('home');
+                const ready = batch?.committed && batch.profileId === String(window._doorpiCurrentUserId || '') &&
+                    target && (batch.count === 0 || !target.classList.contains('add-card'));
+                if (!ready) _userSwitchFadeOut({ mode: 'initial', user, reuseCurrentLibrary: true });
                 hidePicker({ returnToQuickPanel: false });
-                requestAnimationFrame(() => window.focusFeaturedCard?.());
+                if (ready) requestAnimationFrame(() => {
+                    window.DoorpiNavigation?.enter('home');
+                    window.scheduleDoorpiExtensionUpdateCheck?.();
+                });
+                else void _userSwitchFadeIn({ mode: 'initial', showTransition: true });
                 return;
             }
             if (user?.HasPin || user?.hasPin) {

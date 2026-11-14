@@ -41,7 +41,7 @@
         state.ambientRaf = requestAnimationFrame(runAmbientPhysics);
     }
 
-    function finishHandoff() {
+    function finishHandoff(options = {}) {
         if (!state.handoffActive) return;
         state.handoffActive = false;
         document.body.classList.remove('doorpi-intro-handoff-active');
@@ -60,8 +60,11 @@
         const layer = state.ambient;
         state.ambient = null; state.ambientBlobs = [];
         if (!layer) return;
+        const requestedFade = Number(options.fadeMs ?? 900);
+        const fadeMs = Number.isFinite(requestedFade) ? Math.max(0, Math.min(2000, requestedFade)) : 900;
+        layer.style.transitionDuration = `${fadeMs}ms`;
         layer.classList.remove('is-active');
         layer.classList.add('is-ending');
-        window.setTimeout(() => layer.remove(), 950);
+        window.setTimeout(() => layer.remove(), fadeMs + 50);
     }
 

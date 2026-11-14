@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "ember",
+  "name": "Ember",
+  "tokens": {
+    "--doorpi-font-family": "Georgia, serif",
+    "--doorpi-home-background": "linear-gradient(125deg, #21120f 0%, #452119 50%, #181017 100%)",
+    "--doorpi-home-shade": "linear-gradient(180deg, rgba(30,13,10,.05), rgba(23,10,10,.85))",
+    "--doorpi-home-title-color": "#fff0cc",
+    "--doorpi-home-secondary-title-color": "#e2b890",
+    "--doorpi-home-title-weight": "600",
+    "--doorpi-home-eyebrow-color": "#dfac77",
+    "--doorpi-home-meta-color": "#eed5b7",
+    "--doorpi-home-meta-background": "rgba(241,180,111,.09)",
+    "--doorpi-home-meta-border": "1px solid rgba(241,180,111,.28)",
+    "--doorpi-home-meta-radius": "2px",
+    "--doorpi-card-radius": "2px",
+    "--doorpi-card-gap": "clamp(10px, 1.2vw, 22px)",
+    "--doorpi-card-focus-color": "#ffc984",
+    "--doorpi-home-card-ratio": "1.5",
+    "--doorpi-home-art-radius": "2px",
+    "--doorpi-home-art-border": "2px solid rgba(255,201,132,.5)",
+    "--doorpi-home-art-shadow": "12px 12px 0 rgba(0,0,0,.22)",
+    "--doorpi-home-action-color": "#ffd49c",
+    "--doorpi-home-playtime-color": "#ffd49c",
+    "--doorpi-clock-color": "#ffe3b0",
+    "--doorpi-dialog-background": "linear-gradient(120deg, rgba(59,32,25,.97), rgba(29,19,22,.97))",
+    "--doorpi-dialog-radius": "2px"
+  }
+}

@@ -26,7 +26,9 @@ window.GridController = (() => {
         window.AppStore.subscribe('stores', e => _onMutation('stores', e));
         window.AppStore.subscribe('featured', _onFeaturedChange);
 
-        window.focusFeaturedCard = _focusFeatured;
+        // Navigation owns the home entry policy. Keep the standalone fallback
+        // only when this controller is used without the navigation bundle.
+        if (typeof window.focusFeaturedCard !== 'function') window.focusFeaturedCard = _focusFeatured;
         _patchExecuteDelete();
 
         ['games', 'media', 'stores'].forEach(channel => {
@@ -45,6 +47,7 @@ window.GridController = (() => {
             switch (mutation.type) {
                 case 'reset':
                     CardRenderer.syncDOM(channel, mutation.items, el, anchor, { silent: !!mutation.silent });
+                    mutation.onRendered?.();
                     break;
 
                 case 'prepend':
@@ -123,6 +126,7 @@ window.GridController = (() => {
     }
 
     function _focusFeatured() {
+        if (window.DoorpiNavigation) return window.DoorpiNavigation.enter('home');
         const channel = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
         const gridId = channel === 'media' ? 'mediaGrid' : (channel === 'stores' ? 'storesGrid' : 'gameGrid');
         const grid = document.getElementById(gridId);

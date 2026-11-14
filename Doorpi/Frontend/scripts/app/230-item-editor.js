@@ -1,4 +1,8 @@
     function openEditGameModal(card) {
+        const editingProfile = window._doorpiCurrentUserId;
+        const editingSession = typeof _doorpiSessionTransitionVersion === 'undefined' ? 0 : _doorpiSessionTransitionVersion;
+        const ownsSession = () => editingProfile === window._doorpiCurrentUserId &&
+            editingSession === (typeof _doorpiSessionTransitionVersion === 'undefined' ? 0 : _doorpiSessionTransitionVersion);
         ensureDoorpiOverlayStyles();
         window.stopHomeFeatureTrailer?.();
 
@@ -225,7 +229,7 @@
                 </div>
                 <div class="edit-modal-actions">
                     <button class="modal-btn cancel" id="editCancelBtn" data-nav-up="#editTrailerLocalBtn" data-nav-right="#editSaveBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
-                    <button class="modal-btn primary" id="editSaveBtn" data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
+                    <button class="modal-btn primary" id="editSaveBtn" hidden data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn"><span class="edit-save-shortcut">Start</span> ${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
                 </div>  
             </div>
         `;
@@ -242,15 +246,38 @@
             if (hint) hint.textContent = typeof t === 'function' ? t('editStoreNameLocked', 'O nome da loja é fixo.') : 'O nome da loja é fixo.';
         }
 
+        const normalizedUrl = value => value && !/^https?:\/\//i.test(value) ? `https://${value}` : value;
+        const hasPendingChanges = () => {
+            const name = input.value.trim();
+            const target = commandInput?.value?.trim() || '';
+            const trailer = pendingTrailerType === 'url' ? normalizedUrl(pendingTrailerSource) : pendingTrailerSource;
+            return (!isStoreCard && !!name && name !== currentName) ||
+                (canEditLaunchTarget && !!target && (canEditWebUrl ? normalizedUrl(target) : target) !== currentLaunchTarget) ||
+                (!isStoreCard && !isMediaCard && (trailer !== currentTrailerSource || pendingTrailerType !== currentTrailerType)) ||
+                (canConfigureMediaHistory && pendingMediaHistoryCategory !== currentMediaHistoryCategory) ||
+                (isStoreCard && overlay.querySelector('#editStoreAutoAdd')?.checked !== storeAutoAdd);
+        };
+        const refreshSaveState = () => {
+            const dirty = hasPendingChanges(), save = overlay.querySelector('#editSaveBtn');
+            if (!dirty && document.activeElement === save) overlay.querySelector('#editCancelBtn')?.focus();
+            save.hidden = !dirty;
+            overlay.querySelector('#editCancelBtn').textContent = dirty ? t('editModalCancel', 'Cancelar') : t('navBack', 'Voltar');
+        };
+        overlay.addEventListener('input', refreshSaveState);
+        overlay.addEventListener('change', refreshSaveState);
+
         const doClose = () => {
+            if (_editOverlay !== overlay) return;
             isEditModalOpen = false;
+            window._editModalSave = null;
+            window._editModalClose = null;
             window._editLaunchCommandBrowseResult = null;
             window._editTrailerBrowseResult = null;
             window._editTrailerBrowserUrlResult = null;
             window._vkbForceClose();
             overlay.style.opacity = '0';
             overlay.style.transition = 'opacity 0.12s';
-            setTimeout(() => { overlay.remove(); _editOverlay = null; }, 130);
+            setTimeout(() => { overlay.remove(); if (_editOverlay === overlay) _editOverlay = null; }, 130);
             window.focusFeaturedCard?.();
         };
 
@@ -265,13 +292,19 @@
             window._navMenuOpenAccountSharing?.(appId);
         });
 
-        overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'steamgrid', card.dataset.assetQuery || input.value.trim() || currentName);
+        const editArtwork = (mode, button) => openArtworkWizard(card, mode, card.dataset.assetQuery || input.value.trim() || currentName, {
+            returnFocus: button,
+            onCommittedClose: () => {
+                if (_editOverlay !== overlay || !ownsSession()) return;
+                if (hasPendingChanges()) { refreshSaveState(); return; }
+                doClose();
+                window._ctxMenuClose?.({ restoreFocus:false });
+                if (window.isNavMenuOpen) window.closeNavMenu?.();
+                return true;
+            }
         });
-
-        overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'local', card.dataset.assetQuery || input.value.trim() || currentName);
-        });
+        overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', event => editArtwork('steamgrid', event.currentTarget));
+        overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', event => editArtwork('local', event.currentTarget));
 
         const trailerStatus = overlay.querySelector('#editTrailerStatus');
         const trailerHint = overlay.querySelector('#editTrailerHint');
@@ -289,6 +322,7 @@
             catch { return 'Trailer online'; }
         };
         const refreshTrailerSummary = () => {
+            refreshSaveState();
             if (!trailerStatus) return;
             trailerStatus.textContent = trailerDisplayName(pendingTrailerSource);
             if (trailerHint) trailerHint.textContent = pendingTrailerSource
@@ -313,6 +347,7 @@
             button.addEventListener('click', () => {
                 pendingMediaHistoryCategory = button.dataset.mediaHistoryCategory || 'auto';
                 refreshMediaHistoryCategory();
+                refreshSaveState();
                 button.focus({ preventScroll: true });
             });
         });
@@ -390,6 +425,7 @@
         });
 
         const doSave = () => {
+            if (_editOverlay !== overlay || !isEditModalOpen || !ownsSession() || !hasPendingChanges()) return;
             const newName = input.value.trim();
             const nameChanged = newName && newName !== currentName;
             let newLaunchTarget = commandInput?.value?.trim() || '';
@@ -577,6 +613,7 @@
                 e.preventDefault();
                 const chk = e.target.querySelector('input[type="checkbox"]');
                 if (chk) chk.checked = !chk.checked;
+                refreshSaveState();
                 return;
             }
 
@@ -628,6 +665,7 @@
         window._editModalClose = doClose;
         window._editModalSave = doSave;
         isEditModalOpen = true;
+        refreshSaveState();
 
         requestAnimationFrame(() => {
             if (isStoreCard) {

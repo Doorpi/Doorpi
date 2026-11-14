@@ -19,6 +19,8 @@
         }
 
         // 2. Prioridade: Se o usuário estiver na tela principal (jogos, mídia ou lojas)
+        if (window.DoorpiNavigation && !window.isDoorpiOverlayOpen?.())
+            return window.DoorpiNavigation.enter('home');
         const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
         const gridId = typeof window.getHomeGridId === 'function'
             ? window.getHomeGridId(currentTab)

@@ -1,16 +1,17 @@
-    window.openExtensionsManager = function () {
+    window.openExtensionsManager = async function () {
         if (window.isDoorpiSessionTransitionActive?.()) return;
-        // Se o Nav Menu estiver fechado, manda abrir
+        const profileId = String(window._doorpiCurrentUserId || '');
+        const transitionVersion = _doorpiSessionTransitionVersion;
+        // Complete the menu's opening before replacing its content. A fixed delay
+        // raced its own render on slower machines and could lose the destination.
         if (!window.isNavMenuOpen) {
             if (typeof window.openNavMenu === 'function') {
-                window.openNavMenu();
+                await window.openNavMenu(2);
             }
         }
-        setTimeout(() => {
-            if (typeof window._navMenuOpenExtensions === 'function') {
-                window._navMenuOpenExtensions();
-            }
-        }, 120);
+        if (profileId !== String(window._doorpiCurrentUserId || '') ||
+            transitionVersion !== _doorpiSessionTransitionVersion || window.isDoorpiSessionTransitionActive?.()) return;
+        window._navMenuOpenExtensions?.();
     };
 
     window.openCreateUserDialog = openCreateUserDialog;

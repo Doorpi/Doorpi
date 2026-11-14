@@ -306,7 +306,12 @@
         window.clearTimeout(state.completeTimer);
 
         const iframe = state.iframe;
-        const fadeMs = immediate ? 0 : Math.max(0, Number(state.config?.exitFadeMs ?? 520));
+        // The destination is already composed behind the iframe. Skip uses the
+        // same short dissolve as completion instead of tearing away the cover.
+        const pickerReady = isElementReady(document.getElementById('doorpiUserPicker'));
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const fadeMs = reducedMotion || immediate ? 0 : pickerReady ? 320 : Math.max(0, Number(state.config?.exitFadeMs ?? 520));
+        window._doorpiIntroInputBlockUntil = performance.now() + fadeMs + 450;
 
         const finish = () => {
             iframe?.remove();
@@ -319,6 +324,7 @@
         };
 
         if (iframe && fadeMs > 0) {
+            iframe.style.transitionDuration = `${fadeMs}ms`;
             iframe.style.opacity = '0';
             iframe.style.pointerEvents = 'none';
             window.setTimeout(finish, fadeMs);
@@ -411,22 +417,13 @@
 
         const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
         const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
-        for (let i = 0; i < Math.max(4, colors.length); i++) {
-            const motion = AMBIENT_BLOB_MOTION[i % AMBIENT_BLOB_MOTION.length];
-            const blob = document.createElement('div');
-            blob.className = 'doorpi-intro-ambient-blob';
-            const size = Math.min(window.innerWidth, window.innerHeight) * motion.size;
-            const color = colors[i % colors.length];
-            blob.style.width = `${size}px`; blob.style.height = `${size}px`;
-            blob.style.background = `radial-gradient(circle, ${color} 0%, transparent 70%)`;
-            layer.insertBefore(blob, layer.firstChild);
-
-            const angle = motion.angle, speed = motion.speed;
-            state.ambientBlobs.push({ el: blob, x: cx, y: cy, size, vx: Math.cos(angle) * speed * (ratio * 0.8), vy: Math.sin(angle) * speed, phase: 'burst', wanderAngle: angle, wanderDelta: motion.wander });
-        }
-
+        const pickerReady = document.body.classList.contains('user-picker-open');
         state.ambient = layer;
-        requestAnimationFrame(() => layer.classList.add('is-active'));
+        if (pickerReady) {
+            // Paint the static destination before the intro cover starts fading.
+            layer.style.transitionDuration = '0ms';
+            layer.classList.add('is-active');
+        } else requestAnimationFrame(() => layer.classList.add('is-active'));
         if (state.ambientBlobs.length) runAmbientPhysics();
     }
 
@@ -542,7 +539,7 @@
         state.ambientRaf = requestAnimationFrame(runAmbientPhysics);
     }
 
-    function finishHandoff() {
+    function finishHandoff(options = {}) {
         if (!state.handoffActive) return;
         state.handoffActive = false;
         document.body.classList.remove('doorpi-intro-handoff-active');
@@ -561,9 +558,12 @@
         const layer = state.ambient;
         state.ambient = null; state.ambientBlobs = [];
         if (!layer) return;
+        const requestedFade = Number(options.fadeMs ?? 900);
+        const fadeMs = Number.isFinite(requestedFade) ? Math.max(0, Math.min(2000, requestedFade)) : 900;
+        layer.style.transitionDuration = `${fadeMs}ms`;
         layer.classList.remove('is-active');
         layer.classList.add('is-ending');
-        window.setTimeout(() => layer.remove(), 950);
+        window.setTimeout(() => layer.remove(), fadeMs + 50);
     }
 
     function runAfterIntro(callback) {

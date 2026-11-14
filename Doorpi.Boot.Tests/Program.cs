@@ -10,17 +10,30 @@ if (args.Contains("--doorpi-main"))
     string mode = Environment.GetEnvironmentVariable("DOORPI_TEST_MODE")!;
     if (mode == "crash") return 11;
     if (mode == "timeout") { await Task.Delay(15000); return 21; }
+    if (mode == "detach-early") { _ = BootSessionClient.DetachForUpdateAsync(); await Task.Delay(100); return 0; }
     if (mode == "slow-ready") await Task.Delay(700);
+    if (mode is "coordinated" or "coordinated-skip" or "coordinated-restart")
+    {
+        if (!args.Contains("--doorpi-prepare-session")) return 25;
+        BootSessionClient.InProcess = new InProcessBootSession(BootSessionClient.SkipIntro);
+    }
     BootSessionClient.PresentationPrepared();
+    if (BootSessionClient.InProcess is { } localSession)
+    {
+        await BootSessionClient.WaitForSupervisorPresentationAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        if (BootSessionClient.IsPresentationReleased()) return 26; // Parent cannot bypass the local prelude.
+        localSession.Release();
+    }
     var wait = Stopwatch.StartNew();
     while (!BootSessionClient.IsPresentationReleased() && wait.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(10);
     if (!BootSessionClient.IsPresentationReleased()) return 22;
     if (mode == "must-skip" && !BootSessionClient.SkipIntro) return 23;
-    if (mode == "restart" && BootSessionClient.SkipIntro) return 24;
+    if (mode == "coordinated-skip" && !BootSessionClient.SkipIntro) return 27;
+    if ((mode is "restart" or "coordinated-restart") && BootSessionClient.SkipIntro) return 24;
     BootSessionClient.InteractiveReady();
     if (mode == "instant-exit") return 0;
     await Task.Delay(150);
-    if (mode == "restart") { BootSessionClient.RequestRestart(); await Task.Delay(15000); }
+    if (mode is "restart" or "coordinated-restart") { BootSessionClient.RequestRestart(); await Task.Delay(15000); }
     if (mode == "detach") { _ = BootSessionClient.DetachForUpdateAsync(); await Task.Delay(100); }
     return 0;
 }
@@ -32,6 +45,8 @@ string experiment = Path.Combine(fixture, BootStartupSelection.FileName);
 Assert(BootStartupSelection.Read(Array.Empty<string>(), experiment).Path == BootStartupPath.Supervised, "default remains supervised");
 File.WriteAllText(experiment, "{\"schemaVersion\":1,\"path\":\"direct\"}");
 Assert(BootStartupSelection.Read(Array.Empty<string>(), experiment).Path == BootStartupPath.Direct, "explicit experiment selects direct path");
+Assert(BootStartupSelection.Read(new[] { "--doorpi-boot-path=monitored" }, experiment).Path == BootStartupPath.Monitored,
+    "monitor route is explicit and independent of legacy preparation");
 Assert(BootStartupSelection.Read(new[] { "--doorpi-boot-path=supervised" }, experiment).Path == BootStartupPath.Supervised, "argument overrides experiment");
 Assert(BootStartupSelection.Read(new[] { "--doorpi-boot-path=direct", "--doorpi-boot-path=supervised" }, experiment).Path == BootStartupPath.Supervised, "ambiguous arguments preserve supervised path");
 foreach (var invalid in new[] { "{bad", "{}", "null", "{\"schemaVersion\":1e100,\"path\":\"direct\"}", "{\"schemaVersion\":2,\"path\":\"direct\"}" })
@@ -125,9 +140,27 @@ var recovered = await Run(new[] { "restart", "must-skip" }, 2);
 Assert(recovered.Recoveries == 0, "supervised recovery skips already-presented intro");
 var detached = await Run(new[] { "detach" }, 1);
 Assert(detached.Recoveries == 0, "update detach does not restart the child");
+var earlyDetach = await Run(new[] { "detach-early" }, 1);
+Assert(earlyDetach.Recoveries == 0, "updater recovery can detach before presentation and startup health");
+Assert(!BootSessionSupervisor.ShouldResetFailureBudget(TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(119)),
+    "slow startup cannot erase failures after only one healthy second");
+Assert(BootSessionSupervisor.ShouldResetFailureBudget(TimeSpan.FromSeconds(239), TimeSpan.FromSeconds(119)),
+    "failure budget resets after two available minutes following readiness");
 var resumed = new Experience(new[] { "must-skip" });
 await new BootSessionSupervisor(Environment.ProcessPath!, resumed, introAlreadyPresented: true).RunAsync();
 Assert(resumed.Attempts == 1 && resumed.Recoveries == 0, "update resume skips intro in a fresh supervisor");
+var coordinated = new Experience(new[] { "coordinated" });
+await new BootSessionSupervisor(Environment.ProcessPath!, coordinated, prepareInChild: true).RunAsync();
+Assert(coordinated.Attempts == 1 && coordinated.Recoveries == 0 && coordinated.Releases == 1,
+    "monitor and child-owned presentation complete both handoffs in one attempt");
+var coordinatedResume = new Experience(new[] { "coordinated-skip" });
+await new BootSessionSupervisor(Environment.ProcessPath!, coordinatedResume, introAlreadyPresented: true, prepareInChild: true).RunAsync();
+Assert(coordinatedResume.Attempts == 1 && coordinatedResume.Recoveries == 0,
+    "child-owned presentation preserves supervisor resume without repeated intro");
+var coordinatedRestart = new Experience(new[] { "coordinated-restart", "coordinated-skip" });
+await new BootSessionSupervisor(Environment.ProcessPath!, coordinatedRestart, prepareInChild: true).RunAsync();
+Assert(coordinatedRestart.Attempts == 2 && coordinatedRestart.Recoveries == 0,
+    "monitor owns child recovery and preserves the local presentation resume state");
 var locked = new Experience(new[] { "slow-ready" }) { PauseStartup = true };
 await new BootSessionSupervisor(Environment.ProcessPath!, locked, TimeSpan.FromMilliseconds(400), TimeSpan.FromMilliseconds(15)).RunAsync();
 Assert(locked.Attempts == 1 && locked.Recoveries == 0, "locked session does not exhaust startup timeout");

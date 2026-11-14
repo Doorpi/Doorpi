@@ -161,8 +161,8 @@
         });
     }
 
-    function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
-        if (window._userSwitching) return;
+    function switchHeroBackground(bgSrc, logoSrc, heroSrc, options = {}) {
+        if (window._userSwitching && options.prepareSession !== true) return;
 
 
         const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
@@ -213,7 +213,8 @@
         cancelHeroTransition();
         const reqId = ++_heroReqId;
 
-        if (logoImg) logoImg.classList.remove('visible');
+        // A null logo leaves the selection's logo under the presentation owner.
+        if (logoImg && logoSrc) logoImg.classList.remove('visible');
 
         const loadPromise = Promise.all([
             preloadImage(heroSrc || bgSrc),

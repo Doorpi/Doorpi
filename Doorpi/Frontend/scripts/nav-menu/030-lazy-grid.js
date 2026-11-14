@@ -9,8 +9,8 @@
 
             // Margens para garantir que o skeleton nunca seja visto:
             // Ele vai carregar as imagens muito antes de entrar e só descarregar muito depois de sair.
-            this.LOAD_MARGIN   = '1200px 0px 1200px 0px';
-            this.UNLOAD_MARGIN = '1600px 0px 1600px 0px';
+            this.LOAD_MARGIN   = '240px 0px 240px 0px';
+            this.UNLOAD_MARGIN = '600px 0px 600px 0px';
             this.BATCH_SIZE    = 40; // Inicial de quantos processar na tela logo de cara
 
             this._cards      = [];           
@@ -49,21 +49,23 @@
             this._initialCount = firstBatch;
             for (let i = 0; i < firstBatch; i++) {
                 const card = this._createCard(i);
-                card._initialPage = true;
                 this._grid.appendChild(card);
                 this._cards.push(card);
                 this._loadObs.observe(card);
                 this._unloadObs.observe(card);
-                this._loadCard(card);
             }
 
             this.onFocusUpdate(this._cards, -1);
             if (typeof refreshRuntimeCards === 'function') refreshRuntimeCards();
 
-            if (this.items.length > firstBatch) {
-                this._buildRemainder(firstBatch);
-            }
             requestAnimationFrame(() => this.hydrateViewportBand());
+        }
+
+        resumeBuild() {
+            if (this._buildingRemainder || this._aborted || this._cards.length >= this.items.length) return;
+            if (_navMenuPhase !== 'open' || this._grid.closest('.nav-library-pane')?.style.opacity === '0') return;
+            this._buildingRemainder = true;
+            this._buildRemainder(this._cards.length).finally(() => { this._buildingRemainder = false; });
         }
 
         async _buildRemainder(startIdx) {
@@ -79,7 +81,8 @@
                     }
                 });
 
-                if (this._aborted || !this._grid) break;
+                if (this._aborted || !this._grid || _navMenuPhase !== 'open' ||
+                    this._grid.closest('.nav-library-pane')?.style.opacity === '0') break;
 
                 const end = Math.min(i + BATCH, this.items.length);
                 const fragment = document.createDocumentFragment();
@@ -171,6 +174,10 @@
 
         _loadCard(card) {
             if (card._loaded || this._aborted) return;
+            if (_overlay?.style.display === 'none') return;
+            // Both library panes retain lightweight metadata. Only the active
+            // pane may fetch/decode artwork.
+            if (card.closest('.nav-library-pane')?.style.opacity === '0') return;
             card._loaded = true;
             card.classList.remove('nav-skeleton');
 
@@ -219,6 +226,9 @@
 
         _unloadCard(card) {
             if (!card._loaded) return;
+            // Hiding/animating the whole menu is not a library scroll. Keep the
+            // warmed viewport instead of decoding it again on the next opening.
+            if (_navMenuPhase !== 'open' || _overlay?.style.display === 'none') return;
             if (card._initialPage) return;
             if (this._isInViewportBand(card)) return;
             
@@ -240,19 +250,16 @@
             }
         }
         hydrateInitialPage() {
-            const count = Math.min(this._initialCount || this.BATCH_SIZE, this._cards.length);
-            for (let i = 0; i < count; i++) {
-                const card = this._cards[i];
-                if (card) this._loadCard(card);
-            }
+            // Complete layout reads before image insertion invalidates geometry.
+            const visible = this._cards.filter(card => this._isInViewportBand(card));
+            for (const card of visible) this._loadCard(card);
         }
         warmInitialPage() {
-            this.hydrateInitialPage();
-
-            const count = Math.min(this._initialCount || this.BATCH_SIZE, this.items.length);
+            const visible = this._cards.filter(card => this._isInViewportBand(card));
+            for (const card of visible) this._loadCard(card);
             const tasks = [];
-            for (let i = 0; i < count; i++) {
-                const item = this.items[i];
+            for (const card of visible) {
+                const item = card._item;
                 const src = _restingGridSrc(item, this.catId);
                 if (src) tasks.push(this._preloadImage(src));
             }
@@ -292,9 +299,7 @@
             return promise;
         }
         hydrateViewportBand() {
-            for (const card of this._cards) {
-                if (card && this._isInViewportBand(card)) this._loadCard(card);
-            }
+            this.hydrateInitialPage();
         }
         _isInViewportBand(card) {
             const root = this.scrollRoot;
@@ -303,6 +308,7 @@
             try {
                 const rootRect = root.getBoundingClientRect();
                 const cardRect = card.getBoundingClientRect();
+                if (rootRect.height <= 0 || rootRect.width <= 0 || cardRect.height <= 0) return false;
                 return cardRect.bottom >= rootRect.top && cardRect.top <= rootRect.bottom;
             } catch (_) {
                 return false;

@@ -6,30 +6,39 @@ namespace Doorpi;
 
 public partial class App
 {
-    private async Task RunDirectShellStartupAsync(string[] args)
+    private async Task RunCoordinatedShellStartupAsync(string[] args)
     {
         var experience = new NativeBootExperience();
-        var session = new InProcessBootSession(Array.Exists(args, arg => arg.Equals("--doorpi-resume-session", StringComparison.OrdinalIgnoreCase)));
+        bool monitored = BootSessionClient.IsManaged;
+        string path = monitored ? "monitored-child" : "direct";
+        var session = new InProcessBootSession(BootSessionClient.SkipIntro);
         BootSessionClient.InProcess = session;
         try
         {
             await experience.ShowPreparingAsync(false);
+            if (!await PrepareApplicationStateAsync()) return;
             // Controlled comparison: same Explorer preparation as the current
             // bootstrap. Its availability is not a claim about Chromium's GPU.
             await PrepareCompatibilityShellAsync();
             var budget = new BootStartupBudget(TimeSpan.FromSeconds(90));
             CreateMainWindow();
             await budget.WaitAsync(session.Prepared, () => experience.IsSessionAvailable);
+            await budget.WaitAsync(BootSessionClient.WaitForSupervisorPresentationAsync(), () => experience.IsSessionAvailable);
             await experience.ReleasePresentationAsync();
             session.Release();
-            DoorpiBootDiagnostics.Log("boot-presentation-released", "path=direct");
+            DoorpiBootDiagnostics.Log("boot-presentation-released", "path=" + path);
             await budget.WaitAsync(session.Ready, () => experience.IsSessionAvailable);
-            DoorpiBootDiagnostics.Log("boot-interactive-ready", "path=direct");
+            DoorpiBootDiagnostics.Log("boot-interactive-ready", "path=" + path);
         }
         catch (Exception ex)
         {
-            DoorpiBootDiagnostics.Log("boot-direct-failed", ex.ToString());
+            DoorpiBootDiagnostics.Log("boot-coordinated-failed", $"path={path} {ex}");
             if (MainWindow is Doorpi.MainWindow window) window.SuspendStartupForRecovery();
+            if (monitored && BootSessionClient.RequestRestart())
+            {
+                Shutdown(1);
+                return; // The external monitor owns retry budgets and recovery UI.
+            }
             bool retry = false;
             try { retry = await experience.RecoverAsync() == BootRecoveryChoice.Retry; } catch { }
             if (retry)

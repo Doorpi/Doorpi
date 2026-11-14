@@ -1,6 +1,10 @@
 param([switch]$Check)
 
 $ErrorActionPreference = 'Stop'
+if ($Check) { & node (Join-Path $PSScriptRoot 'Build-BuiltinThemes.cjs') --check }
+else { & node (Join-Path $PSScriptRoot 'Build-BuiltinThemes.cjs') }
+if ($LASTEXITCODE -ne 0) { throw 'Built-in theme generation failed.' }
+& (Join-Path $PSScriptRoot 'Build-ThemeContract.ps1') -Check:$Check
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../Doorpi'))
 $sourceRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'Frontend/styles'))
 $manifest = Get-Content -LiteralPath (Join-Path $sourceRoot 'bundle.json') -Raw | ConvertFrom-Json

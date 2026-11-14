@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "aurora",
+  "name": "Aurora",
+  "tokens": {
+    "--doorpi-font-family": "'Segoe UI', sans-serif",
+    "--doorpi-home-background": "linear-gradient(135deg, #051619 0%, #083f43 48%, #17204e 100%)",
+    "--doorpi-home-shade": "linear-gradient(180deg, rgba(0,18,25,.1), rgba(0,18,25,.8))",
+    "--doorpi-home-title-color": "#d4fffa",
+    "--doorpi-home-secondary-title-color": "#a0eee7",
+    "--doorpi-home-eyebrow-color": "#6fddd6",
+    "--doorpi-home-meta-color": "#c0ede9",
+    "--doorpi-home-meta-background": "rgba(53,218,192,.14)",
+    "--doorpi-home-meta-border": "1px solid rgba(107,255,227,.4)",
+    "--doorpi-home-meta-radius": "30px",
+    "--doorpi-card-radius": "22px",
+    "--doorpi-card-focus-color": "#86ffe6",
+    "--doorpi-home-card-ratio": "1.5",
+    "--doorpi-home-card-filter": "saturate(.7) brightness(.85)",
+    "--doorpi-home-card-focus-shadow": "0 0 0 2px #86ffe6, 0 14px 34px rgba(0,0,0,.4)",
+    "--doorpi-home-art-radius": "28px",
+    "--doorpi-home-art-border": "1px solid rgba(134,255,230,.6)",
+    "--doorpi-home-art-shadow": "0 20px 70px rgba(0,255,194,.15)",
+    "--doorpi-home-feature-gap": "clamp(20px, 2.7vw, 52px)",
+    "--doorpi-home-feature-gap-compact": "clamp(18px, 2.4vw, 40px)",
+    "--doorpi-home-action-color": "#adffed",
+    "--doorpi-home-playtime-color": "#adffed",
+    "--doorpi-clock-color": "#b0fff1",
+    "--doorpi-dialog-background": "linear-gradient(130deg, rgba(8,48,48,.96), rgba(5,20,34,.96))",
+    "--doorpi-dialog-radius": "24px"
+  },
+  "layout": {
+    "home": {
+      "areas": [
+        "library",
+        "toolbar",
+        "feature",
+        "controls"
+      ],
+      "rows": "auto auto minmax(0, 1fr) auto",
+      "columns": "minmax(0, 1fr)"
+    },
+    "feature": "art-right",
+    "copy": "meta-first",
+    "dialog": "right"
+  }
+}

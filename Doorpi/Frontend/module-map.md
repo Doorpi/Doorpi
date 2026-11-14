@@ -20,7 +20,7 @@ A ordem abaixo é a ordem de concatenação em cada bundle. Os fragmentos conser
 | [scripts/app/120-clock-fallbacks-and-host-messages.js](scripts/app/120-clock-fallbacks-and-host-messages.js) | 0 |
 | [scripts/app/130-global-focus-and-profile-overlays.js](scripts/app/130-global-focus-and-profile-overlays.js) | 1 |
 | [scripts/app/140-user-picker.js](scripts/app/140-user-picker.js) | 0 |
-| [scripts/app/150-quick-panel-state-and-helpers.js](scripts/app/150-quick-panel-state-and-helpers.js) | 1 |
+| [scripts/app/150-quick-panel-state-and-helpers.js](scripts/app/150-quick-panel-state-and-helpers.js) | 2 |
 | [scripts/app/151-quick-panel-storage.js](scripts/app/151-quick-panel-storage.js) | 0 |
 | [scripts/app/152-quick-panel-content-and-render.js](scripts/app/152-quick-panel-content-and-render.js) | 0 |
 | [scripts/app/153-quick-panel-incremental-updates.js](scripts/app/153-quick-panel-incremental-updates.js) | 0 |
@@ -131,6 +131,7 @@ A ordem abaixo é a ordem de concatenação em cada bundle. Os fragmentos conser
 | [scripts/nav-menu/170-profile-history.js](scripts/nav-menu/170-profile-history.js) | 0 |
 | [scripts/nav-menu/180-settings-hub.js](scripts/nav-menu/180-settings-hub.js) | 0 |
 | [scripts/nav-menu/185-web-permissions.js](scripts/nav-menu/185-web-permissions.js) | 1 |
+| [scripts/nav-menu/186-theme-settings.js](scripts/nav-menu/186-theme-settings.js) | 1 |
 | [scripts/nav-menu/190-device-settings.js](scripts/nav-menu/190-device-settings.js) | 0 |
 | [scripts/nav-menu/200-windows-and-gpu-updates.js](scripts/nav-menu/200-windows-and-gpu-updates.js) | 0 |
 | [scripts/nav-menu/210-account-settings.js](scripts/nav-menu/210-account-settings.js) | 1 |
@@ -148,6 +149,7 @@ A ordem abaixo é a ordem de concatenação em cada bundle. Os fragmentos conser
 | Fonte | CSS extraído |
 | --- | --- |
 | [scripts/navigation/010-state-hints-and-context.js](scripts/navigation/010-state-hints-and-context.js) | 0 |
+| [scripts/navigation/015-region-contract.js](scripts/navigation/015-region-contract.js) | 0 |
 | [scripts/navigation/020-targets-and-spatial-candidates.js](scripts/navigation/020-targets-and-spatial-candidates.js) | 0 |
 | [scripts/navigation/030-group-transitions.js](scripts/navigation/030-group-transitions.js) | 0 |
 | [scripts/navigation/040-overlay-focus-and-actions.js](scripts/navigation/040-overlay-focus-and-actions.js) | 0 |
@@ -227,3 +229,12 @@ A ordem abaixo é a ordem de concatenação em cada bundle. Os fragmentos conser
 | Fonte | CSS extraído |
 | --- | --- |
 | [scripts/wifi-ui/010-implementation.js](scripts/wifi-ui/010-implementation.js) | 1 |
+
+## wwwroot/themes.js
+
+| Fonte | CSS extraído |
+| --- | --- |
+| [scripts/themes/010-theme-runtime.js](scripts/themes/010-theme-runtime.js) | 0 |
+| [scripts/themes/020-theme-selection.js](scripts/themes/020-theme-selection.js) | 0 |
+| [scripts/themes/030-trailer-layout.js](scripts/themes/030-trailer-layout.js) | 0 |
+| [scripts/themes/040-package-styles.js](scripts/themes/040-package-styles.js) | 0 |

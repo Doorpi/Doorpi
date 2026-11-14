@@ -9,6 +9,14 @@
       "originalEndLine": 40
     },
     {
+      "path": "foundation/015-theme-tokens.css",
+      "role": "theme-defaults"
+    },
+    {
+      "path": "foundation/016-console-surfaces.css",
+      "role": "theme-defaults"
+    },
+    {
       "path": "components/020-loading-and-library-tokens.css",
       "originalStartLine": 41,
       "originalEndLine": 163
@@ -109,9 +117,48 @@
       "originalEndLine": 6817
     },
     {
+      "path": "features/home/020-layout.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/030-trailer-state.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/040-feature-art.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/050-feature-copy.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/060-library.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/070-running-indicator.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/080-controller-hints.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
+      "path": "features/home/090-responsive.css",
+      "splitFrom": "features/210-editorial-home.css"
+    },
+    {
       "path": "cascade/220-home-density.css",
       "originalStartLine": 6818,
       "originalEndLine": 6927
+    },
+    {
+      "path": "layout/230-theme-regions.css",
+      "role": "theme-layout"
+    },
+    {
+      "path": "features/home/100-default-composition.css"
     }
   ]
 }

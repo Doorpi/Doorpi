@@ -84,22 +84,13 @@
 
         const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
         const ratio = Math.max(1, window.innerWidth / Math.max(1, window.innerHeight));
-        for (let i = 0; i < Math.max(4, colors.length); i++) {
-            const motion = AMBIENT_BLOB_MOTION[i % AMBIENT_BLOB_MOTION.length];
-            const blob = document.createElement('div');
-            blob.className = 'doorpi-intro-ambient-blob';
-            const size = Math.min(window.innerWidth, window.innerHeight) * motion.size;
-            const color = colors[i % colors.length];
-            blob.style.width = `${size}px`; blob.style.height = `${size}px`;
-            blob.style.background = `radial-gradient(circle, ${color} 0%, transparent 70%)`;
-            layer.insertBefore(blob, layer.firstChild);
-
-            const angle = motion.angle, speed = motion.speed;
-            state.ambientBlobs.push({ el: blob, x: cx, y: cy, size, vx: Math.cos(angle) * speed * (ratio * 0.8), vy: Math.sin(angle) * speed, phase: 'burst', wanderAngle: angle, wanderDelta: motion.wander });
-        }
-
+        const pickerReady = document.body.classList.contains('user-picker-open');
         state.ambient = layer;
-        requestAnimationFrame(() => layer.classList.add('is-active'));
+        if (pickerReady) {
+            // Paint the static destination before the intro cover starts fading.
+            layer.style.transitionDuration = '0ms';
+            layer.classList.add('is-active');
+        } else requestAnimationFrame(() => layer.classList.add('is-active'));
         if (state.ambientBlobs.length) runAmbientPhysics();
     }
 

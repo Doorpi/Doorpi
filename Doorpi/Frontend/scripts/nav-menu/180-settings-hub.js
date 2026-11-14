@@ -79,6 +79,7 @@
 
     function _renderSettings(body) {
         body.classList.toggle('settings-home-active', !_settingsSubView);
+        if (_settingsSubView === 'themes') { _renderThemes(body); return; }
         if (_settingsSubView === 'webPermissions') { _renderWebPermissions(body); return; }
         if (_settingsSubView) {
             _renderSettingsLegacy(body);
@@ -95,6 +96,12 @@
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
         const entries = [
+            {
+                id: 'setThemes', group: 'Experiência', icon: svgVideo,
+                title: 'Temas', short: 'Combine visuais por área da interface',
+                description: 'Adicione pacotes e escolha o visual da home, dos menus, dos popups e da tela de perfis.',
+                scope: ['Temas instalados', 'Escolha por área', 'Padrão disponível', 'Tela de perfis'], action: 'themes'
+            },
             {
                 id: 'setAccount', group: 'Conta', icon: svgUser,
                 title: _t('navSetAccount', 'Conta e perfis'),
@@ -207,8 +214,10 @@
                 <div class="nav-settings-home-action"><kbd>A</kbd><span>Abrir configuração</span></div>`;
         };
 
-        _contentItems = entries.map(entry => body.querySelector(`#${entry.id}`)).filter(Boolean);
-        renderPreview(entries[Math.max(0, Math.min(entries.length - 1, _contentIdx))]);
+        // Groups determine the displayed order; navigation must use that same order.
+        const entriesById = new Map(entries.map(entry => [entry.id, entry]));
+        _contentItems = Array.from(body.querySelectorAll('.nav-settings-home-item'));
+        renderPreview(entriesById.get(_contentItems[Math.max(0, Math.min(_contentItems.length - 1, _contentIdx))]?.id));
 
         const openSystemDetail = detail => {
             _settingsReturnToRoot = true;
@@ -221,7 +230,7 @@
         };
 
         _contentItems.forEach((button, index) => {
-            const entry = entries[index];
+            const entry = entriesById.get(button.id);
             button.addEventListener('focus', () => renderPreview(entry));
             button.addEventListener('mouseenter', () => {
                 _topbarFocus = false;
@@ -231,6 +240,10 @@
             });
             button.addEventListener('click', () => {
                 switch (entry.action) {
+                    case 'themes':
+                        _settingsSubView = 'themes'; _contentIdx = 0;
+                        _renderContent('settings'); _updateContentFocus();
+                        break;
                     case 'account':
                         _settingsReturnToRoot = false;
                         _settingsSubView = 'accountHub';

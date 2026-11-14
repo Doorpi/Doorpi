@@ -23,6 +23,58 @@ function _doorpiRestingCardSrc(card) {
 
 let _doorpiFeatureArtRequest = 0;
 let _doorpiFeatureBannerRequest = 0;
+let _doorpiFeatureLogoRequest = 0;
+
+window.clearHomeFeatureLogo = function () {
+    ++_doorpiFeatureLogoRequest;
+    const logo = document.getElementById('gameLogo');
+    if (logo) {
+        logo.classList.remove('visible');
+        logo.removeAttribute('src');
+        delete logo.dataset.owner;
+    }
+    document.getElementById('homeFeatureStage')?.classList.remove('has-logo');
+};
+
+function _doorpiSetFeatureLogo(logo, stage, card, source) {
+    const request = ++_doorpiFeatureLogoRequest;
+    const identity = `${card.dataset.channel || 'games'}:${stage.dataset.cardId}`;
+    const profile = window._doorpiCurrentUserId;
+    const current = () => request === _doorpiFeatureLogoRequest &&
+        profile === window._doorpiCurrentUserId && logo.dataset.owner === identity;
+    if (logo.dataset.owner !== identity || !source) {
+        logo.classList.remove('visible');
+        logo.removeAttribute('src');
+        stage.classList.remove('has-logo');
+    }
+    logo.dataset.owner = identity;
+    logo.onload = null;
+    logo.onerror = null;
+    if (!source) return;
+    const reveal = src => {
+        if (!current()) return;
+        if (logo.getAttribute('src') !== src) logo.src = src;
+        logo.classList.add('visible');
+        stage.classList.add('has-logo');
+    };
+    if (logo.getAttribute('src') === source && logo.complete && logo.naturalWidth > 0) {
+        reveal(source);
+        return;
+    }
+    // Keep the current image while its animated version loads. Never let a failed
+    // animated asset (or a response for another selection) erase a working logo.
+    const load = (src, fallback) => {
+        const image = new Image();
+        image.onload = () => reveal(src);
+        image.onerror = () => {
+            if (!current()) return;
+            if (fallback && fallback !== src) { load(fallback, ''); return; }
+            if (!logo.getAttribute('src')) stage.classList.remove('has-logo');
+        };
+        image.src = src;
+    };
+    load(source, card.dataset.staticLogo || '');
+}
 
 function _doorpiHomeChannelLabel(channel) {
     if (channel === 'media') return typeof t === 'function' ? t('homeAppsEyebrow') : 'Aplicativo selecionado';
@@ -195,6 +247,17 @@ window.updateHomeFeatureRuntimeState = function (card) {
     _doorpiRenderFeatureRuntime(card, stage, meta, action);
 };
 
+window.updateHomeFeatureActionAvailability = function () {
+    const stage = document.getElementById('homeFeatureStage');
+    if (!stage) return;
+    const card = document.activeElement?.closest?.('#gameGrid .card, #mediaGrid .card, #storesGrid .card');
+    const id = card?.dataset.id || card?.dataset.gameId || card?.dataset.appId || '';
+    stage.classList.toggle('has-card-focus', !!id && id === stage.dataset.cardId &&
+        !card.classList.contains('add-card') && !card.classList.contains('loading-card'));
+};
+document.addEventListener('focusin', () => window.updateHomeFeatureActionAvailability());
+document.addEventListener('focusout', () => queueMicrotask(() => window.updateHomeFeatureActionAvailability()));
+
 window.updateHomeFeatureStage = function (card, options = {}) {
     if (!card || card.classList.contains('add-card') || card.classList.contains('loading-card')) return;
 
@@ -206,11 +269,8 @@ window.updateHomeFeatureStage = function (card, options = {}) {
     const eyebrow = document.getElementById('homeFeatureEyebrow');
     const meta = document.getElementById('homeFeatureMeta');
     const action = document.getElementById('homeFeatureActionLabel');
-    const libraryTitle = document.getElementById('homeLibraryTitle');
-    const libraryPosition = document.getElementById('homeLibraryPosition');
     const playtime = document.getElementById('homeFeaturePlaytime');
     const playtimeValue = document.getElementById('homeFeaturePlaytimeValue');
-    const lastSession = document.getElementById('homeFeatureLastSession');
     if (!stage || !art || !logo || !title || !eyebrow || !meta || !action) return;
 
     const channel = card.dataset.channel || 'games';
@@ -233,41 +293,25 @@ window.updateHomeFeatureStage = function (card, options = {}) {
         : (card.dataset.staticLogo || card.dataset.logo || '');
     stage.dataset.channel = channel;
     stage.dataset.cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
-    stage.classList.toggle('has-logo', !!logoSrc);
     stage.classList.toggle('uses-contained-art', !horizontalArt && !!artSrc);
     _doorpiSetFeatureArt(art, artSrc);
     _doorpiSetFeatureBanner(banner, bannerSrc);
 
-    if (logoSrc) {
-        logo.onload = () => logo.classList.add('visible');
-        logo.src = logoSrc;
-        if (logo.complete && logo.naturalWidth > 0) logo.classList.add('visible');
-    } else {
-        logo.classList.remove('visible');
-        logo.removeAttribute('src');
-    }
+    _doorpiSetFeatureLogo(logo, stage, card, logoSrc);
 
     title.textContent = name;
     eyebrow.textContent = _doorpiHomeChannelLabel(channel);
     _doorpiRenderFeatureRuntime(card, stage, meta, action);
 
     const totalPlaytime = _doorpiFormatMinutes(card.dataset.totalPlaytimeMinutes);
-    const sessionPlaytime = _doorpiFormatMinutes(card.dataset.lastSessionMinutes);
     const showPlaytime = channel === 'games';
-    if (playtime && playtimeValue && lastSession) {
+    if (playtime && playtimeValue) {
         playtime.hidden = !showPlaytime;
         playtimeValue.textContent = totalPlaytime ||
             (typeof t === 'function' ? t('homeNotPlayedYet') : 'Ainda não jogado');
-        lastSession.textContent = sessionPlaytime
-            ? `${typeof t === 'function' ? t('homeLastSessionLabel') : 'Última sessão'} · ${sessionPlaytime}`
-            : '';
     }
 
-    if (libraryTitle) libraryTitle.textContent = typeof t === 'function' ? t('homeLibraryTitle') : 'Sua biblioteca';
-    const grid = card.closest('#gameGrid, #mediaGrid, #storesGrid');
-    const cards = grid ? Array.from(grid.querySelectorAll('.card:not(.add-card):not(.loading-card)')) : [];
-    const index = cards.indexOf(card);
-    if (libraryPosition) libraryPosition.textContent = index >= 0 ? `${index + 1} / ${cards.length}` : '';
+    window.updateHomeFeatureActionAvailability();
 };
 
 function _doorpiSetCardImage(card, src) {
@@ -313,7 +357,8 @@ const CardInteraction = (() => {
     let trailerOwnsAudio = false;
     let trailerVolumeTimer = null;
     let youtubeRevealTimer = null;
-    let trailerCinemaTimer = null;
+    let fullscreenHintTimer = null;
+    let fullscreenHintShown = false;
     const cinemaConsumedKeys = new Set();
     const cinemaDirectionByKey = Object.freeze({
         ArrowLeft: 'LEFT',
@@ -327,53 +372,42 @@ const CardInteraction = (() => {
     const DEFAULT_TRAILER_VOLUME = 34;
     const TRAILER_VOLUME_FADE_MS = 1400;
     const TRAILER_START_DELAY_MS = 4500;
-    const TRAILER_CINEMA_DELAY_MS = 12000;
     const TRAILER_EXIT_FADE_MS = 580;
-    const TRAILER_FULLSCREEN_STORAGE_KEY = 'doorpi.homeTrailerFullscreenEnabled';
-    let trailerFullscreenEnabled = true;
+    const FULLSCREEN_HINT_DURATION_MS = 4000;
+    function hideTrailerFullscreenHint() {
+        if (fullscreenHintTimer !== null) clearTimeout(fullscreenHintTimer);
+        fullscreenHintTimer = null;
+        document.getElementById('homeTrailerFullscreenHint')?.setAttribute('aria-hidden', 'true');
+    }
 
-    try {
-        trailerFullscreenEnabled = localStorage.getItem(TRAILER_FULLSCREEN_STORAGE_KEY) !== 'false';
-    } catch { }
+    function showTrailerFullscreenHint() {
+        hideTrailerFullscreenHint();
+        if (!document.body.classList.contains('home-trailer-playing')) return;
+        document.getElementById('homeTrailerFullscreenHint')?.setAttribute('aria-hidden', 'false');
+        fullscreenHintTimer = setTimeout(hideTrailerFullscreenHint, FULLSCREEN_HINT_DURATION_MS);
+    }
 
     function syncTrailerFullscreenHint() {
-        document.body.classList.toggle('home-trailer-fullscreen-disabled', !trailerFullscreenEnabled);
+        const fullscreen = document.body.classList.contains('home-trailer-cinema');
+        document.body.classList.toggle('home-trailer-fullscreen-disabled', !fullscreen);
         const hint = document.getElementById('homeTrailerFullscreenHint');
         const label = document.getElementById('homeTrailerFullscreenHintLabel');
         if (!hint || !label) return;
-        const key = trailerFullscreenEnabled
+        const key = fullscreen
             ? 'homeTrailerDisableFullscreen'
             : 'homeTrailerEnableFullscreen';
         label.dataset.i18n = key;
         label.textContent = typeof t === 'function' ? t(key) :
-            (trailerFullscreenEnabled ? 'Desativar tela cheia' : 'Ativar tela cheia');
-        const visible = document.body.classList.contains('home-trailer-playing') &&
-            (!trailerFullscreenEnabled || document.body.classList.contains('home-trailer-cinema'));
-        hint.setAttribute('aria-hidden', String(!visible));
-    }
-
-    function setTrailerFullscreenEnabled(enabled, options = {}) {
-        trailerFullscreenEnabled = enabled !== false;
-        try {
-            localStorage.setItem(TRAILER_FULLSCREEN_STORAGE_KEY, String(trailerFullscreenEnabled));
-        } catch { }
-
-        if (!trailerFullscreenEnabled) {
-            leaveTrailerCinemaMode();
-        } else if (options.enterNow !== false &&
-                   document.body.classList.contains('home-trailer-playing')) {
-            if (trailerCinemaTimer) {
-                clearTimeout(trailerCinemaTimer);
-                trailerCinemaTimer = null;
-            }
-            document.body.classList.add('home-trailer-cinema');
-        }
-        syncTrailerFullscreenHint();
+            (fullscreen ? 'Sair da tela cheia' : 'Ver em tela cheia');
+        if (!document.body.classList.contains('home-trailer-playing')) hideTrailerFullscreenHint();
     }
 
     function toggleTrailerFullscreen() {
         if (!document.body.classList.contains('home-trailer-playing')) return false;
-        setTrailerFullscreenEnabled(!trailerFullscreenEnabled);
+        // Fullscreen is a transient, explicit action. No idle timer or saved auto-entry preference.
+        document.body.classList.toggle('home-trailer-cinema');
+        syncTrailerFullscreenHint();
+        showTrailerFullscreenHint();
         return true;
     }
 
@@ -427,38 +461,12 @@ const CardInteraction = (() => {
             clearTimeout(youtubeRevealTimer);
             youtubeRevealTimer = null;
         }
-        if (trailerCinemaTimer) {
-            clearTimeout(trailerCinemaTimer);
-            trailerCinemaTimer = null;
-        }
         youtubePlaybackStartedAt = 0;
     }
 
     function leaveTrailerCinemaMode() {
-        if (trailerCinemaTimer) {
-            clearTimeout(trailerCinemaTimer);
-            trailerCinemaTimer = null;
-        }
         document.body.classList.remove('home-trailer-cinema');
         syncTrailerFullscreenHint();
-    }
-
-    function scheduleTrailerCinemaMode() {
-        if (trailerCinemaTimer) clearTimeout(trailerCinemaTimer);
-        if (!trailerFullscreenEnabled) {
-            trailerCinemaTimer = null;
-            syncTrailerFullscreenHint();
-            return;
-        }
-        trailerCinemaTimer = setTimeout(() => {
-            trailerCinemaTimer = null;
-            if (!document.body.classList.contains('home-trailer-playing') ||
-                document.body.classList.contains('home-trailer-suspended') ||
-                document.hidden || window._isExternalAppRunning ||
-                !trailerFullscreenEnabled) return;
-            document.body.classList.add('home-trailer-cinema');
-            syncTrailerFullscreenHint();
-        }, TRAILER_CINEMA_DELAY_MS);
     }
 
     function consumeCinemaWakeInput(event) {
@@ -484,7 +492,6 @@ const CardInteraction = (() => {
 
         const wasCinemaActive = document.body.classList.contains('home-trailer-cinema');
         leaveTrailerCinemaMode();
-        scheduleTrailerCinemaMode();
         if (!wasCinemaActive) return;
 
         if (keyId) cinemaConsumedKeys.add(keyId);
@@ -595,6 +602,7 @@ const CardInteraction = (() => {
         syncTrailerFullscreenHint();
         preparedTrailerCard = null;
         trailerPlayRequested = false;
+        fullscreenHintShown = false;
 
         if (trailerExitTimer) {
             clearTimeout(trailerExitTimer);
@@ -636,8 +644,11 @@ const CardInteraction = (() => {
         document.body.classList.remove('home-trailer-suspended');
         document.body.classList.add('home-trailer-playing');
         syncTrailerAudioOwnership();
-        scheduleTrailerCinemaMode();
         syncTrailerFullscreenHint();
+        if (!fullscreenHintShown) {
+            fullscreenHintShown = true;
+            showTrailerFullscreenHint();
+        }
     }
 
     function suspendYoutubeTrailerSurface(player) {
@@ -1032,17 +1043,7 @@ const CardInteraction = (() => {
             switchHeroBackground(liveBgSrc, null, liveHeroSrc);
         }
 
-        // ← MUDANÇA: logo tratado aqui exclusivamente (sem concorrência com setImgSrc)
-        // Usa animado se existir, senão usa estático — NUNCA há race condition
-        const logoEl = document.getElementById('gameLogo');
-        if (logoEl) {
-            const logoToSet = card.dataset.logo || card.dataset.staticLogo;
-            if (logoToSet) {
-                safeLoadImage(logoEl, logoToSet, () => currentActiveCard === card, () => {
-                    if (currentActiveCard === card) logoEl.classList.add('visible');
-                });
-            }
-        }
+        // updateHomeFeatureStage owns the logo, including animated/static fallback.
     }
 
     // Versão estável — sem decode(), sem double rAF, sem off-thread.
@@ -1102,11 +1103,7 @@ window.pauseDoorpiArtworkForTransition = function (element) {
         gridBg.src = heroStatic;
     }
 
-    const logoStatic = card.dataset.staticLogo || '';
-    const logoEl = document.getElementById('gameLogo');
-    if (logoStatic && logoEl && !(logoEl.src || '').endsWith(logoStatic)) {
-        logoEl.src = logoStatic;
-    }
+    // stop() restores the static presentation through its single artwork owner.
 };
 
 window.resumeDoorpiArtworkAfterTransition = function (element) {
@@ -1757,7 +1754,7 @@ const CardRenderer = (() => {
                 gridEl.insertBefore(card, anchorEl);
             } else {
                 card = _buildCard(item, isFeatured);
-                if (silent) {
+                if (silent && !window._userSwitching) {
                     card.classList.add('bulk-silent-card');
                     setTimeout(() => card.classList.remove('bulk-silent-card'), 750);
                 }
@@ -1802,8 +1799,7 @@ const CardRenderer = (() => {
     }
     return { renderBatch, prependCard, removeCard, reorderDOM, applyPatch, syncDOM };
 })();
-// ── Transição Estilo "Swipe / Scroll" (Otimizada para 60fps) ───────────
-// ── Transição Estilo "Swipe / Scroll" (Otimizada e Longa) ───────────
+// Short directional feedback; changing tabs never waits for its animation.
 (function injectScrollTabTransitions() {
     if (document.getElementById('doorpiTabTransitions')) {
         document.getElementById('doorpiTabTransitions').remove();
@@ -1816,7 +1812,7 @@ const CardRenderer = (() => {
         @keyframes slideInFromLeft {
             0% {
                 opacity: 0;
-                transform: translateX(-150px); /* Distância maior e mais perceptível */
+                transform: translateX(-12px);
             }
             100% {
                 opacity: 1;
@@ -1828,7 +1824,7 @@ const CardRenderer = (() => {
         @keyframes slideInFromRight {
             0% {
                 opacity: 0;
-                transform: translateX(150px);
+                transform: translateX(12px);
             }
             100% {
                 opacity: 1;
@@ -1839,7 +1835,7 @@ const CardRenderer = (() => {
         #gameGrid,
         #view-apps.active {
             /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
-            animation: slideInFromLeft 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            animation: slideInFromLeft var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both !important;
             will-change: transform, opacity;
             backface-visibility: hidden; /* Força 2D por hardware, evita tremulação nos pixels */
         }
@@ -1848,11 +1844,15 @@ const CardRenderer = (() => {
         #storesGrid,
         #view-media-apps.active,
         #view-folders.active {
-            animation: slideInFromRight 0.45s cubic-bezier(0.22, 1, 0.36, 1) both !important;
+            animation: slideInFromRight var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both !important;
             will-change: transform, opacity;
             backface-visibility: hidden;
         }
-    `;
+        @media (prefers-reduced-motion: reduce) {
+            #gameGrid, #mediaGrid, #storesGrid, #view-apps.active,
+            #view-media-apps.active, #view-folders.active { animation:none !important; }
+        }
+`;
     document.head.appendChild(style);
 })();
 

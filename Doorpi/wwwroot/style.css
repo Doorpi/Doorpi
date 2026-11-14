@@ -38,6 +38,121 @@ html {
     html { font-size: 19px; }
 }
 
+/* Public appearance defaults. Functional state and input stay in their components. */
+:root {
+    --doorpi-font-family: 'Segoe UI', system-ui, sans-serif;
+    --doorpi-text-primary: #ddddf0;
+    --doorpi-card-radius: clamp(8px, min(0.72vw, 1.28vh), 22px);
+    --doorpi-card-gap: clamp(18px, min(2vw, 1.65vh), 36px);
+    --doorpi-library-side-padding: clamp(30px, min(3.6vw, 6.4vh), 72px);
+    --doorpi-accent: rgba(255,255,255,0.92);
+    --doorpi-card-focus-color: white;
+    --doorpi-home-background: linear-gradient(135deg, #050b19 0%, #081a36 46%, #10143a 100%);
+    --doorpi-home-hero-height: min(72vh, 37vw);
+    --doorpi-home-hero-position: center top;
+    --doorpi-home-hero-opacity: .64;
+    --doorpi-home-hero-filter: none;
+    --doorpi-home-hero-mask: linear-gradient(
+        180deg,
+        #000 0%,
+        #000 54%,
+        rgba(0,0,0,.82) 66%,
+        rgba(0,0,0,.34) 84%,
+        transparent 100%
+    );
+    --doorpi-home-shade: radial-gradient(ellipse 70% 78% at 30% 32%, transparent 0%, rgba(4,6,16,.16) 58%, rgba(4,6,16,.46) 100%),
+        linear-gradient(180deg, rgba(3,5,14,.18) 0%, rgba(3,5,14,.08) 40%, rgba(3,5,14,.68) 100%);
+    --doorpi-home-glow: radial-gradient(ellipse 48% 42% at 72% 35%, rgba(255,255,255,.045), transparent 72%),
+        linear-gradient(180deg, rgba(4,6,16,.04) 0%, rgba(4,6,16,.08) 55%, rgba(4,6,16,.34) 100%);
+    --doorpi-home-rows: minmax(0, 1fr) auto auto auto;
+    --doorpi-home-card-ratio: 1.5;
+    --doorpi-home-feature-columns: auto minmax(0, 1fr);
+    --doorpi-home-art-radius: clamp(10px, .8vw, 16px);
+    --doorpi-home-art-border: 1px solid rgba(255,255,255,.13);
+    --doorpi-home-art-background: radial-gradient(circle at 68% 28%, rgba(116,150,230,.22), transparent 48%),
+        rgba(10,13,25,.58);
+    --doorpi-home-art-shadow: 0 26px 70px rgba(0,0,0,.34);
+    --doorpi-home-art-shade: linear-gradient(90deg, rgba(5,7,16,.16), transparent 24%, transparent 78%, rgba(5,7,16,.1)),
+        linear-gradient(0deg, rgba(4,6,14,.24), transparent 34%);
+    --doorpi-home-eyebrow-color: #bbc3d1;
+    --doorpi-home-title-color: #fff;
+    --doorpi-home-title-weight: 500;
+    --doorpi-home-secondary-title-color: rgba(255,255,255,.66);
+    --doorpi-home-meta-color: #bbc3d1;
+    --doorpi-home-meta-background: transparent;
+    --doorpi-home-meta-border: 0;
+    --doorpi-home-meta-radius: 5px;
+    --doorpi-home-runtime-color: #b7dcc5;
+    --doorpi-home-runtime-background: rgba(8,11,22,.32);
+    --doorpi-home-playtime-label-color: #aeb8c9;
+    --doorpi-home-playtime-color: rgba(255,255,255,.9);
+    --doorpi-home-playtime-unit-color: #b5bece;
+    --doorpi-home-action-color: rgba(255,255,255,.9);
+    --doorpi-home-action-key-background: rgba(255,255,255,.1);
+    --doorpi-home-action-key-color: #fff;
+    --doorpi-home-library-label-color: rgba(255,255,255,.46);
+    --doorpi-home-card-filter: saturate(.9) brightness(.82);
+    --doorpi-home-card-shadow: 0 12px 28px rgba(0,0,0,.2);
+    --doorpi-home-card-focus-filter: saturate(1.04) brightness(1.04);
+    --doorpi-home-card-focus-shadow: 0 20px 44px rgba(0,0,0,.34);
+    --doorpi-home-controls-color: rgba(255,255,255,.52);
+    --doorpi-home-hint-color: rgba(255,255,255,.58);
+    --doorpi-home-card-width: clamp(132px, min(10.2vw, 18.9vh), 268px);
+    --doorpi-home-top-padding: clamp(72px, 8vh, 108px);
+    --doorpi-home-gap: clamp(7px, .9vh, 14px);
+    --doorpi-home-feature-height: min(38vh, 540px);
+    --doorpi-home-feature-gap: clamp(30px, 4vw, 76px);
+    --doorpi-home-copy-width: min(50vw, 860px);
+    --doorpi-home-copy-gap: calc(14 * var(--doorpi-shell-unit));
+    --doorpi-home-logo-width: calc(440 * var(--doorpi-shell-unit));
+    --doorpi-home-logo-height: calc(152 * var(--doorpi-shell-unit));
+    --doorpi-home-title-size: max(32px, calc(46 * var(--doorpi-shell-unit)));
+    --doorpi-home-title-line-height: 1.12;
+    --doorpi-home-secondary-title-size: max(24px, calc(32 * var(--doorpi-shell-unit)));
+    --doorpi-home-meta-size: max(15px, calc(16 * var(--doorpi-shell-unit)));
+    --doorpi-home-playtime-size: max(24px, calc(30 * var(--doorpi-shell-unit)));
+    --doorpi-home-action-size: max(18px, calc(21 * var(--doorpi-shell-unit)));
+    --doorpi-home-toolbar-height: clamp(40px, 4.8vh, 58px);
+    --doorpi-home-tab-size: clamp(.82rem, .92vw, 1.08rem);
+    --doorpi-home-card-width-compact: clamp(121px, min(9.55vw, 17.65vh), 202px);
+    --doorpi-home-top-padding-compact: clamp(62px, 7.5vh, 78px);
+    --doorpi-home-feature-height-compact: min(34vh, 340px);
+    --doorpi-home-feature-gap-compact: clamp(22px, 3vw, 46px);
+    --doorpi-home-copy-width-compact: min(100%, 650px);
+    --doorpi-home-card-width-short: clamp(107px, min(8.95vw, 16.45vh), 161px);
+    --doorpi-home-feature-height-short: min(28vh, 205px);
+    --doorpi-clock-color: rgba(255,255,255,0.96);
+    --doorpi-clock-size: clamp(1.32rem, 1.48vw, 1.95rem);
+    --doorpi-clock-weight: 540;
+    --doorpi-dialog-backdrop: radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.12), transparent 44%),
+        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.075), transparent 48%),
+        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.82));
+    --doorpi-dialog-background: radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.10), transparent 42%),
+        linear-gradient(112deg, rgba(34,38,58,0.90), rgba(18,22,38,0.84) 58%, rgba(14,17,30,0.88));
+    --doorpi-dialog-radius: 8px;
+    --doorpi-dialog-border-color: rgba(255,255,255,0.18);
+    --doorpi-dialog-shadow: 0 34px 92px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+/* Shared default language for system surfaces. Internal tokens, not theme API v1. */
+:root {
+    --doorpi-shell-motion-feedback: 120ms;
+    --doorpi-shell-motion-panel: 180ms;
+    /* Stop desktop surfaces growing after 1080p; reserve a separate step for 4K. */
+    --doorpi-shell-unit: clamp(.8px, .05208333vw, 1.1px);
+    --doorpi-shell-ink: #f3f3fa;
+    --doorpi-shell-muted: #bbc0d0;
+    --doorpi-shell-accent: #b9b2ed;
+    --doorpi-shell-surface: #1b1d2b;
+    --doorpi-shell-edge: #3b3e50;
+    --doorpi-shell-focus: #f0efff;
+    --doorpi-shell-focus-fill: #343646;
+    --doorpi-shell-radius: calc(10 * var(--doorpi-shell-unit));
+    --doorpi-shell-background: radial-gradient(ellipse at 15% 30%, #34306755, transparent 56%),
+        radial-gradient(ellipse at 85% 85%, #22425538, transparent 55%), #10111d;
+}
+@media (min-width: 3000px) and (min-height: 1600px) {
+    :root { --doorpi-shell-unit: 1.7px; }
+}
 /* Isso garante que as imagens e fundos sejam "transparentes" ao clique */
 #bgBlur,
 #heroImage,
@@ -132,10 +247,10 @@ body:not(.nav-menu-active) #heroImage {
     --card-w: clamp(142px, min(12.5vw, 22.2vh), 360px);
     --card-h: clamp(213px, min(18.75vw, 33.3vh), 540px);
     --card-featured-w: clamp(456px, calc(var(--card-h) * 2.1395348837), 1155px);
-    --card-radius: clamp(8px, min(0.72vw, 1.28vh), 22px);
-    --card-gap: clamp(18px, min(2vw, 1.65vh), 36px);
+    --card-radius: var(--doorpi-card-radius);
+    --card-gap: var(--doorpi-card-gap);
     --grid-pad-top: clamp(42px, min(4.8vw, 5vh), 64px);
-    --grid-pad-side: clamp(30px, min(3.6vw, 6.4vh), 72px);
+    --grid-pad-side: var(--doorpi-library-side-padding);
     --grid-pad-bottom: clamp(28px, min(3.5vw, 5.4vh), 132px);
     --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
     --logo-bottom: clamp(430px, min(31vw, 55vh), 900px);
@@ -152,7 +267,7 @@ body:not(.nav-menu-active) #heroImage {
     --fs-btn: clamp(0.72rem, min(0.9vw, 1.6vh), 1.6rem);
     --fs-card-title: clamp(0.65rem, min(0.75vw, 1.33vh), 1.25rem);
     --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
-    --accent: rgba(255,255,255,0.92);
+    --accent: var(--doorpi-accent);
     --hero-banner-h: min(60vh, 29vw);
 }
 
@@ -259,7 +374,7 @@ html, body {
 
 body {
     background: #06060e;
-    color: #ddddf0;
+    color: var(--doorpi-text-primary);
     font-family: 'Outfit', sans-serif;
     margin: 0;
     overflow: hidden;
@@ -498,7 +613,7 @@ body {
     filter: saturate(1.16) brightness(0.78);
     border: 3px solid rgba(255,255,255,0.00);
     box-shadow: 0 12px 30px rgba(0,0,0,.18);
-    transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+    transition: transform var(--doorpi-shell-motion-feedback) cubic-bezier(.22,1,.36,1) !important;
     will-change: transform, opacity;
 }
 
@@ -508,7 +623,7 @@ body {
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+        transition: transform var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1);
     }
 
    
@@ -790,7 +905,7 @@ body {
         opacity: 1;
         filter: saturate(1.1) brightness(1.05);
         transform: scale(1.02) translateY(3px);
-        border-color: white;
+        border-color: var(--doorpi-card-focus-color);
         box-shadow: 0 18px 44px rgba(0,0,0,.34);
         outline: none;
         z-index: 20;
@@ -884,7 +999,7 @@ body {
     justify-content: center;
     align-items: center;
     opacity: 0;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--doorpi-shell-motion-feedback) ease;
 }
 
 #addGameContainer.is-open { opacity: 1; }
@@ -909,13 +1024,13 @@ body {
     display: flex;
     overflow: hidden;
     box-shadow: 0 34px 90px rgba(0,0,0,0.54), inset 0 1px 0 rgba(255,255,255,0.06);
-    transform: translateY(18px) scale(0.988);
+    transform: translateY(6px);
     opacity: 0;
-    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+    transition: transform var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1), opacity var(--doorpi-shell-motion-feedback) ease;
 }
 
 #addGameContainer.is-open .modal-layout { transform: translateY(0) scale(1); opacity: 1; }
-#addGameContainer.is-closing .modal-layout { transform: translateY(10px) scale(0.992); opacity: 0; }
+#addGameContainer.is-closing .modal-layout { transform: translateY(4px); opacity: 0; }
 
 @keyframes slideUp {
     from {
@@ -2932,7 +3047,7 @@ body {
 
 body {
     background: #0d0d0d;
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: var(--doorpi-font-family);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3007,8 +3122,8 @@ body {
 
 body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
     opacity: 1;
-    transition: none;
-    transition-delay: 0s;
+    transition: opacity .2s ease;
+    transition-delay: .12s;
 }
 
 #doorpiUserSwitchLogout .logout-mark {
@@ -3042,28 +3157,39 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
 }
 
 #doorpiUserSwitchLogout .logout-title {
-    font-size: clamp(2.2rem, 5vw, 5.4rem);
+    font-size:calc(32 * var(--doorpi-shell-unit));
     font-weight: 300;
     line-height: 1;
 }
 
 #doorpiUserSwitchLogout .logout-sub {
-    font-size: clamp(0.9rem, 1.4vw, 1.2rem);
+    font-size:max(16px, calc(17 * var(--doorpi-shell-unit)));
     font-weight: 500;
     color: rgba(255,255,255,0.62);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    text-transform:none;
+    letter-spacing:0;
 }
 
 #doorpiUserSwitchLogout .logout-spinner {
-    width: clamp(42px, 3.4vw, 54px);
-    height: clamp(42px, 3.4vw, 54px);
+    width:calc(26 * var(--doorpi-shell-unit));
+    height:calc(26 * var(--doorpi-shell-unit));
     border-radius: 50%;
     margin-top: 10px;
     border: 3px solid rgba(255,255,255,0.16);
     border-top-color: rgba(255,255,255,0.88);
     border-right-color: rgba(255,255,255,0.42);
     animation: logoutSpinner 0.82s linear infinite;
+}
+#doorpiUserSwitchLogout .logout-avatar-slot { order:-1; }
+#doorpiUserSwitchLogout .logout-recovery-actions { display:flex; gap:16px; margin-top:20px; }
+#doorpiUserSwitchLogout .logout-recovery-actions button { padding:12px 20px; border:1px solid #ffffff55; border-radius:10px; background:#171b25; color:#fff; font:inherit; cursor:pointer; }
+#doorpiUserSwitchLogout .logout-recovery-actions button:focus { outline:2px solid #fff; outline-offset:3px; }
+#doorpiUserSwitchLogout.home-entry-recovery { background:#0a0e18; }
+#doorpiUserSwitchLogout .logout-spinner[hidden] { display:none; }
+#doorpiUserSwitchLogout .logout-sub[hidden] { display:none; }
+@media (prefers-reduced-motion: reduce) {
+    #doorpiUserSwitchLogout, body.doorpi-session-transition #doorpiUserSwitchLogout.visible { transition:none; }
+    #doorpiUserSwitchLogout .logout-spinner { animation:none; }
 }
 
 @keyframes logoutSpinner {
@@ -3931,7 +4057,7 @@ body.doorpi-session-locked .grid-bg {
 .modal-layout {
     width: min(93vw, 1680px);
     height: min(85vh, 940px);
-    border-radius: 8px;
+    border-radius: var(--doorpi-dialog-radius);
     background: linear-gradient(110deg, rgba(12,13,22,0.82), rgba(10,11,19,0.62));
     border-color: rgba(255,255,255,0.075);
     box-shadow: 0 34px 90px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.045);
@@ -4503,10 +4629,10 @@ body.doorpi-session-locked .grid-bg {
 
 /* Console legibility pass: stronger hierarchy for TV distance, without decorative noise. */
 #clock {
-    font-size: clamp(1.32rem, 1.48vw, 1.95rem);
-    font-weight: 540;
+    font-size: var(--doorpi-clock-size);
+    font-weight: var(--doorpi-clock-weight);
     letter-spacing: 0.055em;
-    color: rgba(255,255,255,0.96);
+    color: var(--doorpi-clock-color);
     text-shadow:
         0 1px 2px rgba(0,0,0,0.58),
         0 0 1px rgba(0,0,0,0.42);
@@ -4527,8 +4653,8 @@ body.doorpi-session-locked .grid-bg {
     background:
         radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.14), transparent 42%),
         linear-gradient(112deg, rgba(38,42,64,0.92), rgba(20,24,40,0.84) 58%, rgba(16,19,32,0.88)) !important;
-    border-color: rgba(255,255,255,0.18);
-    box-shadow: 0 34px 92px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
+    border-color: var(--doorpi-dialog-border-color);
+    box-shadow: var(--doorpi-dialog-shadow);
 }
 
 .modal-content-area {
@@ -4961,15 +5087,12 @@ body.doorpi-session-locked .grid-bg {
 /* Refinement pass: lower glare, distinct focus, integrated VKB. */
 #addGameContainer {
     background:
-        radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.12), transparent 44%),
-        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.075), transparent 48%),
-        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.82)) !important;
+        var(--doorpi-dialog-backdrop) !important;
 }
 
 .modal-layout {
     background:
-        radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.10), transparent 42%),
-        linear-gradient(112deg, rgba(34,38,58,0.90), rgba(18,22,38,0.84) 58%, rgba(14,17,30,0.88)) !important;
+        var(--doorpi-dialog-background) !important;
 }
 
 .add-card .plus,
@@ -5790,7 +5913,7 @@ body.doorpi-session-locked .grid-bg {
    ========================================================================== */
 
 .capaJogo {
-    background: linear-gradient(135deg, #050b19 0%, #081a36 46%, #10143a 100%);
+    background: var(--doorpi-home-background);
 }
 
 #heroImage {
@@ -5824,29 +5947,15 @@ body:not(.nav-menu-active) [class*="crossfade-clone-bgBlur"] {
 body:not(.nav-menu-active) #heroImage {
     inset: 0;
     width: 100%;
-    height: min(72vh, 37vw);
+    height: var(--doorpi-home-hero-height);
     object-fit: cover;
-    object-position: center top;
-    opacity: .64 !important;
+    object-position: var(--doorpi-home-hero-position);
+    opacity: var(--doorpi-home-hero-opacity) !important;
     visibility: visible;
-    filter: none;
+    filter: var(--doorpi-home-hero-filter);
     transform: none;
-    -webkit-mask-image: linear-gradient(
-        180deg,
-        #000 0%,
-        #000 54%,
-        rgba(0,0,0,.82) 66%,
-        rgba(0,0,0,.34) 84%,
-        transparent 100%
-    );
-    mask-image: linear-gradient(
-        180deg,
-        #000 0%,
-        #000 54%,
-        rgba(0,0,0,.82) 66%,
-        rgba(0,0,0,.34) 84%,
-        transparent 100%
-    );
+    -webkit-mask-image: var(--doorpi-home-hero-mask);
+    mask-image: var(--doorpi-home-hero-mask);
 }
 
 body:not(.nav-menu-active) [class*="crossfade-clone-heroImage"] {
@@ -5859,8 +5968,7 @@ body:not(.nav-menu-active) #appBlobBg {
 
 .capaJogo::after {
     background:
-        radial-gradient(ellipse 70% 78% at 30% 32%, transparent 0%, rgba(4,6,16,.16) 58%, rgba(4,6,16,.46) 100%),
-        linear-gradient(180deg, rgba(3,5,14,.18) 0%, rgba(3,5,14,.08) 40%, rgba(3,5,14,.68) 100%);
+        var(--doorpi-home-shade);
 }
 
 .hero-vignette,
@@ -5876,13 +5984,12 @@ body:not(.nav-menu-active) #appBlobBg {
 .grid-bg::before {
     inset: 0;
     background:
-        radial-gradient(ellipse 48% 42% at 72% 35%, rgba(255,255,255,.045), transparent 72%),
-        linear-gradient(180deg, rgba(4,6,16,.04) 0%, rgba(4,6,16,.08) 55%, rgba(4,6,16,.34) 100%);
+        var(--doorpi-home-glow);
 }
 
 .main-content-wrapper {
     --card-w: clamp(140px, min(10.7vw, 19vh), 296px);
-    --card-h: calc(var(--card-w) * 1.5);
+    --card-h: calc(var(--card-w) * var(--doorpi-home-card-ratio));
     --card-featured-w: var(--card-w);
     --grid-pad-top: clamp(12px, 1.35vh, 22px);
     --grid-pad-bottom: clamp(8px, 1vh, 16px);
@@ -5891,7 +5998,7 @@ body:not(.nav-menu-active) #appBlobBg {
     min-height: 0;
     padding: clamp(76px, 8.4vh, 118px) 0 clamp(10px, 1.4vh, 22px);
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto auto auto;
+    grid-template-rows: var(--doorpi-home-rows);
     gap: clamp(6px, .85vh, 13px);
     overflow: hidden;
     min-width: 0;
@@ -5932,7 +6039,7 @@ body:not(.nav-menu-active) #appBlobBg {
     height: min(38vh, 540px);
     margin: 0 auto clamp(2px, .5vh, 8px);
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: var(--doorpi-home-feature-columns);
     align-items: center;
     justify-content: start;
     gap: clamp(30px, 4vw, 82px);
@@ -6136,7 +6243,7 @@ body.home-trailer-playing #heroImage {
     opacity: 0 !important;
 }
 
-body.home-trailer-playing .home-feature-copy {
+body.home-trailer-cinema .home-feature-copy {
     position: absolute;
     left: 0;
     right: auto;
@@ -6162,11 +6269,11 @@ body.home-trailer-playing .home-feature-copy {
     -webkit-backdrop-filter: blur(14px);
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-eyebrow {
+body.home-trailer-cinema .home-feature-copy .home-feature-eyebrow {
     display: none;
 }
 
-body.home-trailer-playing .home-feature-copy #gameLogo {
+body.home-trailer-cinema .home-feature-copy #gameLogo {
     grid-area: brand;
     display: block;
     justify-self: center;
@@ -6180,8 +6287,8 @@ body.home-trailer-playing .home-feature-copy #gameLogo {
     filter: drop-shadow(0 3px 10px rgba(0,0,0,.24));
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-title,
-body.home-trailer-playing .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
+body.home-trailer-cinema .home-feature-copy .home-feature-title,
+body.home-trailer-cinema .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
     display: block;
     grid-area: brand;
     justify-self: center;
@@ -6196,18 +6303,18 @@ body.home-trailer-playing .home-feature-stage.has-logo .home-feature-copy .home-
     white-space: nowrap;
 }
 
-body.home-trailer-playing .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
+body.home-trailer-cinema .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
     display: none;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-meta {
+body.home-trailer-cinema .home-feature-copy .home-feature-meta {
     grid-area: meta;
     justify-content: flex-start;
     min-height: 0;
     flex-wrap: nowrap;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-meta span {
+body.home-trailer-cinema .home-feature-copy .home-feature-meta span {
     padding: 3px 7px;
     color: rgba(255,255,255,.7);
     background: rgba(255,255,255,.055);
@@ -6215,7 +6322,7 @@ body.home-trailer-playing .home-feature-copy .home-feature-meta span {
     white-space: nowrap;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-playtime {
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime {
     grid-area: playtime;
     justify-self: stretch;
     grid-template-columns: minmax(0, 1fr) max-content;
@@ -6229,8 +6336,8 @@ body.home-trailer-playing .home-feature-copy .home-feature-playtime {
     white-space: nowrap;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-playtime-label,
-body.home-trailer-playing .home-feature-copy .home-feature-playtime small {
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime-label,
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime small {
     font-size: clamp(.53rem, .56vw, .64rem);
     min-width: 0;
     overflow: hidden;
@@ -6238,12 +6345,12 @@ body.home-trailer-playing .home-feature-copy .home-feature-playtime small {
     white-space: nowrap;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-playtime strong {
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime strong {
     font-size: clamp(.75rem, .84vw, .98rem);
     white-space: nowrap;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-primary {
+body.home-trailer-cinema .home-feature-copy .home-feature-primary {
     grid-area: action;
     justify-self: center;
     margin: 0;
@@ -6255,7 +6362,7 @@ body.home-trailer-playing .home-feature-copy .home-feature-primary {
     white-space: nowrap;
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-a {
+body.home-trailer-cinema .home-feature-copy .home-feature-a {
     width: clamp(19px, 1.25vw, 25px);
     height: clamp(19px, 1.25vw, 25px);
 }
@@ -6312,21 +6419,19 @@ body.home-trailer-cinema .home-feature-copy .home-feature-playtime {
     display: inline-flex;
     align-items: center;
     gap: clamp(8px, .65vw, 12px);
-    padding: clamp(7px, .55vw, 10px) clamp(11px, .85vw, 16px);
-    border: 1px solid rgba(255,255,255,.1);
-    border-radius: clamp(7px, .5vw, 10px);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
     color: rgba(255,255,255,.7);
-    background: rgba(5,8,18,.28);
-    box-shadow: 0 7px 24px rgba(0,0,0,.1);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    font-size: clamp(.66rem, .72vw, .84rem);
-    font-weight: 560;
+    background: transparent;
+    box-shadow: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,.8);
+    font-size: clamp(12px, .75vw, 18px);
+    font-weight: 400;
     opacity: 0;
     visibility: hidden;
-    transform: translateY(7px);
     pointer-events: none;
-    transition: opacity .24s ease, transform .28s cubic-bezier(.2,.72,.24,1), visibility 0s linear .28s;
+    transition: opacity .24s ease, visibility 0s linear .24s;
 }
 
 .home-trailer-fullscreen-key {
@@ -6336,17 +6441,15 @@ body.home-trailer-cinema .home-feature-copy .home-feature-playtime {
     place-items: center;
     border: 1px solid rgba(255,255,255,.34);
     border-radius: 50%;
-    color: rgba(255,255,255,.9);
-    background: rgba(255,255,255,.07);
+    color: inherit;
+    background: transparent;
     font-size: .72em;
-    font-weight: 700;
+    font-weight: 500;
 }
 
-body.home-trailer-cinema:not(.home-trailer-fullscreen-disabled) .home-trailer-fullscreen-hint,
-body.home-trailer-playing.home-trailer-fullscreen-disabled .home-trailer-fullscreen-hint {
+body.home-trailer-playing .home-trailer-fullscreen-hint[aria-hidden="false"] {
     opacity: .86;
     visibility: visible;
-    transform: translateY(0);
     transition-delay: 0s;
 }
 
@@ -6401,12 +6504,11 @@ body.home-trailer-suspended .home-trailer-media {
     max-width: 100%;
     aspect-ratio: 920 / 430;
     overflow: hidden;
-    border-radius: clamp(10px, .8vw, 16px);
-    border: 1px solid rgba(255,255,255,.13);
+    border-radius: var(--doorpi-home-art-radius);
+    border: var(--doorpi-home-art-border);
     background:
-        radial-gradient(circle at 68% 28%, rgba(116,150,230,.22), transparent 48%),
-        rgba(10,13,25,.58);
-    box-shadow: 0 26px 70px rgba(0,0,0,.34);
+        var(--doorpi-home-art-background);
+    box-shadow: var(--doorpi-home-art-shadow);
     opacity: 1;
     transition: opacity .22s ease, border-color .22s ease;
     transform: translateY(clamp(4px, .55vh, 9px));
@@ -6438,8 +6540,7 @@ body.home-trailer-suspended .home-trailer-media {
     pointer-events: none;
     z-index: 3;
     background:
-        linear-gradient(90deg, rgba(5,7,16,.16), transparent 24%, transparent 78%, rgba(5,7,16,.1)),
-        linear-gradient(0deg, rgba(4,6,14,.24), transparent 34%);
+        var(--doorpi-home-art-shade);
 }
 
 .home-feature-art-fallback {
@@ -6473,7 +6574,7 @@ body.home-trailer-suspended .home-trailer-media {
 }
 
 .home-feature-eyebrow {
-    color: rgba(255,255,255,.5);
+    color: var(--doorpi-home-eyebrow-color);
     font-size: clamp(.66rem, .72vw, .84rem);
     font-weight: 650;
     letter-spacing: .16em;
@@ -6501,9 +6602,9 @@ body.home-trailer-suspended .home-trailer-media {
 .home-feature-title {
     max-width: 100%;
     margin: 0;
-    color: #fff;
+    color: var(--doorpi-home-title-color);
     font-size: clamp(1.35rem, 2.15vw, 3rem);
-    font-weight: 430;
+    font-weight: var(--doorpi-home-title-weight);
     line-height: 1.08;
     letter-spacing: -.025em;
     display: -webkit-box;
@@ -6513,7 +6614,7 @@ body.home-trailer-suspended .home-trailer-media {
 }
 
 .home-feature-stage.has-logo .home-feature-title {
-    color: rgba(255,255,255,.66);
+    color: var(--doorpi-home-secondary-title-color);
     font-size: clamp(.9rem, 1.05vw, 1.24rem);
     font-weight: 520;
     letter-spacing: 0;
@@ -6529,10 +6630,10 @@ body.home-trailer-suspended .home-trailer-media {
 
 .home-feature-meta span {
     padding: 4px 8px;
-    border: 1px solid rgba(255,255,255,.13);
-    border-radius: 5px;
-    color: rgba(255,255,255,.62);
-    background: rgba(255,255,255,.045);
+    border: var(--doorpi-home-meta-border);
+    border-radius: var(--doorpi-home-meta-radius);
+    color: var(--doorpi-home-meta-color);
+    background: var(--doorpi-home-meta-background);
     font-size: clamp(.66rem, .72vw, .82rem);
     font-weight: 570;
 }
@@ -6540,9 +6641,9 @@ body.home-trailer-suspended .home-trailer-media {
 .home-feature-meta .is-runtime {
     display: inline-flex;
     align-items: center;
-    color: rgba(255,255,255,.92);
+    color: var(--doorpi-home-runtime-color);
     border-color: rgba(255,255,255,.25);
-    background: rgba(8,11,22,.32);
+    background: var(--doorpi-home-runtime-background);
 }
 
 .home-feature-playtime {
@@ -6560,7 +6661,7 @@ body.home-trailer-suspended .home-trailer-media {
 
 .home-feature-playtime-label {
     grid-column: 1;
-    color: rgba(255,255,255,.45);
+    color: var(--doorpi-home-playtime-label-color);
     font-size: clamp(.62rem, .66vw, .76rem);
     font-weight: 620;
     letter-spacing: .08em;
@@ -6570,7 +6671,7 @@ body.home-trailer-suspended .home-trailer-media {
 .home-feature-playtime strong {
     grid-column: 2;
     grid-row: 1 / span 2;
-    color: rgba(255,255,255,.9);
+    color: var(--doorpi-home-playtime-color);
     font-size: clamp(1.15rem, 1.55vw, 1.85rem);
     font-weight: 430;
     letter-spacing: -.025em;
@@ -6579,7 +6680,7 @@ body.home-trailer-suspended .home-trailer-media {
 
 .home-feature-playtime small {
     grid-column: 1;
-    color: rgba(255,255,255,.38);
+    color: var(--doorpi-home-playtime-unit-color);
     font-size: clamp(.58rem, .62vw, .72rem);
 }
 
@@ -6588,9 +6689,16 @@ body.home-trailer-suspended .home-trailer-media {
     display: inline-flex;
     align-items: center;
     gap: 9px;
-    color: rgba(255,255,255,.9);
+    color: var(--doorpi-home-action-color);
     font-size: clamp(.82rem, .92vw, 1.06rem);
     font-weight: 620;
+    visibility: hidden;
+    opacity: 0;
+}
+
+.home-feature-stage.has-card-focus .home-feature-primary {
+    visibility: visible;
+    opacity: 1;
 }
 
 .home-feature-a {
@@ -6600,8 +6708,8 @@ body.home-trailer-suspended .home-trailer-media {
     place-items: center;
     border: 1px solid rgba(255,255,255,.52);
     border-radius: 50%;
-    color: #fff;
-    background: rgba(255,255,255,.1);
+    color: var(--doorpi-home-action-key-color);
+    background: var(--doorpi-home-action-key-background);
     font-size: .72em;
 }
 
@@ -6623,7 +6731,7 @@ body.home-trailer-suspended .home-trailer-media {
     align-items: center;
     justify-content: flex-end;
     gap: clamp(16px, 1.6vw, 30px);
-    color: rgba(255,255,255,.46);
+    color: var(--doorpi-home-library-label-color);
 }
 
 .home-library-title {
@@ -6663,9 +6771,9 @@ body.home-trailer-suspended .home-trailer-media {
     height: var(--card-h);
     aspect-ratio: 2 / 3;
     opacity: .76;
-    filter: saturate(.9) brightness(.82);
+    filter: var(--doorpi-home-card-filter);
     border-width: 2px;
-    box-shadow: 0 12px 28px rgba(0,0,0,.2);
+    box-shadow: var(--doorpi-home-card-shadow);
 }
 
 .home-library-rail .card:focus,
@@ -6674,14 +6782,22 @@ body.home-trailer-suspended .home-trailer-media {
 .home-library-rail .card.featured:focus,
 .home-library-rail .card.featured:hover {
     opacity: 1;
-    filter: saturate(1.04) brightness(1.04);
+    filter: var(--doorpi-home-card-focus-filter);
     transform: translateY(-5px) scale(1.035);
-    box-shadow: 0 20px 44px rgba(0,0,0,.34);
+    box-shadow: var(--doorpi-home-card-focus-shadow);
 }
 
 .home-library-rail .card .title {
     padding: 0 clamp(8px, .7vw, 13px) clamp(8px, .7vw, 13px);
-    font-size: clamp(.62rem, .68vw, .78rem);
+    font-size: max(12px, calc(14 * var(--doorpi-shell-unit)));
+    color: var(--doorpi-text-primary);
+    text-align: center;
+    opacity: 0;
+}
+
+.home-library-rail .card:focus .title,
+.home-library-rail .card.nav-focused-el .title {
+    opacity: 1;
 }
 
 /* Componente exclusivo da Home: não reutiliza os badges do nav-menu e,
@@ -6747,7 +6863,7 @@ body.home-trailer-playing .home-feature-stage .home-feature-art-shell {
     align-items: center;
     justify-content: flex-end;
     gap: clamp(24px, 4vw, 70px);
-    color: rgba(255,255,255,.52);
+    color: var(--doorpi-home-controls-color);
     justify-self: center;
     position: relative;
     left: 0;
@@ -6763,7 +6879,7 @@ body.home-trailer-playing .home-feature-stage .home-feature-art-shell {
 }
 
 .home-controls-bar .gp-hint-label {
-    color: rgba(255,255,255,.58);
+    color: var(--doorpi-home-hint-color);
     font-size: clamp(.68rem, .7vw, .82rem);
 }
 
@@ -6817,111 +6933,286 @@ body.home-trailer-playing .home-feature-stage .home-feature-art-shell {
 
 /* Home de console: mais espaço para contexto e uma prateleira mais densa. */
 .main-content-wrapper {
-    --card-w: clamp(132px, min(10.2vw, 18.9vh), 268px);
-    padding-top: clamp(72px, 8vh, 108px);
-    gap: clamp(7px, .9vh, 14px);
+    --card-w: var(--doorpi-home-card-width);
+    padding-top: var(--doorpi-home-top-padding);
+    gap: var(--doorpi-home-gap);
 }
 
 .home-feature-stage {
-    height: min(38vh, 540px);
-    gap: clamp(30px, 4vw, 76px);
+    height: var(--doorpi-home-feature-height);
+    gap: var(--doorpi-home-feature-gap);
 }
 
 .home-feature-copy {
-    width: min(100%, 760px);
-    gap: clamp(9px, 1.05vh, 16px);
+    width: var(--doorpi-home-copy-width);
+    gap: var(--doorpi-home-copy-gap);
 }
 
 #gameLogo {
-    max-width: min(31vw, 500px);
-    max-height: min(16vh, 168px);
+    max-width: var(--doorpi-home-logo-width);
+    max-height: var(--doorpi-home-logo-height);
 }
 
 .home-feature-title {
     max-width: 18ch;
-    font-size: clamp(1.7rem, 2.55vw, 3.65rem);
-    line-height: 1.04;
+    font-size: var(--doorpi-home-title-size);
+    line-height: var(--doorpi-home-title-line-height);
 }
 
 .home-feature-stage.has-logo .home-feature-title {
-    font-size: clamp(1.02rem, 1.28vw, 1.55rem);
+    font-size: var(--doorpi-home-secondary-title-size);
 }
 
 .home-feature-meta,
 .home-feature-description {
-    font-size: clamp(.84rem, .92vw, 1.08rem);
+    font-size: var(--doorpi-home-meta-size);
 }
 
 .home-feature-playtime strong {
-    font-size: clamp(1.38rem, 1.75vw, 2.2rem);
+    font-size: var(--doorpi-home-playtime-size);
 }
 
 .home-feature-primary {
-    font-size: clamp(.9rem, .98vw, 1.16rem);
+    font-size: var(--doorpi-home-action-size);
 }
 
 .home-library-toolbar {
-    min-height: clamp(40px, 4.8vh, 58px);
+    min-height: var(--doorpi-home-toolbar-height);
 }
 
 .main-content-wrapper .home-tab,
 .home-library-count {
-    font-size: clamp(.82rem, .92vw, 1.08rem);
+    font-size: var(--doorpi-home-tab-size);
 }
 
-body.home-trailer-playing .home-feature-copy {
+body.home-trailer-cinema .home-feature-copy {
     width: clamp(420px, 30vw, 620px);
     max-width: min(64vw, 620px);
     padding: clamp(18px, 1.45vw, 26px);
     gap: clamp(8px, .8vh, 13px);
 }
 
-body.home-trailer-playing .home-feature-copy #gameLogo {
+body.home-trailer-cinema .home-feature-copy #gameLogo {
     max-width: min(20vw, 300px);
     max-height: min(11vh, 110px);
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-title,
-body.home-trailer-playing .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
+body.home-trailer-cinema .home-feature-copy .home-feature-title,
+body.home-trailer-cinema .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
     font-size: clamp(1rem, 1.25vw, 1.48rem);
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-meta,
-body.home-trailer-playing .home-feature-copy .home-feature-playtime-label,
-body.home-trailer-playing .home-feature-copy .home-feature-playtime small {
+body.home-trailer-cinema .home-feature-copy .home-feature-meta,
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime-label,
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime small {
     font-size: clamp(.7rem, .72vw, .86rem);
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-playtime strong {
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime strong {
     font-size: clamp(1.22rem, 1.5vw, 1.8rem);
 }
 
-body.home-trailer-playing .home-feature-copy .home-feature-primary {
+body.home-trailer-cinema .home-feature-copy .home-feature-primary {
     font-size: clamp(.82rem, .88vw, 1rem);
 }
 
 @media (max-height: 900px), (max-width: 1500px) {
     .main-content-wrapper {
-        --card-w: clamp(121px, min(9.55vw, 17.65vh), 202px);
-        padding-top: clamp(62px, 7.5vh, 78px);
+        --card-w: var(--doorpi-home-card-width-compact);
+        padding-top: var(--doorpi-home-top-padding-compact);
     }
 
     .home-feature-stage {
-        height: min(34vh, 340px);
-        gap: clamp(22px, 3vw, 46px);
+        height: var(--doorpi-home-feature-height-compact);
+        gap: var(--doorpi-home-feature-gap-compact);
     }
 
     .home-feature-copy {
-        width: min(100%, 650px);
+        width: var(--doorpi-home-copy-width-compact);
     }
 }
 
 @media (max-height: 720px) {
     .main-content-wrapper {
-        --card-w: clamp(107px, min(8.95vw, 16.45vh), 161px);
+        --card-w: var(--doorpi-home-card-width-short);
     }
 
     .home-feature-stage {
-        height: min(28vh, 205px);
+        height: var(--doorpi-home-feature-height-short);
     }
+}
+/* Region adapters. The neutral player layer also preserves default stacking. */
+/* The neutral player layer preserves the old atmospheric stacking context. */
+.home-trailer-layer { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+body.doorpi-session-locked .home-trailer-layer { opacity: 0 !important; visibility: hidden !important; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-layer { z-index: 8; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-backdrop {
+    inset: auto; left: var(--doorpi-trailer-x, 0px); top: var(--doorpi-trailer-y, 0px);
+    width: var(--doorpi-trailer-width, 0px); height: var(--doorpi-trailer-height, 0px);
+    border-radius: var(--doorpi-home-art-radius); -webkit-mask-image: none; mask-image: none;
+    background: #050814;
+    transition: opacity .3s ease;
+}
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) video.home-trailer-media { object-fit: contain; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-backdrop.is-narrow-video .home-trailer-embed iframe,
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-backdrop.is-narrow-video > iframe.home-trailer-embed {
+    left:50%;width:auto;max-width:100%;height:100%;aspect-ratio:var(--home-trailer-aspect,4/3);transform:translateX(-50%);
+}
+[data-doorpi-trailer-layout="feature-art"] body.home-trailer-playing:not(.home-trailer-cinema) #heroImage { opacity:var(--doorpi-home-hero-opacity)!important; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-embed iframe,
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) iframe.home-trailer-embed {
+    left: 0; top: 0; right: auto; bottom: auto; width: 100%; height: 100%; transform: none;
+}
+
+[data-doorpi-home-layout] .main-content-wrapper {
+    grid-template-areas: "feature" "toolbar" "library" "controls";
+}
+[data-doorpi-home-layout="library-first"] .main-content-wrapper {
+    grid-template-areas: "library" "toolbar" "feature" "controls";
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+[data-doorpi-home-layout="custom"] .main-content-wrapper {
+    grid-template-areas: var(--doorpi-region-home-areas);
+    grid-template-rows: var(--doorpi-region-home-rows);
+    grid-template-columns: var(--doorpi-region-home-columns);
+}
+[data-doorpi-home-layout] .home-feature-stage { grid-area: feature; }
+[data-doorpi-home-layout] .home-library-toolbar { grid-area: toolbar; }
+[data-doorpi-home-layout] .home-library-rail { grid-area: library; }
+[data-doorpi-home-layout] .home-controls-bar { grid-area: controls; }
+
+[data-doorpi-feature-layout] .home-feature-stage { grid-template-areas: "art copy"; }
+[data-doorpi-feature-layout="art-right"] .home-feature-stage {
+    grid-template-areas: "copy art";
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+[data-doorpi-feature-layout="custom"] .home-feature-stage {
+    grid-template-areas: var(--doorpi-region-feature-areas);
+    grid-template-rows: var(--doorpi-region-feature-rows);
+    grid-template-columns: var(--doorpi-region-feature-columns);
+}
+[data-doorpi-feature-layout] .home-feature-art-shell { grid-area: art; }
+[data-doorpi-feature-layout] .home-feature-copy { grid-area: copy; }
+
+[data-doorpi-copy-layout] .home-feature-copy {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "eyebrow" "logo" "title" "meta" "playtime" "action";
+}
+[data-doorpi-copy-layout="meta-first"] .home-feature-copy {
+    grid-template-areas: "eyebrow" "meta" "logo" "title" "playtime" "action";
+}
+[data-doorpi-copy-layout="custom"] .home-feature-copy {
+    grid-template-areas: var(--doorpi-region-copy-areas);
+    grid-template-rows: var(--doorpi-region-copy-rows);
+    grid-template-columns: var(--doorpi-region-copy-columns);
+}
+[data-doorpi-copy-layout] .home-feature-eyebrow { grid-area: eyebrow; }
+[data-doorpi-copy-layout] .home-feature-copy #gameLogo { grid-area: logo; }
+[data-doorpi-copy-layout] .home-feature-title { grid-area: title; }
+[data-doorpi-copy-layout] .home-feature-meta { grid-area: meta; }
+[data-doorpi-copy-layout] .home-feature-playtime { grid-area: playtime; }
+[data-doorpi-copy-layout] .home-feature-primary { grid-area: action; }
+
+[data-doorpi-dialog-layout="right"] #addGameContainer .modal-layout { flex-direction: row-reverse; }
+[data-doorpi-dialog-layout="right"] #addGameContainer .modal-sidebar {
+    border-right: 0;
+    border-left: 1px solid var(--doorpi-dialog-border-color);
+}
+/* Single backdrop and a clear information group. Explicit theme layouts keep their own composition. */
+:where(html:not([data-doorpi-feature-layout])) .home-feature-stage {
+    display:flex;
+    align-items:center;
+    align-self:center;
+    transform:none;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-art-shell {
+    visibility:hidden;
+    position:absolute;
+    right:0;
+    height:80%;
+    max-width:40%;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-stage.has-scene-art .home-feature-art-shell {
+    opacity:0;
+    pointer-events:none;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-copy {
+    width:var(--doorpi-home-copy-width);
+    gap:var(--doorpi-home-copy-gap);
+    padding:0;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-eyebrow {
+    display:none;
+    font-size:max(12px, calc(12 * var(--doorpi-shell-unit)));
+    letter-spacing:.09em;
+    color:var(--doorpi-home-eyebrow-color);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo {
+    max-width:var(--doorpi-home-logo-width);
+    max-height:var(--doorpi-home-logo-height);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-title {
+    max-width:24ch;
+    font-size:var(--doorpi-home-title-size);
+    line-height:var(--doorpi-home-title-line-height);
+    font-weight:var(--doorpi-home-title-weight);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-stage.has-logo .home-feature-title {
+    font-size:var(--doorpi-home-secondary-title-size);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-meta span {
+    padding:0;
+    border:var(--doorpi-home-meta-border);
+    background:var(--doorpi-home-meta-background);
+    color:var(--doorpi-home-meta-color);
+    font-size:var(--doorpi-home-meta-size);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-meta .is-runtime { color:var(--doorpi-home-runtime-color); }
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime {
+    display:grid;
+    grid-template-columns:max-content;
+    grid-template-areas:"label" "total";
+    align-items:center;
+    column-gap:calc(28 * var(--doorpi-shell-unit));
+    row-gap:calc(3 * var(--doorpi-shell-unit));
+    max-width:100%;
+    margin:calc(10 * var(--doorpi-shell-unit)) 0;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime[hidden] { display:none; }
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime-label {
+    grid-area:label;
+    font-size:max(13px, calc(13 * var(--doorpi-shell-unit)));
+    color:var(--doorpi-home-playtime-label-color);
+    letter-spacing:.04em;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime strong {
+    grid-area:total;
+    font-size:var(--doorpi-home-playtime-size);
+    font-weight:500;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-primary {
+    font-size:var(--doorpi-home-action-size);
+    margin-top:calc(6 * var(--doorpi-shell-unit));
+}
+:where(html:not([data-doorpi-feature-layout])) body:not(.home-trailer-playing) .capaJogo::after {
+    z-index:101;
+    background:linear-gradient(90deg, #060912dc, #06091266 44%, transparent 74%),
+        linear-gradient(0deg, #060912 8%, #060912a6 28%, transparent 70%);
+}
+/* The trailer replaces the artwork without moving the information beside it. */
+:where(html:not([data-doorpi-feature-layout])) body:not(.home-trailer-cinema) .home-trailer-backdrop::after {
+    content:'';
+    position:absolute;
+    inset:0;
+    z-index:2;
+    pointer-events:none;
+    background:linear-gradient(90deg, #060912ed, #06091299 30%, #06091226 58%, transparent 76%);
+}
+/* Reading the system menu takes priority over the underlying game artwork. */
+body.quick-panel-open .home-feature-stage { opacity:.35; }
+@media (max-height: 800px) {
+    :where(html:not([data-doorpi-feature-layout])) .home-feature-copy { gap:6px; }
+    :where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo { max-height:72px; }
+    :where(html:not([data-doorpi-feature-layout])) .home-feature-playtime { margin:3px 0; column-gap:18px; row-gap:2px; }
 }

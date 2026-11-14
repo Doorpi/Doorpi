@@ -41,7 +41,7 @@ JsonArray Array(string json) => JsonNode.Parse(json) as JsonArray ?? throw new E
 tests.Add(("ownership boundaries and bootstrap contracts", () =>
 {
     string root = Root("ownership"); var policy = new StoragePathPolicy(root);
-    foreach (string owned in new[] { "users.json", "users/a/games.json", "users/a/controls.json", "GoogleTokens/a/token.token.json", "browser-profiles/profiles-v2.json", "browser-profiles/.profile-schema-v2", "device-id.txt", "intros/active.json", "extensions/extensions.json" })
+    foreach (string owned in new[] { "users.json", "theme-settings.json", "users/a/games.json", "users/a/controls.json", "GoogleTokens/a/token.token.json", "browser-profiles/profiles-v2.json", "browser-profiles/.profile-schema-v2", "device-id.txt", "intros/active.json", "extensions/extensions.json" })
         Assert(policy.TryGetKey(Data(root, owned), out _, out _), "Owned path omitted: " + owned);
     foreach (string external in new[] { "browser-profiles/webapps/Default/Preferences", "extensions/ext/manifest.json", "intros/theme/manifest.json", "roms/metadata.json", "GoogleTokens/a/token.dpapi", "boot-startup-experiment.json", "google-oauth.local.json" })
         Assert(!policy.TryGetKey(Data(root, external), out _, out _), "External path captured: " + external);

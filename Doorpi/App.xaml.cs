@@ -33,6 +33,11 @@ namespace Doorpi
             catch (Exception ex)
             {
                 DoorpiBootDiagnostics.Log("startup-orchestration-failed", ex.ToString());
+                if (BootSessionClient.IsManaged && BootSessionClient.RequestRestart())
+                {
+                    Shutdown(1);
+                    return; // The supervisor provides controller-accessible recovery.
+                }
                 try { if (BootConfiguration.IsConfigured) WindowsShellEnvironment.EnsureExplorerStarted(); } catch { }
                 MessageBox.Show("O Doorpi não iniciou para preservar os dados.\n\n" + ex.Message,
                     "Doorpi — recuperação", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -55,20 +60,28 @@ namespace Doorpi
                 Shutdown(1);
                 return;
             }
-            bool bootstrap = shellEntry && selection.Path == BootStartupPath.Supervised;
+            bool bootstrap = shellEntry && (selection.Path is BootStartupPath.Supervised or BootStartupPath.Monitored);
             _instance = new Mutex(false, $@"Local\Doorpi.{(LocalTestMode.Enabled ? "LocalTest" : bootstrap ? "Supervisor" : "Main")}.{Process.GetCurrentProcess().SessionId}");
             bool acquired;
             try { acquired = _instance.WaitOne(0); }
             catch (AbandonedMutexException) { acquired = true; }
             if (!acquired) { _instance.Dispose(); _instance = null; Shutdown(); return; }
-            if (HandoffInterruptedUpdate()) return;
-            // Import and integrity checks complete before any UI reports startup health.
-            await Task.Run(() => Doorpi.Storage.StateStorage.Initialize(DoorpiPaths.AppDataFolder));
-            if (shellEntry && selection.Path == BootStartupPath.Direct)
+            if (shellEntry && selection.Path == BootStartupPath.Monitored)
             {
-                await RunDirectShellStartupAsync(args);
+                // Only the host opens/migrates application state. The monitor
+                // launches it immediately and creates native UI only for recovery.
+                DoorpiBootDiagnostics.Log("boot-monitor-start", "preparation=child storage=child");
+                _ = RunShellBootstrapAsync(prepareInChild: true);
                 return;
             }
+            bool managedPreparation = BootSessionClient.IsManaged && args.Any(arg =>
+                arg.Equals("--doorpi-prepare-session", StringComparison.OrdinalIgnoreCase));
+            if ((shellEntry && selection.Path == BootStartupPath.Direct) || managedPreparation)
+            {
+                await RunCoordinatedShellStartupAsync(args);
+                return;
+            }
+            if (!await PrepareApplicationStateAsync()) return;
             if (bootstrap)
             {
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -101,7 +114,17 @@ namespace Doorpi
             MainWindow.Show();
         }
 
-        private bool HandoffInterruptedUpdate()
+        private async Task<bool> PrepareApplicationStateAsync()
+        {
+            if (await HandoffInterruptedUpdateAsync()) return false;
+            // Import and integrity checks complete before any UI reports startup health.
+            // The coordinated host can show its native prelude while this work runs.
+            using (BootStartupTrace.Measure("application-storage"))
+                await Task.Run(() => Doorpi.Storage.StateStorage.Initialize(DoorpiPaths.AppDataFolder));
+            return true;
+        }
+
+        private async Task<bool> HandoffInterruptedUpdateAsync()
         {
             var state = new Doorpi.UpdateCore.UpdateStateStore(
                 Path.Combine(DoorpiPaths.AppDataFolder, "updates", "state.json")).Load();
@@ -112,6 +135,9 @@ namespace Doorpi
             if (!System.IO.File.Exists(updater)) updater = Path.Combine(folder, "Updater.exe");
             if (!System.IO.File.Exists(updater))
                 throw new InvalidDataException("Uma atualização foi interrompida. O atualizador compatível precisa restaurar os dados antes de iniciar.");
+            // A headless monitor also owns the executable. Release it before the
+            // updater restores files/data; otherwise it could relaunch this host.
+            await BootSessionClient.DetachForUpdateAsync();
             var start = new ProcessStartInfo(updater)
             {
                 WorkingDirectory = Path.GetDirectoryName(updater)!, UseShellExecute = false, CreateNoWindow = true

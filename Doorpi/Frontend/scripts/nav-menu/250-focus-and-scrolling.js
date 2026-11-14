@@ -45,9 +45,10 @@
         _libraryRapidScrollTarget = nextTarget;
         if (_libraryRapidScrollRaf) return;
 
-        const step = () => {
+        let previousTime = performance.now();
+        const step = (now) => {
             const activePane = _libraryRapidScrollPane;
-            if (!activePane || !_libraryRapidNavigation) {
+            if (!activePane) {
                 _stopRapidLibraryScrollAnimation();
                 return;
             }
@@ -61,19 +62,39 @@
 
             // Um único movimento segue o alvo mais recente. O fator alto mantém
             // resposta imediata sem os saltos do scroll instantâneo.
-            activePane.scrollTop += distance * 0.38;
+            const elapsed = Math.min(40, Math.max(1, now - previousTime));
+            previousTime = now;
+            const response = _libraryRapidNavigation ? 65 : 95;
+            activePane.scrollTop += distance * (1 - Math.exp(-elapsed / response));
             _libraryRapidScrollRaf = requestAnimationFrame(step);
         };
 
         _libraryRapidScrollRaf = requestAnimationFrame(step);
     }
 
+    function _revealLibraryCard(card, pane, firstRow = false) {
+        if (!card || !pane) return;
+        const viewport = pane.getBoundingClientRect();
+        const bounds = card.getBoundingClientRect();
+        // Reserve space for the focus scale while its CSS transition is running.
+        const edge = Math.max(24, bounds.height * 0.04);
+        const maxTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+        const minimum = Math.max(0, pane.scrollTop + bounds.bottom - viewport.bottom + edge);
+        const maximum = Math.min(maxTop, pane.scrollTop + bounds.top - viewport.top - edge);
+        const pending = _libraryRapidScrollPane === pane && _libraryRapidScrollRaf
+            ? _libraryRapidScrollTarget : pane.scrollTop;
+        const target = firstRow ? 0 : minimum <= maximum
+            ? Math.max(minimum, Math.min(maximum, pending))
+            : pane.scrollTop + (bounds.top + bounds.bottom - viewport.top - viewport.bottom) / 2;
+        // Retarget even when the card is visible now: a previous pending scroll
+        // could otherwise carry the NEW focused card outside the viewport.
+        _animateRapidLibraryScroll(pane, target);
+    }
+
     function _cancelLibraryScrollAnimation() {
         const pane = _libraryPane(CATS[_catIdx]?.id);
         if (!pane) return;
-        _stopRapidLibraryScrollAnimation();
         pane.classList.add('nav-rapid-navigation');
-        pane.scrollTo({ top: pane.scrollTop, behavior: 'auto' });
     }
 
     function _settleLibraryScroll() {
@@ -91,15 +112,14 @@
     function _stopLibraryDirectionHold({ settle = true } = {}) {
         if (_libraryHoldRaf) cancelAnimationFrame(_libraryHoldRaf);
         _libraryHoldRaf = 0;
-        const wasRapid = _libraryRapidNavigation;
         _libraryHoldDirection = '';
         _libraryHoldStartedAt = 0;
         _libraryHoldSawNativeInput = false;
         _libraryRapidNavigation = false;
-        _stopRapidLibraryScrollAnimation();
+        if (!settle) _stopRapidLibraryScrollAnimation();
         document.querySelectorAll('.nav-library-pane.nav-rapid-navigation')
             .forEach(pane => pane.classList.remove('nav-rapid-navigation'));
-        if (settle && wasRapid) requestAnimationFrame(_settleLibraryScroll);
+        // Keep following the same target on release; do not recenter a second time.
     }
 
     function _trackLibraryDirectionHold(key) {
@@ -109,7 +129,7 @@
         if (!direction || !_isLazyCat()) return;
         if (_libraryHoldDirection === direction && _libraryHoldRaf) return;
 
-        _stopLibraryDirectionHold({ settle: false });
+        _stopLibraryDirectionHold();
         _libraryHoldDirection = direction;
         _libraryHoldStartedAt = performance.now();
 
@@ -153,6 +173,8 @@
     function _updateTopbarFocusVisual() {
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
+            if (_topbarFocus && i === _catIdx && document.activeElement !== el)
+                el.focus({ preventScroll: true });
         });
     }
 
@@ -256,31 +278,8 @@
                 _rememberLibraryCard(CATS[_catIdx]?.id, card, cardIdx);
 
     
-                if (cardIdx >= 0 && cardIdx < cols && container) {
-                   
-                    if (container.scrollTop > 4) {
-                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, 0);
-                        else container.scrollTo({ top: 0, behavior: 'smooth' });
-                    }
-                } else {
-                    
-                    const paneRect = container?.getBoundingClientRect();
-                    const cardRect = card.getBoundingClientRect();
-                    const PADDING = 10; 
-
-                    if (paneRect && cardRect.bottom > paneRect.bottom - PADDING) {
-                        const delta = cardRect.bottom - paneRect.bottom + PADDING;
-                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, container.scrollTop + delta);
-                        else container.scrollBy({ top: delta, behavior: 'smooth' });
-                    } else if (paneRect && cardRect.top < paneRect.top + PADDING) {
-                        const delta = cardRect.top - paneRect.top - PADDING;
-                        if (_libraryRapidNavigation) _animateRapidLibraryScroll(container, container.scrollTop + delta);
-                        else container.scrollBy({ top: delta, behavior: 'smooth' });
-                    }
-                }
-
-             
                 card.classList.add('nav-focused');
+                _revealLibraryCard(card, container, cardIdx < cols);
                 if (document.activeElement !== card) card.focus?.({ preventScroll: true });
                 card._startInteraction?.();
 
@@ -301,6 +300,7 @@
                 const isProfileShowcase = CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history';
                 const isExtensionsView = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions';
                 const isSettingsHome = CATS[_catIdx]?.id === 'settings' && !_settingsSubView;
+                const isThemeSettings = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'themes';
                 const isStorageView = CATS[_catIdx]?.id === 'settings'
                     && _settingsSubView === 'system'
                     && _systemSubView === 'storage';
@@ -309,6 +309,8 @@
                     // scrollIntoView aqui: ele tenta centralizar o item e acaba
                     // deslocando a pagina mesmo quando a opcao ja esta visivel.
                     _revealInsideScrollContainer(focused, focused.closest?.('.nav-settings-home-nav'));
+                } else if (isThemeSettings) {
+                    _revealInsideScrollContainer(focused, focused.closest?.('.theme-settings-list'));
                 } else if (isExtensionsView) {
                     const list = focused.closest?.('.nav-ext-list');
                     if (list) {

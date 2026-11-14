@@ -1,0 +1,1045 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "coverage": [
+    "home",
+    "library",
+    "clock",
+    "add-dialog-surfaces"
+  ],
+  "tokens": {
+    "--doorpi-font-family": {
+      "cssProperty": "font-family",
+      "bindings": [
+        {
+          "file": "shell/100-reset-and-demo-controls.css",
+          "selector": "body",
+          "property": "font-family",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-text-primary": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "shell/040-document-and-home.css",
+          "selector": "body",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-card-radius": {
+      "cssProperty": "border-radius",
+      "bindings": [
+        {
+          "file": "components/020-loading-and-library-tokens.css",
+          "selector": ":root",
+          "property": "--card-radius",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-card-gap": {
+      "cssProperty": "gap",
+      "bindings": [
+        {
+          "file": "components/020-loading-and-library-tokens.css",
+          "selector": ":root",
+          "property": "--card-gap",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-library-side-padding": {
+      "cssProperty": "padding-left",
+      "bindings": [
+        {
+          "file": "components/020-loading-and-library-tokens.css",
+          "selector": ":root",
+          "property": "--grid-pad-side",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-accent": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "components/020-loading-and-library-tokens.css",
+          "selector": ":root",
+          "property": "--accent",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-card-focus-color": {
+      "cssProperty": "border-color",
+      "bindings": [
+        {
+          "file": "components/050-library-cards-and-keyboard.css",
+          "selector": ".card.nav-focused-el",
+          "property": "border-color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-background": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": ".capaJogo",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-hero-height": {
+      "cssProperty": "height",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": "body:not(.nav-menu-active) #heroImage",
+          "property": "height",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-hero-position": {
+      "cssProperty": "object-position",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": "body:not(.nav-menu-active) #heroImage",
+          "property": "object-position",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-hero-opacity": {
+      "cssProperty": "opacity",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": "body:not(.nav-menu-active) #heroImage",
+          "property": "opacity",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-hero-filter": {
+      "cssProperty": "filter",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": "body:not(.nav-menu-active) #heroImage",
+          "property": "filter",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-hero-mask": {
+      "cssProperty": "mask-image",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": "body:not(.nav-menu-active) #heroImage",
+          "property": "mask-image",
+          "occurrence": 0
+        },
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": "body:not(.nav-menu-active) #heroImage",
+          "property": "-webkit-mask-image",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-shade": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": ".capaJogo::after",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-glow": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/210-editorial-home.css",
+          "selector": ".grid-bg::before",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-rows": {
+      "cssProperty": "grid-template-rows",
+      "bindings": [
+        {
+          "file": "features/home/020-layout.css",
+          "selector": ".main-content-wrapper",
+          "property": "grid-template-rows",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-ratio": {
+      "cssProperty": "flex-grow",
+      "bindings": [
+        {
+          "file": "features/home/020-layout.css",
+          "selector": ".main-content-wrapper",
+          "property": "--card-h",
+          "occurrence": 0,
+          "part": "1.5"
+        }
+      ],
+      "fixed": true
+    },
+    "--doorpi-home-feature-columns": {
+      "cssProperty": "grid-template-columns",
+      "bindings": [
+        {
+          "file": "features/home/020-layout.css",
+          "selector": ".home-feature-stage",
+          "property": "grid-template-columns",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-art-radius": {
+      "cssProperty": "border-radius",
+      "bindings": [
+        {
+          "file": "features/home/040-feature-art.css",
+          "selector": ".home-feature-art-shell",
+          "property": "border-radius",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-art-border": {
+      "cssProperty": "border",
+      "bindings": [
+        {
+          "file": "features/home/040-feature-art.css",
+          "selector": ".home-feature-art-shell",
+          "property": "border",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-art-background": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/home/040-feature-art.css",
+          "selector": ".home-feature-art-shell",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-art-shadow": {
+      "cssProperty": "box-shadow",
+      "bindings": [
+        {
+          "file": "features/home/040-feature-art.css",
+          "selector": ".home-feature-art-shell",
+          "property": "box-shadow",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-art-shade": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/home/040-feature-art.css",
+          "selector": ".home-feature-art-shell::after",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-eyebrow-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-eyebrow",
+          "property": "color",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-eyebrow",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-title-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-title",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-title-weight": {
+      "cssProperty": "font-weight",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-title",
+          "property": "font-weight",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-title",
+          "property": "font-weight",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-secondary-title-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-stage.has-logo .home-feature-title",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-meta-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-meta span",
+          "property": "color",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-meta-background": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-meta span",
+          "property": "background",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-meta-border": {
+      "cssProperty": "border",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-meta span",
+          "property": "border",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+          "property": "border",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-meta-radius": {
+      "cssProperty": "border-radius",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-meta span",
+          "property": "border-radius",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-runtime-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-meta .is-runtime",
+          "property": "color",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta .is-runtime",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-runtime-background": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-meta .is-runtime",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-playtime-label-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-playtime-label",
+          "property": "color",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-playtime-label",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-playtime-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-playtime strong",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-playtime-unit-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-playtime small",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-action-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-primary",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-action-key-background": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-a",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-action-key-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/050-feature-copy.css",
+          "selector": ".home-feature-a",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-library-label-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/060-library.css",
+          "selector": ".home-library-head",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-filter": {
+      "cssProperty": "filter",
+      "bindings": [
+        {
+          "file": "features/home/060-library.css",
+          "selector": ".home-library-rail .card.featured",
+          "property": "filter",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-shadow": {
+      "cssProperty": "box-shadow",
+      "bindings": [
+        {
+          "file": "features/home/060-library.css",
+          "selector": ".home-library-rail .card.featured",
+          "property": "box-shadow",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-focus-filter": {
+      "cssProperty": "filter",
+      "bindings": [
+        {
+          "file": "features/home/060-library.css",
+          "selector": ".home-library-rail .card.featured:hover",
+          "property": "filter",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-focus-shadow": {
+      "cssProperty": "box-shadow",
+      "bindings": [
+        {
+          "file": "features/home/060-library.css",
+          "selector": ".home-library-rail .card.featured:hover",
+          "property": "box-shadow",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-controls-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/080-controller-hints.css",
+          "selector": ".home-controls-bar",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-hint-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "features/home/080-controller-hints.css",
+          "selector": ".home-controls-bar .gp-hint-label",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-width": {
+      "cssProperty": "width",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".main-content-wrapper",
+          "property": "--card-w",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-top-padding": {
+      "cssProperty": "padding-top",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".main-content-wrapper",
+          "property": "padding-top",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-gap": {
+      "cssProperty": "gap",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".main-content-wrapper",
+          "property": "gap",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-feature-height": {
+      "cssProperty": "height",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-stage",
+          "property": "height",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-feature-gap": {
+      "cssProperty": "gap",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-stage",
+          "property": "gap",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-copy-width": {
+      "cssProperty": "width",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-copy",
+          "property": "width",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy",
+          "property": "width",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-copy-gap": {
+      "cssProperty": "gap",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-copy",
+          "property": "gap",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy",
+          "property": "gap",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-logo-width": {
+      "cssProperty": "max-width",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": "#gameLogo",
+          "property": "max-width",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo",
+          "property": "max-width",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-logo-height": {
+      "cssProperty": "max-height",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": "#gameLogo",
+          "property": "max-height",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo",
+          "property": "max-height",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-title-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-title",
+          "property": "font-size",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-title",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-title-line-height": {
+      "cssProperty": "line-height",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-title",
+          "property": "line-height",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-title",
+          "property": "line-height",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-secondary-title-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-stage.has-logo .home-feature-title",
+          "property": "font-size",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-stage.has-logo .home-feature-title",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-meta-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-description",
+          "property": "font-size",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-playtime-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-playtime strong",
+          "property": "font-size",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-playtime strong",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-action-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-primary",
+          "property": "font-size",
+          "occurrence": 0
+        },
+        {
+          "file": "features/home/100-default-composition.css",
+          "selector": ":where(html:not([data-doorpi-feature-layout])) .home-feature-primary",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-toolbar-height": {
+      "cssProperty": "min-height",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-library-toolbar",
+          "property": "min-height",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-tab-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-library-count",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-home-card-width-compact": {
+      "cssProperty": "width",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".main-content-wrapper",
+          "property": "--card-w",
+          "occurrence": 1
+        }
+      ]
+    },
+    "--doorpi-home-top-padding-compact": {
+      "cssProperty": "padding-top",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".main-content-wrapper",
+          "property": "padding-top",
+          "occurrence": 1
+        }
+      ]
+    },
+    "--doorpi-home-feature-height-compact": {
+      "cssProperty": "height",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-stage",
+          "property": "height",
+          "occurrence": 1
+        }
+      ]
+    },
+    "--doorpi-home-feature-gap-compact": {
+      "cssProperty": "gap",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-stage",
+          "property": "gap",
+          "occurrence": 1
+        }
+      ]
+    },
+    "--doorpi-home-copy-width-compact": {
+      "cssProperty": "width",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-copy",
+          "property": "width",
+          "occurrence": 1
+        }
+      ]
+    },
+    "--doorpi-home-card-width-short": {
+      "cssProperty": "width",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".main-content-wrapper",
+          "property": "--card-w",
+          "occurrence": 2
+        }
+      ]
+    },
+    "--doorpi-home-feature-height-short": {
+      "cssProperty": "height",
+      "bindings": [
+        {
+          "file": "cascade/220-home-density.css",
+          "selector": ".home-feature-stage",
+          "property": "height",
+          "occurrence": 2
+        }
+      ]
+    },
+    "--doorpi-clock-color": {
+      "cssProperty": "color",
+      "bindings": [
+        {
+          "file": "cascade/170-console-legibility.css",
+          "selector": "#clock",
+          "property": "color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-clock-size": {
+      "cssProperty": "font-size",
+      "bindings": [
+        {
+          "file": "cascade/170-console-legibility.css",
+          "selector": "#clock",
+          "property": "font-size",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-clock-weight": {
+      "cssProperty": "font-weight",
+      "bindings": [
+        {
+          "file": "cascade/170-console-legibility.css",
+          "selector": "#clock",
+          "property": "font-weight",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-dialog-backdrop": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "cascade/190-dialog-and-keyboard-refinements.css",
+          "selector": "#addGameContainer",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-dialog-background": {
+      "cssProperty": "background",
+      "bindings": [
+        {
+          "file": "cascade/190-dialog-and-keyboard-refinements.css",
+          "selector": ".modal-layout",
+          "property": "background",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-dialog-radius": {
+      "cssProperty": "border-radius",
+      "bindings": [
+        {
+          "file": "cascade/150-console-direction.css",
+          "selector": ".modal-layout",
+          "property": "border-radius",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-dialog-border-color": {
+      "cssProperty": "border-color",
+      "bindings": [
+        {
+          "file": "cascade/170-console-legibility.css",
+          "selector": ".modal-layout",
+          "property": "border-color",
+          "occurrence": 0
+        }
+      ]
+    },
+    "--doorpi-dialog-shadow": {
+      "cssProperty": "box-shadow",
+      "bindings": [
+        {
+          "file": "cascade/170-console-legibility.css",
+          "selector": ".modal-layout",
+          "property": "box-shadow",
+          "occurrence": 0
+        }
+      ]
+    }
+  },
+  "layouts": {
+    "trailer": {
+      "attribute": "data-doorpi-trailer-layout",
+      "variants": [
+        "backdrop",
+        "feature-art"
+      ],
+      "regions": [
+        "player"
+      ]
+    },
+    "home": {
+      "attribute": "data-doorpi-home-layout",
+      "variants": [
+        "feature-first",
+        "library-first"
+      ],
+      "regions": [
+        "feature",
+        "toolbar",
+        "library",
+        "controls"
+      ],
+      "customGrid": true
+    },
+    "feature": {
+      "attribute": "data-doorpi-feature-layout",
+      "variants": [
+        "art-left",
+        "art-right"
+      ],
+      "regions": [
+        "art",
+        "copy"
+      ],
+      "customGrid": true
+    },
+    "copy": {
+      "attribute": "data-doorpi-copy-layout",
+      "variants": [
+        "title-first",
+        "meta-first"
+      ],
+      "regions": [
+        "eyebrow",
+        "logo",
+        "title",
+        "meta",
+        "playtime",
+        "action"
+      ],
+      "customGrid": true
+    },
+    "dialog": {
+      "attribute": "data-doorpi-dialog-layout",
+      "variants": [
+        "left",
+        "right"
+      ],
+      "regions": [
+        "sidebar",
+        "content"
+      ]
+    }
+  }
+}

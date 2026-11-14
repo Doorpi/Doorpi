@@ -6,6 +6,48 @@ Sua disponibilidade **não certifica prontidão gráfica**. Ver
 [bootstrap-comparison.md](../../docs/architecture/bootstrap-comparison.md) para
 objetivos separados de renderização/foco, diferenças, seleção, coleta e limites.
 
+## Evolução de 09/11: supervisão sem ante-sala no processo supervisor
+
+Há uma terceira rota explícita, `monitored`. O supervisor inicia o host imediatamente,
+sem abrir janela de preparação, aguardar Explorer ou inicializar/migrar SQLite.
+O host mostra sua própria ante-sala, valida armazenamento/recuperação de atualização,
+prepara Explorer e inicializa o WebView. O protocolo local da apresentação também
+notifica o monitor externo; a liberação do supervisor não consegue pular o fechamento
+da ante-sala do host.
+
+A janela de recuperação do supervisor só é criada ao esgotar as tentativas. Os
+limites de reinício, detach para atualização e encerramento apenas do filho próprio
+continuam ativos. Retornar ao desktop inicia Explorer mesmo se o host tiver falhado
+antes da preparação, por exemplo na validação de armazenamento.
+
+O monitor usa por enquanto o mesmo executável .NET/WPF, em um papel sem janela no
+boot saudável. Não é ainda um binário nativo mínimo nem certifica economia de RAM.
+Também não detecta todo travamento do host após a prontidão. A separação em outro
+executável exige revisar confiança entre processos, distribuição e updater.
+
+O limite inicial da rota monitorada é 125 s de sessão disponível, cobrindo também
+a preparação que antes antecedia o filho. Importações/migrações muito longas ainda
+precisam de validação de tempo/progresso em logon real antes de promover essa rota.
+Os dois minutos para renovar o orçamento de falhas agora são contados após a
+prontidão, não desde o início de uma tentativa potencialmente lenta.
+
+Seleção manual, depois de preparar a build correspondente:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Set-BootStartupExperiment.ps1 -Mode monitored
+```
+
+`supervised` e `direct` continuam disponíveis, e `off` restaura o padrão supervisionado.
+Nenhuma seleção, shell ou logon real foi alterado na implementação desta etapa.
+O arquivo experimental é um contrato de bootstrap de compatibilidade, lido antes
+do banco para permitir seleção/recuperação mesmo sem SQLite disponível. Não é um
+padrão para armazenar novas preferências em JSON.
+
+Na recuperação de atualização interrompida, o host sinaliza detach e aguarda a
+saída do supervisor antes de iniciar o updater. Isso evita relançamento concorrente
+e retenção do executável enquanto o updater restaura arquivos/dados. O código do
+schema/migração não mudou nesta etapa; validação precede qualquer sinal de saúde.
+
 ## Fluxo
 
 O modo existente em HKCU/Winlogon foi preservado. Não foi habilitado Shell Launcher,

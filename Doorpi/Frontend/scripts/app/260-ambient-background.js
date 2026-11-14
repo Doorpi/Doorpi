@@ -1,6 +1,7 @@
     // ── Fundo animado (blobs) — aparece quando não há hero ativo ──────────────────
     // ── Fundo animado (blobs) — Renderizado via GPU (Zero Stutter/Sem Pausas) ────
-    (function initBlobBackground() {
+    window.ensureDoorpiHomeAmbient = function () {
+        if (!window._doorpiUserSessionReady || document.getElementById('appBlobBg')) return;
         // 1. Remove qualquer canvas antigo para evitar lixo
         const oldCanvas = document.getElementById('appBlobBg');
         if (oldCanvas) oldCanvas.remove();
@@ -81,6 +82,13 @@
         let _blobHideTimer = null;
 
         function checkHeroState() {
+            const selectingProfile = !window._doorpiUserSessionReady || document.body.classList.contains('user-picker-open');
+            container.hidden = selectingProfile;
+            if (selectingProfile) {
+                if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
+                container.style.opacity = '0';
+                return;
+            }
             const bgBlur = document.getElementById('bgBlur');
             const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
 
@@ -102,6 +110,8 @@
         }
 
         window._startBlobBg = () => {
+            if (!window._doorpiUserSessionReady || document.body.classList.contains('user-picker-open')) return;
+            container.hidden = false;
             if (_blobHideTimer) { clearTimeout(_blobHideTimer); _blobHideTimer = null; }
             container.style.opacity = '1';
         };
@@ -118,6 +128,9 @@
                 attributeFilter: ['src', 'style']
             });
         }
+        new MutationObserver(checkHeroState).observe(document.body, {
+            attributes: true, attributeFilter: ['class']
+        });
 
         const _origSwitch = window.switchHeroBackground;
         window.switchHeroBackground = function (...args) {
@@ -126,36 +139,4 @@
         };
 
         checkHeroState();
-    })();
-
-    document.addEventListener('focusin', () => {
-        const focused = document.activeElement;
-        const isCard = focused?.classList?.contains('card');
-        const isInGrid = focused?.closest('#gameGrid');
-        const keepPreparedHomeVisual = window.DoorpiFirstRunTutorial?.isOpen?.() === true
-            || window._userSwitching === true
-            || document.body.classList.contains('doorpi-session-transition');
-
-        const isNavMenuActive =
-            document.body.classList.contains('nav-menu-active') ||
-            document.body.classList.contains('nav-menu-closing') ||
-            window.isNavMenuOpen;
-
-        if (!isCard && !isInGrid && !isNavMenuActive && !keepPreparedHomeVisual) {
-            window._heroCleanupTimer = setTimeout(() => {
-                const bgBlur = document.getElementById('bgBlur');
-                const heroImg = document.getElementById('heroImage');
-                const logoEl = document.getElementById('gameLogo');
-                const gridBgImg = document.getElementById('gridBgImg');
-
-                if (bgBlur) bgBlur.style.opacity = '0';
-                if (heroImg) heroImg.style.opacity = '0';
-                if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
-                if (gridBgImg) gridBgImg.removeAttribute('src');
-
-                _currentBgSrc = '';
-                if (typeof _heroReqId !== 'undefined') _heroReqId++;
-                if (typeof window._startBlobBg === 'function') window._startBlobBg();
-            }, 80);
-        }
-    });
+    };

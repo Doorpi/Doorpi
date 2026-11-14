@@ -55,7 +55,27 @@
         }, 0);
     }
 
+    // A cleared grid contains Add, but is not proof that the host's library arrived.
+    // Track the actual batch through the store and the grid's deferred DOM commit.
+    let _doorpiGamesPresentation = null;
+    window.getDoorpiGamesPresentation = () => _doorpiGamesPresentation;
+    window.resetDoorpiGamesPresentation = () => {
+        _doorpiGamesPresentation = null;
+        _pendingRenderGamesPayload = null;
+        clearTimeout(_pendingRenderGamesTimer);
+        _pendingRenderGamesTimer = 0;
+    };
+
     function _scheduleRenderGamesBatch(payload) {
+        const presentation = {
+            profileId: String(window._doorpiCurrentUserId || ''),
+            count: (payload.games || []).length,
+            committed: false
+        };
+        _doorpiGamesPresentation = presentation;
+        const valid = () => _doorpiGamesPresentation === presentation &&
+            presentation.profileId === String(window._doorpiCurrentUserId || '');
+        payload = { ...payload, presentation, valid };
         _pendingRenderGamesPayload = payload;
         if (_pendingRenderGamesTimer) clearTimeout(_pendingRenderGamesTimer);
 
@@ -72,16 +92,24 @@
             _pendingRenderGamesPayload = null;
 
             requestAnimationFrame(() => {
+                if (!current.valid()) return;
+                if (!window.AppStore?.mutations?.setBatch) return;
                 if (current.silent && typeof window.clearLoadingCards === 'function') {
                     window.clearLoadingCards('games');
                 }
 
-                window.AppStore?.mutations?.setBatch('games', current.games || [], { silent: !!current.silent });
+                window.AppStore.mutations.setBatch('games', current.games || [], {
+                    silent: !!current.silent,
+                    onRendered: () => {
+                        if (current.valid()) current.presentation.committed = true;
+                    }
+                });
                 window._navMenuDataChanged?.('games');
 
                 if (current.wasOnMedia && current.heroSnapSrc && !current.silent) {
-                    requestAnimationFrame(() =>
-                        switchHeroBackground(current.heroSnapSrc, current.heroSnapLogo, current.heroSnapHoriz));
+                    requestAnimationFrame(() => {
+                        if (current.valid()) switchHeroBackground(current.heroSnapSrc, current.heroSnapLogo, current.heroSnapHoriz);
+                    });
                 }
             });
         };

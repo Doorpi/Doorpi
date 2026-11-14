@@ -106,9 +106,8 @@
             #gridBgImg,
             #bgBlur,
             #gameLogo,[class*="crossfade-clone-"] {
-                /* Curva 'Quintic Out': Começa muito rápido, termina muito lento */
-                transition: transform 0.60s cubic-bezier(0.23, 1, 0.32, 1), 
-                            opacity 0.25s ease-out !important;
+                transition: transform var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1),
+                            opacity var(--doorpi-shell-motion-feedback) ease-out !important;
             }
 
             /* 2. Movimento Consistente */
@@ -491,6 +490,9 @@
             background: rgba(255,255,255,0.025);
         }
 
+        .edit-modal-actions [hidden] { display:none !important; }
+        .edit-save-shortcut { font-size:.72em; font-weight:400; opacity:.7; margin-right:.6em; }
+
         .vkb-overlay {
             position: fixed;
             bottom: 0; left: 0; right: 0;
@@ -867,4 +869,3 @@
         background: rgba(255,255,255,.12);
         box-shadow: 0 0 0 3px rgba(255,255,255,.11), 0 10px 22px rgba(0,0,0,.22);
     }
-        

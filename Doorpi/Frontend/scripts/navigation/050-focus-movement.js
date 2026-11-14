@@ -145,6 +145,12 @@ function moveFocus(direction) {
     }
 
     if (!isModalOpen) {
+        const homeLayout = document.documentElement.getAttribute('data-doorpi-home-layout');
+        const rearrangedHome = homeLayout === 'library-first' || homeLayout === 'custom';
+        if (current?.id === 'btnTopProfile' && direction === 'DOWN') {
+            window.DoorpiNavigation?.enter('home');
+            return;
+        }
         if (current?.id === 'btnTopProfile' && direction === 'LEFT' && window.DoorpiQuickPanel?.open) {
             window.DoorpiQuickPanel.open();
             return;
@@ -175,17 +181,27 @@ function moveFocus(direction) {
                 const activeTab = document.querySelector('.home-tab.active');
                 if (activeTab) { activeTab.focus(); return; }
             }
-            if (direction === 'DOWN') {
+            if (!rearrangedHome && direction === 'DOWN') {
                 if (typeof window.openNavMenu === 'function' && !window.isNavMenuOpen) { window.openNavMenu(0); return; }
             }
         }
 
-        if (current.classList.contains('home-tab') && direction === 'UP') {
+        if (!rearrangedHome && current.classList.contains('home-tab') && direction === 'UP') {
             const profileBtn = document.getElementById('btnTopProfile');
             if (profileBtn) { profileBtn.focus(); return; }
         }
 
         let target = explicitHomeTarget || findSpatialCandidate(items, current, direction);
+        // A relocated toolbar may be far from the avatar horizontally. Keep a
+        // route to the profile even when the spatial cone finds no candidate.
+        if (rearrangedHome && !target && direction === 'UP') {
+            const profile = document.getElementById('btnTopProfile');
+            if (profile && items.includes(profile) && profile !== current) target = profile;
+        }
+        if (rearrangedHome && !target && direction === 'DOWN' && typeof window.openNavMenu === 'function' && !window.isNavMenuOpen) {
+            window.openNavMenu(0);
+            return;
+        }
         if (!target) {
             const tabs = items.filter(el => el.classList.contains('home-tab'));
             const cards = items.filter(el => !el.classList.contains('home-tab') && !el.classList.contains('top-profile-btn'));
@@ -225,6 +241,12 @@ function moveFocus(direction) {
     if (groupName === 'app') _lastFocusedApp = current;
     if (groupName === 'filter') _lastFocusedFilter = current;
     if (groupName === 'sidebar') _lastFocusedSidebar = current;
+
+    if (document.documentElement.getAttribute('data-doorpi-dialog-layout') === 'right' && current.closest('#addGameContainer')) {
+        const target = resolveExplicitNavTarget(current, direction) || findSpatialCandidate(items, current, direction);
+        focusModalNavigationTarget(target, current);
+        return;
+    }
 
     let target = null;
     if (groups.activeTab === 'view-emulators' &&
@@ -272,31 +294,19 @@ function moveFocus(direction) {
 
     if (!target) target = current;
 
-    if (target && target !== current) {
-        target.focus();
-        target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-        if (window._gpNavigating) window.DoorpiUiSound?.play('move');
-        signalNavigation();
-    }
+    focusModalNavigationTarget(target, current);
+}
+
+function focusModalNavigationTarget(target, current) {
+    if (!target || target === current) return;
+    target.focus();
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    if (window._gpNavigating) window.DoorpiUiSound?.play('move');
+    signalNavigation();
 }
 
 window.focusFeaturedCard = function () {
-    if (isModalOpen || isEditModalOpen || isVkbOpenForNavigation() || isSetupOpen) return;
-    const ht = window.getCurrentHomeTab?.() || 'games';
-    const activeGridId = ht === 'media' ? 'mediaGrid' : (ht === 'stores' ? 'storesGrid' : 'gameGrid');
-    const grid = document.getElementById(activeGridId);
-    if (!grid) return false;
-    const featured = grid.querySelector('.card.featured');
-    if (featured) {
-        featured.focus({ preventScroll: true });
-        grid.scrollLeft = 0;
-        featured._startInteraction?.();
-        return document.activeElement === featured;
-    }
-
-    const first = grid.querySelector('.card');
-    first?.focus({ preventScroll: true });
-    return !!first && document.activeElement === first;
+    return window.DoorpiNavigation.enter('home');
 };
 
 function focusItemByIndex(index) {

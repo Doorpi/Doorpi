@@ -90,6 +90,14 @@
     }
 
     function _subtitle(id) {
+        if (id === 'games' && Number.isInteger(_menuData.gamesTotal)) {
+            const total = _menuData.gamesTotal;
+            if (_librarySearch.games || _gameLibraryFilters.size) {
+                const shown = _filteredLibraryItems('games').length;
+                return _t('navGamesFilteredTotal', `${shown} de ${total} jogos`, shown, total);
+            }
+            return _t('navGamesTotal', `${total} jogos na biblioteca`, total);
+        }
         const map = {
             games: _t('navGamesSub', 'Toda a sua biblioteca de jogos e títulos instalados'),
             media: _t('navMediaSub', 'Aplicativos e serviços de entretenimento'),

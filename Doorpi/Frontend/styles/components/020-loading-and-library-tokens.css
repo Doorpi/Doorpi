@@ -92,10 +92,10 @@ body:not(.nav-menu-active) #heroImage {
     --card-w: clamp(142px, min(12.5vw, 22.2vh), 360px);
     --card-h: clamp(213px, min(18.75vw, 33.3vh), 540px);
     --card-featured-w: clamp(456px, calc(var(--card-h) * 2.1395348837), 1155px);
-    --card-radius: clamp(8px, min(0.72vw, 1.28vh), 22px);
-    --card-gap: clamp(18px, min(2vw, 1.65vh), 36px);
+    --card-radius: var(--doorpi-card-radius);
+    --card-gap: var(--doorpi-card-gap);
     --grid-pad-top: clamp(42px, min(4.8vw, 5vh), 64px);
-    --grid-pad-side: clamp(30px, min(3.6vw, 6.4vh), 72px);
+    --grid-pad-side: var(--doorpi-library-side-padding);
     --grid-pad-bottom: clamp(28px, min(3.5vw, 5.4vh), 132px);
     --logo-left: clamp(28px, min(2.81vw, 5vh), 88px);
     --logo-bottom: clamp(430px, min(31vw, 55vh), 900px);
@@ -112,7 +112,7 @@ body:not(.nav-menu-active) #heroImage {
     --fs-btn: clamp(0.72rem, min(0.9vw, 1.6vh), 1.6rem);
     --fs-card-title: clamp(0.65rem, min(0.75vw, 1.33vh), 1.25rem);
     --fs-app-item: clamp(0.7rem, min(0.78vw, 1.39vh), 1.35rem);
-    --accent: rgba(255,255,255,0.92);
+    --accent: var(--doorpi-accent);
     --hero-banner-h: min(60vh, 29vw);
 }
 

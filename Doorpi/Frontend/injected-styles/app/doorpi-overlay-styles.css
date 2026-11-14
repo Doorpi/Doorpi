@@ -2,12 +2,12 @@
 
     .doorpi-power-row {
         display: flex; align-items: center; justify-content: center;
-        gap: clamp(14px, 1.4vw, 24px); flex-wrap: wrap;
+        gap: calc(14 * var(--doorpi-shell-unit)); flex-wrap: wrap;
         margin-top: 0;
-        padding: clamp(8px, 1.2vh, 12px) clamp(12px, 1.5vw, 20px);
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 14px;
+        padding: calc(8 * var(--doorpi-shell-unit)) calc(14 * var(--doorpi-shell-unit));
+        background: #ffffff05;
+        border: 1px solid #ffffff12;
+        border-radius: var(--doorpi-shell-radius);
     }
     .doorpi-power-sep {
         width: 1px; height: 22px;
@@ -16,17 +16,17 @@
     }
     .doorpi-power-btn {
         background: none; border: 1px solid transparent; border-radius: 9px;
-        color: rgba(255,255,255,0.38); padding: 7px 13px;
+        color: var(--doorpi-shell-muted); padding: calc(9 * var(--doorpi-shell-unit)) calc(12 * var(--doorpi-shell-unit));
         display: flex; align-items: center; gap: 7px;
         cursor: pointer; outline: none; font: inherit;
-        font-size: clamp(0.64rem, 0.74vw, 0.8rem); font-weight: 500;
+        font-size: max(16px, calc(17 * var(--doorpi-shell-unit))); font-weight: 500;
         letter-spacing: 0.02em;
         transition: all 0.16s cubic-bezier(0.25, 1, 0.5, 1);
     }
-    .doorpi-power-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke-width: 1.6; }
+    .doorpi-power-btn svg { width:calc(21 * var(--doorpi-shell-unit)); height:calc(21 * var(--doorpi-shell-unit)); flex-shrink:0; stroke-width:1.8; }
     .doorpi-power-btn:hover, .doorpi-power-btn:focus {
-        background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16);
-        color: rgba(255,255,255,0.82); transform: translateY(-1px);
+        background:var(--doorpi-shell-focus-fill); border-color:var(--doorpi-shell-focus);
+        color:var(--doorpi-shell-ink); box-shadow:0 0 0 2px var(--doorpi-shell-focus); transform:translateY(-1px);
     }
     .doorpi-power-btn.p-danger:hover, .doorpi-power-btn.p-danger:focus {
         background: rgba(255,65,65,0.12); border-color: rgba(255,95,95,0.28);
@@ -42,17 +42,32 @@
             -webkit-backdrop-filter: blur(30px) saturate(1.36);
             display: flex; align-items: center; justify-content: center;
             padding: clamp(24px, 5vw, 60px); box-sizing: border-box;
-            animation: doorpiOverlayFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation: doorpiOverlayFadeIn var(--doorpi-shell-motion-feedback) ease-out forwards;
         }
         .doorpi-user-overlay {
             overflow: hidden;
-            background:
-                radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.055), transparent 38%),
-                radial-gradient(ellipse at -14% 112%, rgba(125,155,210,0.08), transparent 42%),
-                rgba(5, 6, 14, 0.42);
-            backdrop-filter: blur(18px) saturate(1.24);
-            -webkit-backdrop-filter: blur(18px) saturate(1.24);
+            background:radial-gradient(ellipse at 85% 15%, #454569 0%, transparent 52%),
+                linear-gradient(115deg, #171b35, #0b1022);
+            animation:none;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            color: var(--doorpi-shell-ink);
         }
+        .doorpi-user-overlay::before {
+            content:''; position:absolute; inset:0; pointer-events:none;
+            background:linear-gradient(115deg, transparent 52%, #b9b2ed12 52.1%, transparent 72%);
+        }
+        body.user-picker-open #doorpiIntroAmbient {
+            background:radial-gradient(ellipse at 85% 15%, #454569 0%, transparent 52%),
+                linear-gradient(115deg, #171b35, #0b1022);
+        }
+        body.user-picker-open #doorpiIntroAmbient::before {
+            content:''; position:absolute; inset:0; pointer-events:none;
+            background:linear-gradient(115deg, transparent 52%, #b9b2ed12 52.1%, transparent 72%);
+        }
+        body.doorpi-intro-handoff-active .doorpi-user-overlay::before { content:none; }
+        body.user-picker-open #doorpiIntroAmbient .doorpi-intro-ambient-blob { visibility:hidden; }
+        /* No foreground light layer: the intro owns the entire handoff backdrop. */
         .doorpi-user-overlay.doorpi-intro-handoff {
             background: transparent !important;
             background-image: none !important;
@@ -81,7 +96,7 @@
             visibility: hidden;
             transform: scale(.985);
             pointer-events: none;
-            transition: opacity .18s ease, transform .22s ease, visibility 0s linear .22s !important;
+            transition: opacity var(--doorpi-shell-motion-feedback) ease !important;
         }
         body.doorpi-session-transition .doorpi-user-overlay.doorpi-switching-out .doorpi-user-panel {
             opacity: 0 !important;
@@ -261,11 +276,10 @@
         cursor: pointer;
         outline: none;
         padding: 0;
-        opacity: var(--doorpi-card-opacity, 0.42);
+        opacity: var(--doorpi-card-opacity, 1);
         transition: transform .2s cubic-bezier(0.22, 1, 0.36, 1), opacity .18s ease;
         position: relative;
-        animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
-        will-change: transform;
+        animation: doorpiOverlayFadeIn var(--doorpi-shell-motion-feedback) ease-out backwards;
         flex-shrink: 0;
 
         /* Força a lista a sempre parar alinhada no início deste card */
@@ -287,17 +301,17 @@
         width: var(--doorpi-user-avatar-size);
         height: var(--doorpi-user-avatar-size);
         border-radius: 50%;
-        background: transparent;
-        border: 3px solid transparent;
+        background:var(--doorpi-profile-avatar-fill, linear-gradient(145deg, #536b96, #252c49));
+        border:clamp(2px, .16vw, 6px) solid var(--doorpi-shell-edge);
         box-sizing: border-box;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
-        color: rgba(255,255,255,0.45);
+        color:var(--doorpi-shell-ink);
         font-size: clamp(38px, 5vw, 58px);
-        box-shadow: none;
-        transition: border-color 0.25s;
+        box-shadow:inset 0 1px 0 #d1f7ff45, 0 14px 36px #020b1938;
+        transition:border-color .2s, box-shadow .2s;
         position: relative;
         z-index: 2;
     }
@@ -306,10 +320,15 @@
         height: 100%;
         object-fit: cover;
     }
+    .doorpi-user-panel .doorpi-avatar > svg { width:44%; height:44%; stroke-width:1.6; }
+    .doorpi-user-card:nth-of-type(3n+1) { --doorpi-profile-avatar-fill:linear-gradient(145deg, #9c795d, #49344d); }
+    .doorpi-user-card:nth-of-type(3n+2) { --doorpi-profile-avatar-fill:linear-gradient(145deg, #477e92, #2b3759); }
+    .doorpi-user-card:nth-of-type(3n) { --doorpi-profile-avatar-fill:linear-gradient(145deg, #826aa4, #383356); }
 
     .doorpi-user-card:focus .doorpi-avatar,
     .doorpi-user-card:hover .doorpi-avatar {
-        border-color: #fff;
+        border-color:var(--doorpi-shell-focus);
+        box-shadow:0 0 0 4px #0b1232, 0 0 0 6px var(--doorpi-shell-focus), 0 14px 34px #8f82d322;
     }
 
     .doorpi-user-name {
@@ -317,7 +336,7 @@
         font-weight: 500;
         text-align: center;
         letter-spacing: 0.02em;
-        color: rgba(255,255,255,0.65);
+        color:var(--doorpi-shell-ink);
         transition: color 0.2s;
         z-index: 2;
     }
@@ -339,12 +358,21 @@
     }
 
     .doorpi-create-user-icon {
-        font-size: clamp(40px, 5vw, 58px);
+        font-size:0;
+        position:relative;
+        width:clamp(26px, 2.2vw, 72px);
+        height:clamp(26px, 2.2vw, 72px);
         font-weight: 200;
-        color: rgba(255,255,255,0.35);
-        transition: color 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        color:var(--doorpi-shell-accent);
+        transition: color var(--doorpi-shell-motion-feedback), transform var(--doorpi-shell-motion-feedback) ease-out;
         line-height: 1;
     }
+    .doorpi-create-user-icon::before, .doorpi-create-user-icon::after {
+        content:''; position:absolute; top:50%; left:50%;
+        width:100%; height:3px; background:currentColor;
+        transform:translate(-50%, -50%);
+    }
+    .doorpi-create-user-icon::after { transform:translate(-50%, -50%) rotate(90deg); }
 
     .doorpi-user-card.create-card .doorpi-avatar {
         border-style: solid;
@@ -365,13 +393,13 @@
 
     /* Seletor de perfil: cabeçalho editorial e mais identidades visíveis por linha. */
     .doorpi-user-panel {
-        --doorpi-user-avatar-size: clamp(200px, min(14vw, 27vh), 280px);
+        --doorpi-user-avatar-size: max(148px, calc(220 * var(--doorpi-shell-unit)));
     }
 
     .doorpi-user-main {
         align-items: center;
         justify-content: center;
-        gap: clamp(24px, 3.6vh, 48px);
+        gap:calc(30 * var(--doorpi-shell-unit));
         padding-inline: clamp(28px, 5vw, 96px);
         box-sizing: border-box;
     }
@@ -379,32 +407,40 @@
     .doorpi-user-panel .doorpi-panel-head {
         width: 100%;
         margin-inline: auto;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
-        text-align: center;
+        text-align: left;
+        padding-left:3vw;
+        margin-bottom:clamp(12px, 2vh, 40px);
     }
 
     .doorpi-user-panel .doorpi-panel-title {
-        font-size: clamp(2.25rem, 3.45vw, 4.7rem);
+        max-width:15ch;
+        font-size:clamp(30px, 3vw, 88px);
+        font-weight:350;
+        letter-spacing:-.025em;
+        text-shadow:none;
     }
 
     .doorpi-user-panel .doorpi-panel-sub {
-        font-size: clamp(.92rem, 1.06vw, 1.3rem);
+        font-size:clamp(16px, 1.1vw, 30px);
+        color:var(--doorpi-shell-muted);
+        font-weight:400;
     }
 
     .doorpi-user-picker-layout {
-        --doorpi-user-gap: clamp(24px, 3vw, 48px);
+        --doorpi-user-gap:calc(32 * var(--doorpi-shell-unit));
         --doorpi-user-edge-margin: clamp(72px, 7vw, 280px);
         margin-top: 0;
     }
 
     .doorpi-user-scroll-area {
-        padding-block: 18px 24px;
+        padding-block:clamp(20px, 2vh, 44px) clamp(26px, 3vh, 66px);
     }
 
     .doorpi-user-card {
         gap: clamp(18px, 1.9vw, 24px);
-        opacity: var(--doorpi-card-opacity, .58);
+        opacity: var(--doorpi-card-opacity, 1);
     }
 
     .doorpi-user-card:focus,
@@ -413,20 +449,21 @@
     }
 
     .doorpi-user-name {
-        font-size: clamp(1rem, 1.14vw, 1.3rem);
+        font-size:max(19px, calc(23 * var(--doorpi-shell-unit)));
+        line-height:1.25;
     }
 
     .doorpi-user-card.create-card .doorpi-avatar {
         transform: scale(.72);
-        background: rgba(255,255,255,.075);
-        border-color: rgba(255,255,255,.08);
+        background:var(--doorpi-shell-surface);
+        border-color:var(--doorpi-shell-edge);
         transition: transform .2s cubic-bezier(.22,1,.36,1), border-color .2s, background .2s;
     }
 
     .doorpi-user-card.create-card:focus .doorpi-avatar,
     .doorpi-user-card.create-card:hover .doorpi-avatar {
         transform: scale(.8);
-        background: rgba(255,255,255,.12);
+        background:var(--doorpi-shell-focus-fill);
     }
 
     .doorpi-user-footer {
@@ -445,10 +482,24 @@
         position: absolute;
         left: clamp(28px, 5vw, 96px);
         bottom: clamp(12px, 2vh, 28px);
+        font-size:max(16px, calc(17 * var(--doorpi-shell-unit)));
+        color:var(--doorpi-shell-ink);
+        background:var(--doorpi-shell-surface);
+        border-color:var(--doorpi-shell-edge);
     }
 
     .doorpi-user-footer .doorpi-power-row {
         margin: 0;
+    }
+
+    @media (max-height:800px) {
+        .doorpi-user-panel .doorpi-panel-title { font-size:34px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .doorpi-user-overlay, .doorpi-user-card, .doorpi-user-card .doorpi-avatar,
+        .doorpi-user-card .doorpi-user-name, .doorpi-user-footer button {
+            animation:none !important; transition:none !important;
+        }
     }
 
 
@@ -462,4 +513,3 @@
             .doorpi-user-footer { padding-inline: 18px; flex-direction: column; justify-content: center; }
             .doorpi-user-footer #doorpiCloseUsers { position: static; }
         }
-        

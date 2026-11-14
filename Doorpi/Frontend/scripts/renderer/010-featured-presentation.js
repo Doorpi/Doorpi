@@ -23,6 +23,58 @@ function _doorpiRestingCardSrc(card) {
 
 let _doorpiFeatureArtRequest = 0;
 let _doorpiFeatureBannerRequest = 0;
+let _doorpiFeatureLogoRequest = 0;
+
+window.clearHomeFeatureLogo = function () {
+    ++_doorpiFeatureLogoRequest;
+    const logo = document.getElementById('gameLogo');
+    if (logo) {
+        logo.classList.remove('visible');
+        logo.removeAttribute('src');
+        delete logo.dataset.owner;
+    }
+    document.getElementById('homeFeatureStage')?.classList.remove('has-logo');
+};
+
+function _doorpiSetFeatureLogo(logo, stage, card, source) {
+    const request = ++_doorpiFeatureLogoRequest;
+    const identity = `${card.dataset.channel || 'games'}:${stage.dataset.cardId}`;
+    const profile = window._doorpiCurrentUserId;
+    const current = () => request === _doorpiFeatureLogoRequest &&
+        profile === window._doorpiCurrentUserId && logo.dataset.owner === identity;
+    if (logo.dataset.owner !== identity || !source) {
+        logo.classList.remove('visible');
+        logo.removeAttribute('src');
+        stage.classList.remove('has-logo');
+    }
+    logo.dataset.owner = identity;
+    logo.onload = null;
+    logo.onerror = null;
+    if (!source) return;
+    const reveal = src => {
+        if (!current()) return;
+        if (logo.getAttribute('src') !== src) logo.src = src;
+        logo.classList.add('visible');
+        stage.classList.add('has-logo');
+    };
+    if (logo.getAttribute('src') === source && logo.complete && logo.naturalWidth > 0) {
+        reveal(source);
+        return;
+    }
+    // Keep the current image while its animated version loads. Never let a failed
+    // animated asset (or a response for another selection) erase a working logo.
+    const load = (src, fallback) => {
+        const image = new Image();
+        image.onload = () => reveal(src);
+        image.onerror = () => {
+            if (!current()) return;
+            if (fallback && fallback !== src) { load(fallback, ''); return; }
+            if (!logo.getAttribute('src')) stage.classList.remove('has-logo');
+        };
+        image.src = src;
+    };
+    load(source, card.dataset.staticLogo || '');
+}
 
 function _doorpiHomeChannelLabel(channel) {
     if (channel === 'media') return typeof t === 'function' ? t('homeAppsEyebrow') : 'Aplicativo selecionado';
@@ -195,6 +247,17 @@ window.updateHomeFeatureRuntimeState = function (card) {
     _doorpiRenderFeatureRuntime(card, stage, meta, action);
 };
 
+window.updateHomeFeatureActionAvailability = function () {
+    const stage = document.getElementById('homeFeatureStage');
+    if (!stage) return;
+    const card = document.activeElement?.closest?.('#gameGrid .card, #mediaGrid .card, #storesGrid .card');
+    const id = card?.dataset.id || card?.dataset.gameId || card?.dataset.appId || '';
+    stage.classList.toggle('has-card-focus', !!id && id === stage.dataset.cardId &&
+        !card.classList.contains('add-card') && !card.classList.contains('loading-card'));
+};
+document.addEventListener('focusin', () => window.updateHomeFeatureActionAvailability());
+document.addEventListener('focusout', () => queueMicrotask(() => window.updateHomeFeatureActionAvailability()));
+
 window.updateHomeFeatureStage = function (card, options = {}) {
     if (!card || card.classList.contains('add-card') || card.classList.contains('loading-card')) return;
 
@@ -206,11 +269,8 @@ window.updateHomeFeatureStage = function (card, options = {}) {
     const eyebrow = document.getElementById('homeFeatureEyebrow');
     const meta = document.getElementById('homeFeatureMeta');
     const action = document.getElementById('homeFeatureActionLabel');
-    const libraryTitle = document.getElementById('homeLibraryTitle');
-    const libraryPosition = document.getElementById('homeLibraryPosition');
     const playtime = document.getElementById('homeFeaturePlaytime');
     const playtimeValue = document.getElementById('homeFeaturePlaytimeValue');
-    const lastSession = document.getElementById('homeFeatureLastSession');
     if (!stage || !art || !logo || !title || !eyebrow || !meta || !action) return;
 
     const channel = card.dataset.channel || 'games';
@@ -233,41 +293,25 @@ window.updateHomeFeatureStage = function (card, options = {}) {
         : (card.dataset.staticLogo || card.dataset.logo || '');
     stage.dataset.channel = channel;
     stage.dataset.cardId = card.dataset.id || card.dataset.gameId || card.dataset.appId || '';
-    stage.classList.toggle('has-logo', !!logoSrc);
     stage.classList.toggle('uses-contained-art', !horizontalArt && !!artSrc);
     _doorpiSetFeatureArt(art, artSrc);
     _doorpiSetFeatureBanner(banner, bannerSrc);
 
-    if (logoSrc) {
-        logo.onload = () => logo.classList.add('visible');
-        logo.src = logoSrc;
-        if (logo.complete && logo.naturalWidth > 0) logo.classList.add('visible');
-    } else {
-        logo.classList.remove('visible');
-        logo.removeAttribute('src');
-    }
+    _doorpiSetFeatureLogo(logo, stage, card, logoSrc);
 
     title.textContent = name;
     eyebrow.textContent = _doorpiHomeChannelLabel(channel);
     _doorpiRenderFeatureRuntime(card, stage, meta, action);
 
     const totalPlaytime = _doorpiFormatMinutes(card.dataset.totalPlaytimeMinutes);
-    const sessionPlaytime = _doorpiFormatMinutes(card.dataset.lastSessionMinutes);
     const showPlaytime = channel === 'games';
-    if (playtime && playtimeValue && lastSession) {
+    if (playtime && playtimeValue) {
         playtime.hidden = !showPlaytime;
         playtimeValue.textContent = totalPlaytime ||
             (typeof t === 'function' ? t('homeNotPlayedYet') : 'Ainda não jogado');
-        lastSession.textContent = sessionPlaytime
-            ? `${typeof t === 'function' ? t('homeLastSessionLabel') : 'Última sessão'} · ${sessionPlaytime}`
-            : '';
     }
 
-    if (libraryTitle) libraryTitle.textContent = typeof t === 'function' ? t('homeLibraryTitle') : 'Sua biblioteca';
-    const grid = card.closest('#gameGrid, #mediaGrid, #storesGrid');
-    const cards = grid ? Array.from(grid.querySelectorAll('.card:not(.add-card):not(.loading-card)')) : [];
-    const index = cards.indexOf(card);
-    if (libraryPosition) libraryPosition.textContent = index >= 0 ? `${index + 1} / ${cards.length}` : '';
+    window.updateHomeFeatureActionAvailability();
 };
 
 function _doorpiSetCardImage(card, src) {

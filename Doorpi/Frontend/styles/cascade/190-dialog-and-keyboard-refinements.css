@@ -1,15 +1,12 @@
 /* Refinement pass: lower glare, distinct focus, integrated VKB. */
 #addGameContainer {
     background:
-        radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.12), transparent 44%),
-        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.075), transparent 48%),
-        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.82)) !important;
+        var(--doorpi-dialog-backdrop) !important;
 }
 
 .modal-layout {
     background:
-        radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.10), transparent 42%),
-        linear-gradient(112deg, rgba(34,38,58,0.90), rgba(18,22,38,0.84) 58%, rgba(14,17,30,0.88)) !important;
+        var(--doorpi-dialog-background) !important;
 }
 
 .add-card .plus,

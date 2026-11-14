@@ -65,7 +65,7 @@
             logDoorpiInputBlock('session-transition');
             return;
         }
-        if (window.isGlobalLoading) {
+        if (window.isGlobalLoading && !window.isDoorpiHomeEntryRecoveryOpen?.()) {
             logDoorpiInputBlock('global-loading');
             return;
         }
@@ -291,6 +291,8 @@
             if (!isVkbOpenForNavigation()) {
                 if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) {
                     if (handleArtworkWizardGamepadShortcuts(buttons)) return;
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START))
+                        window._editModalSave?.();
                     if (primaryJustPressed(buttons, GAMEPAD)) {
                         const el = document.activeElement;
                         if (el && el.tagName === 'INPUT') window._vkbOpen?.(el);
@@ -420,7 +422,8 @@
             else gamepadCancel();
         }
         if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) {
-            if (isModalOpen) {
+            if (isEditModalOpen) window._editModalSave?.();
+            else if (isModalOpen) {
                 const activeView = document.querySelector('#addGameContainer .view-section.active');
                 if (activeView?.id === 'view-media-apps') {
                     if (document.getElementById('subview-web')?.classList.contains('active')) document.getElementById('btnAddWebApp')?.click();

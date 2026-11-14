@@ -295,7 +295,7 @@ $signingKey = Ensure-SigningKey $ManifestPrivateKeyPath
 Assert-TrustedSigningKey $signingKey
 
 $updateTests = Join-Path $root "Doorpi.UpdateCore.Tests\Doorpi.UpdateCore.Tests.csproj"
-foreach ($testProjectName in @('Doorpi.Persistence.Tests', 'Doorpi.UpdateCore.Tests', 'Doorpi.Storage.Tests', 'Doorpi.Control.Tests', 'Doorpi.ProfileSync.Tests', 'Doorpi.Browser.Tests', 'Doorpi.Boot.Tests')) {
+foreach ($testProjectName in @('Doorpi.Persistence.Tests', 'Doorpi.UpdateCore.Tests', 'Doorpi.Storage.Tests', 'Doorpi.Control.Tests', 'Doorpi.ProfileSync.Tests', 'Doorpi.Browser.Tests', 'Doorpi.Boot.Tests', 'Doorpi.Themes.Tests')) {
     $testProject = Join-Path $root "$testProjectName\$testProjectName.csproj"
     if (!(Test-Path -LiteralPath $testProject)) { throw "Teste obrigatorio de release ausente: $testProjectName." }
     Invoke-Checked 'dotnet' @('build', $testProject, '-c', 'Release', '-m:1', '-nr:false', '-p:UseSharedCompilation=false')

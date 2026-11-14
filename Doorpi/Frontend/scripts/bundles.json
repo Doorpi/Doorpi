@@ -110,6 +110,7 @@
           "originalStartLine": 6791,
           "originalEndLine": 7273,
           "styles": [
+            "injected-styles/app/doorpi-quick-panel-shell.css",
             "injected-styles/app/doorpi-quick-panel-styles.css"
           ]
         },
@@ -623,6 +624,12 @@
           ]
         },
         {
+          "path": "scripts/nav-menu/186-theme-settings.js",
+          "styles": [
+            "injected-styles/nav-menu/theme-settings.css"
+          ]
+        },
+        {
           "path": "scripts/nav-menu/190-device-settings.js",
           "originalStartLine": 6548,
           "originalEndLine": 6760,
@@ -706,6 +713,10 @@
           "path": "scripts/navigation/010-state-hints-and-context.js",
           "originalStartLine": 1,
           "originalEndLine": 125,
+          "styles": []
+        },
+        {
+          "path": "scripts/navigation/015-region-contract.js",
           "styles": []
         },
         {
@@ -982,6 +993,28 @@
           "styles": [
             "injected-styles/wifi-ui/doorpi-wifi-styles.css"
           ]
+        }
+      ]
+    },
+    {
+      "output": "wwwroot/themes.js",
+      "baselineSha256": "73feb5b15ef11dd6dd9b4807e9a402713b509d2860807f545fd25dcc78066dda",
+      "sources": [
+        {
+          "path": "scripts/themes/010-theme-runtime.js",
+          "styles": []
+        },
+        {
+          "path": "scripts/themes/020-theme-selection.js",
+          "styles": []
+        },
+        {
+          "path": "scripts/themes/030-trailer-layout.js",
+          "styles": []
+        },
+        {
+          "path": "scripts/themes/040-package-styles.js",
+          "styles": []
         }
       ]
     }

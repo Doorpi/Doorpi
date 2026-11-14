@@ -208,7 +208,8 @@
             }
             overlay.remove();
             if (_artworkWizard === state) _artworkWizard = null;
-            if (options.returnFocus?.isConnected)
+            const returnedHome = state.committed && options.onCommittedClose?.() === true;
+            if (!returnedHome && options.returnFocus?.isConnected)
                 requestAnimationFrame(() => options.returnFocus.focus?.({ preventScroll: true }));
         };
 
@@ -444,6 +445,7 @@
                 return;
             }
             const patch = _artworkPatchFromCategories(images || {});
+            state.committed = Object.keys(patch).length > 0;
             const channel = isStore ? 'stores' : (isMedia ? 'media' : 'games');
             window.AppStore?.mutations?.patchItem(channel, gameId, patch);
             const pending = Array.isArray(data?.pendingStaticTypes)

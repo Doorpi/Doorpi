@@ -23,13 +23,16 @@ internal sealed class BootSessionSupervisor
     private readonly TimeSpan _startupTimeout;
     private readonly TimeSpan _pollInterval;
     private readonly bool _introAlreadyPresented;
+    private readonly bool _prepareInChild;
     internal BootSessionSupervisor(string executable, IBootExperience experience,
-        TimeSpan? startupTimeout = null, TimeSpan? pollInterval = null, bool introAlreadyPresented = false)
+        TimeSpan? startupTimeout = null, TimeSpan? pollInterval = null, bool introAlreadyPresented = false,
+        bool prepareInChild = false)
     {
         _executable = executable; _experience = experience;
         _startupTimeout = startupTimeout ?? TimeSpan.FromSeconds(90);
         _pollInterval = pollInterval ?? TimeSpan.FromMilliseconds(250);
         _introAlreadyPresented = introAlreadyPresented;
+        _prepareInChild = prepareInChild;
     }
 
     internal async Task RunAsync()
@@ -48,6 +51,7 @@ internal sealed class BootSessionSupervisor
                     WorkingDirectory = System.IO.Path.GetDirectoryName(_executable)!
                 };
                 start.ArgumentList.Add("--doorpi-main");
+                if (_prepareInChild) start.ArgumentList.Add("--doorpi-prepare-session");
                 signals.Configure(start, introPresented);
                 using var child = Process.Start(start) ?? throw new InvalidOperationException("Doorpi process did not start.");
                 try
@@ -55,6 +59,7 @@ internal sealed class BootSessionSupervisor
                     DoorpiBootDiagnostics.Log("boot-child-started", $"pid={child.Id} attempt={failures + 1}");
                     var elapsed = Stopwatch.StartNew();
                     bool ready = false, released = false;
+                    TimeSpan readyAt = TimeSpan.Zero;
                     while (true)
                     {
                         // The main UI deliberately waits for unlock. Time spent on
@@ -77,6 +82,7 @@ internal sealed class BootSessionSupervisor
                         if (!ready && released && signals.Ready.WaitOne(0))
                         {
                             ready = true;
+                            readyAt = elapsed.Elapsed;
                             DoorpiBootDiagnostics.Log("boot-interactive-ready", $"pid={child.Id} elapsedMs={elapsed.ElapsedMilliseconds}");
                             BootStartupTrace.RecordProcess(Environment.ProcessId, "DoorpiSupervisor");
                         }
@@ -100,7 +106,7 @@ internal sealed class BootSessionSupervisor
                             throw new TimeoutException("Doorpi did not confirm an interactive interface.");
                         }
                         // Reset the crash budget only after a sustained healthy session.
-                        if (ready && elapsed.Elapsed >= TimeSpan.FromMinutes(2)) failures = 0;
+                        if (ready && ShouldResetFailureBudget(elapsed.Elapsed, readyAt)) failures = 0;
                         await Task.Delay(_pollInterval);
                     }
                 }
@@ -124,6 +130,9 @@ internal sealed class BootSessionSupervisor
             }
         }
     }
+
+    internal static bool ShouldResetFailureBudget(TimeSpan sessionElapsed, TimeSpan readyAt)
+        => sessionElapsed - readyAt >= TimeSpan.FromMinutes(2);
 
     private static async Task StopOwnedChildAsync(Process child)
     {

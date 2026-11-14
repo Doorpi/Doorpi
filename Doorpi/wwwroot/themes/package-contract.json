@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "extension": ".doorpitheme",
+  "parts": {
+    "home": { "label": "Home", "owner": "profile", "roots": ["#doorpi-app-ui"], "appearance": true },
+    "nav-menu": { "label": "Menu principal", "owner": "profile", "roots": ["#navMenuOverlay"], "appearance": false },
+    "side-panels": { "label": "Menus laterais", "owner": "profile", "roots": ["#addGameContainer", "#doorpiQuickPanel"], "appearance": false },
+    "popups": { "label": "Popups", "owner": "profile", "roots": [".edit-modal-overlay", ".context-menu", "#doorpiUpdatePrompt"], "appearance": false },
+    "login": { "label": "Tela de perfis", "owner": "device", "roots": ["#doorpiUserPicker", "#doorpiUserPinPrompt"], "appearance": false }
+  },
+  "limits": { "files": 128, "expandedBytes": 20971520, "cssBytes": 131072, "assetBytes": 4194304 },
+  "assetTypes": { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".avif": "image/avif", ".woff": "font/woff", ".woff2": "font/woff2" }
+}

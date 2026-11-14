@@ -40,8 +40,8 @@
 
 body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
     opacity: 1;
-    transition: none;
-    transition-delay: 0s;
+    transition: opacity .2s ease;
+    transition-delay: .12s;
 }
 
 #doorpiUserSwitchLogout .logout-mark {
@@ -75,28 +75,39 @@ body.doorpi-session-transition #doorpiUserSwitchLogout.visible {
 }
 
 #doorpiUserSwitchLogout .logout-title {
-    font-size: clamp(2.2rem, 5vw, 5.4rem);
+    font-size:calc(32 * var(--doorpi-shell-unit));
     font-weight: 300;
     line-height: 1;
 }
 
 #doorpiUserSwitchLogout .logout-sub {
-    font-size: clamp(0.9rem, 1.4vw, 1.2rem);
+    font-size:max(16px, calc(17 * var(--doorpi-shell-unit)));
     font-weight: 500;
     color: rgba(255,255,255,0.62);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    text-transform:none;
+    letter-spacing:0;
 }
 
 #doorpiUserSwitchLogout .logout-spinner {
-    width: clamp(42px, 3.4vw, 54px);
-    height: clamp(42px, 3.4vw, 54px);
+    width:calc(26 * var(--doorpi-shell-unit));
+    height:calc(26 * var(--doorpi-shell-unit));
     border-radius: 50%;
     margin-top: 10px;
     border: 3px solid rgba(255,255,255,0.16);
     border-top-color: rgba(255,255,255,0.88);
     border-right-color: rgba(255,255,255,0.42);
     animation: logoutSpinner 0.82s linear infinite;
+}
+#doorpiUserSwitchLogout .logout-avatar-slot { order:-1; }
+#doorpiUserSwitchLogout .logout-recovery-actions { display:flex; gap:16px; margin-top:20px; }
+#doorpiUserSwitchLogout .logout-recovery-actions button { padding:12px 20px; border:1px solid #ffffff55; border-radius:10px; background:#171b25; color:#fff; font:inherit; cursor:pointer; }
+#doorpiUserSwitchLogout .logout-recovery-actions button:focus { outline:2px solid #fff; outline-offset:3px; }
+#doorpiUserSwitchLogout.home-entry-recovery { background:#0a0e18; }
+#doorpiUserSwitchLogout .logout-spinner[hidden] { display:none; }
+#doorpiUserSwitchLogout .logout-sub[hidden] { display:none; }
+@media (prefers-reduced-motion: reduce) {
+    #doorpiUserSwitchLogout, body.doorpi-session-transition #doorpiUserSwitchLogout.visible { transition:none; }
+    #doorpiUserSwitchLogout .logout-spinner { animation:none; }
 }
 
 @keyframes logoutSpinner {

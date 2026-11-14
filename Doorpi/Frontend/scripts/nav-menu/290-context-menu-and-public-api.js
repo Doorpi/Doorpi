@@ -69,10 +69,17 @@
     };
     window._navMenuRemoveItem = function (catId, itemKey) {
         if (catId === 'games' && Array.isArray(_menuData.games)) {
+            const previousCount = _menuData.games.length;
             _menuData.games = _menuData.games.filter(item => {
                 const key = item.LaunchUrl || item.launchUrl || item.Path || item.path || '';
                 return key !== itemKey;
             });
+            if (Number.isInteger(_menuData.gamesTotal))
+                _menuData.gamesTotal = Math.max(0, _menuData.gamesTotal - (previousCount - _menuData.games.length));
+            if (CATS[_catIdx]?.id === 'games') {
+                const sub = document.getElementById('navContentSub');
+                if (sub) sub.textContent = _subtitle('games');
+            }
         }
 
         const grid = catId === 'games' ? _lazyGrid : _lazyGridMedia;

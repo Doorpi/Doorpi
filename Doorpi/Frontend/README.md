@@ -4,6 +4,29 @@ Esta migração separa responsabilidades sem redesenhar a interface, alterar com
 trocar frameworks ou eliminar regras consideradas antigas. O aplicativo continua
 carregando os mesmos arquivos em `wwwroot`, na mesma ordem.
 
+Evolução atual: o CSS principal possui 34 módulos, incluindo 78 tokens de aparência
+e adaptadores opcionais de regiões. São 20 bundles JS, com 137 fontes e 42 blocos
+CSS injetados. `themes.js` reúne runtime e seleção de temas; os bundles legados mantêm seus
+nomes e sua ordem relativa. Ver [contrato de temas](themes/README.md) e
+[navegação por regiões](../../docs/architecture/navigation-regions.md).
+
+Temas devem permitir composição das regiões existentes, além de cores. A home já
+admite carrossel acima/abaixo, recomposição de arte/texto e grades declaradas pelo
+tema; a janela de adicionar itens admite barra lateral à direita. A navegação da
+home tem o carrossel como região 0, com restauração por perfil/aba. Essa cobertura
+é inicial: os demais componentes e telas continuam na revisão incremental.
+
+Configurações → Temas oferece Doorpi padrão e Orbit, com preferência SQLite por
+perfil e restauração imediata. Os cards mantêm a proporção vertical 2:3.
+O [Theme SDK](../../ThemeSDK/README.md) acrescenta pacotes visuais, autoria com prévia
+ao salvar e seleção independente de Home, menu, painéis, popups e login do dispositivo.
+
+A revisão do visual padrão começa por perfis e painel rápido. A linguagem comum
+fica em `styles/foundation/016-console-surfaces.css`; a estrutura do painel foi
+separada das páginas internas em `doorpi-quick-panel-shell.css`. Referências,
+escopo entregue e próximas etapas estão na [direção visual](../../docs/architecture/console-visual-direction.md).
+O fluxo de login e a composição atual da Home estão em [Entrando e Home](../../docs/architecture/home-session-entry.md).
+
 ## Fontes CSS e arquivo entregue ao aplicativo
 
 `styles/bundle.json` define a ordem explícita dos módulos que produzem
@@ -22,7 +45,8 @@ powershell.exe -NoProfile -File scripts/Get-FrontendStyleInventory.ps1 -OutputPa
 ```
 
 Execute esses comandos na raiz do repositório. O projeto também recompõe o bundle
-automaticamente antes do build, usando Windows PowerShell, sem Node/npm adicionais.
+automaticamente antes do build, usando Windows PowerShell. O gerador dos temas
+embutidos usa Node.js 22 ou superior e o loader do Theme SDK; não requer npm.
 
 `style-inventory.json` é um relatório local regenerável e está no `.gitignore`.
 Os módulos CSS/JS, mapas e manifestos de bundles são fontes e devem ser versionados.
@@ -161,7 +185,9 @@ node scripts/Test-FrontendIntegrity.cjs
 node scripts/Test-FrontendIntegrity.cjs --baseline
 ```
 
-Node é usado somente na verificação independente, não no build do aplicativo.
+Node também gera os pacotes visuais embutidos a partir das fontes do Theme SDK,
+usando o mesmo contrato da comunidade. Os bundles JavaScript continuam sendo
+gerados pelo PowerShell, sem bundler ou dependências npm.
 O build normal executa ambos os geradores PowerShell. O gerador de scripts valida
 todas as fontes antes de escrever: caminhos, presença, duplicações, manifesto,
 referências CSS, macros e arquivos esquecidos. Não usa concatenação por ordem

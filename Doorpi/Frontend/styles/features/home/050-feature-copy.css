@@ -1,0 +1,153 @@
+.home-feature-copy {
+    min-width: 0;
+    align-self: center;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: clamp(8px, 1vh, 14px);
+    padding-right: clamp(4px, 2vw, 36px);
+    position: relative;
+    z-index: 1;
+    width: min(100%, 620px);
+}
+
+.home-feature-eyebrow {
+    color: var(--doorpi-home-eyebrow-color);
+    font-size: clamp(.66rem, .72vw, .84rem);
+    font-weight: 650;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+
+#gameLogo {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: auto;
+    height: auto;
+    max-width: min(92%, clamp(220px, 22vw, 440px));
+    max-height: clamp(76px, 10.5vh, 142px);
+    object-fit: contain;
+    object-position: left center;
+    z-index: auto;
+    margin: clamp(2px, .6vh, 8px) 0 0;
+    filter:
+        drop-shadow(0 0 1px rgba(255,255,255,.58))
+        drop-shadow(0 0 9px rgba(255,255,255,.12))
+        drop-shadow(0 5px 16px rgba(0,0,0,.58));
+}
+
+.home-feature-title {
+    max-width: 100%;
+    margin: 0;
+    color: var(--doorpi-home-title-color);
+    font-size: clamp(1.35rem, 2.15vw, 3rem);
+    font-weight: var(--doorpi-home-title-weight);
+    line-height: 1.08;
+    letter-spacing: -.025em;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
+.home-feature-stage.has-logo .home-feature-title {
+    color: var(--doorpi-home-secondary-title-color);
+    font-size: clamp(.9rem, 1.05vw, 1.24rem);
+    font-weight: 520;
+    letter-spacing: 0;
+}
+
+.home-feature-meta {
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.home-feature-meta span {
+    padding: 4px 8px;
+    border: var(--doorpi-home-meta-border);
+    border-radius: var(--doorpi-home-meta-radius);
+    color: var(--doorpi-home-meta-color);
+    background: var(--doorpi-home-meta-background);
+    font-size: clamp(.66rem, .72vw, .82rem);
+    font-weight: 570;
+}
+
+.home-feature-meta .is-runtime {
+    display: inline-flex;
+    align-items: center;
+    color: var(--doorpi-home-runtime-color);
+    border-color: rgba(255,255,255,.25);
+    background: var(--doorpi-home-runtime-background);
+}
+
+.home-feature-playtime {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: 10px;
+    row-gap: 1px;
+    margin-top: clamp(1px, .35vh, 5px);
+}
+
+.home-feature-playtime[hidden] {
+    display: none;
+}
+
+.home-feature-playtime-label {
+    grid-column: 1;
+    color: var(--doorpi-home-playtime-label-color);
+    font-size: clamp(.62rem, .66vw, .76rem);
+    font-weight: 620;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.home-feature-playtime strong {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    color: var(--doorpi-home-playtime-color);
+    font-size: clamp(1.15rem, 1.55vw, 1.85rem);
+    font-weight: 430;
+    letter-spacing: -.025em;
+    font-variant-numeric: tabular-nums;
+}
+
+.home-feature-playtime small {
+    grid-column: 1;
+    color: var(--doorpi-home-playtime-unit-color);
+    font-size: clamp(.58rem, .62vw, .72rem);
+}
+
+.home-feature-primary {
+    margin-top: clamp(4px, .8vh, 10px);
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--doorpi-home-action-color);
+    font-size: clamp(.82rem, .92vw, 1.06rem);
+    font-weight: 620;
+    visibility: hidden;
+    opacity: 0;
+}
+
+.home-feature-stage.has-card-focus .home-feature-primary {
+    visibility: visible;
+    opacity: 1;
+}
+
+.home-feature-a {
+    width: clamp(22px, 1.5vw, 30px);
+    height: clamp(22px, 1.5vw, 30px);
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,.52);
+    border-radius: 50%;
+    color: var(--doorpi-home-action-key-color);
+    background: var(--doorpi-home-action-key-background);
+    font-size: .72em;
+}
+

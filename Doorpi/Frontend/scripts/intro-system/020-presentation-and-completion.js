@@ -140,7 +140,12 @@
         window.clearTimeout(state.completeTimer);
 
         const iframe = state.iframe;
-        const fadeMs = immediate ? 0 : Math.max(0, Number(state.config?.exitFadeMs ?? 520));
+        // The destination is already composed behind the iframe. Skip uses the
+        // same short dissolve as completion instead of tearing away the cover.
+        const pickerReady = isElementReady(document.getElementById('doorpiUserPicker'));
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const fadeMs = reducedMotion || immediate ? 0 : pickerReady ? 320 : Math.max(0, Number(state.config?.exitFadeMs ?? 520));
+        window._doorpiIntroInputBlockUntil = performance.now() + fadeMs + 450;
 
         const finish = () => {
             iframe?.remove();
@@ -153,6 +158,7 @@
         };
 
         if (iframe && fadeMs > 0) {
+            iframe.style.transitionDuration = `${fadeMs}ms`;
             iframe.style.opacity = '0';
             iframe.style.pointerEvents = 'none';
             window.setTimeout(finish, fadeMs);

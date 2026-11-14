@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('direct', 'supervised', 'off')][string]$Mode,
+    [Parameter(Mandatory = $true)][ValidateSet('direct', 'supervised', 'monitored', 'off')][string]$Mode,
     [string]$DataFolder = ''
 )
 

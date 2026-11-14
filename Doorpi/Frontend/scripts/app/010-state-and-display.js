@@ -16,6 +16,8 @@
         document.body.classList.toggle('doorpi-session-locked', shouldLock);
         if (shouldLock) {
             window.stopHomeFeatureTrailer?.({ resumeAudio: false });
+        } else {
+            window.ensureDoorpiHomeAmbient?.();
         }
     };
 

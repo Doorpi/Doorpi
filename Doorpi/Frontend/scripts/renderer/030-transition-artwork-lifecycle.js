@@ -18,11 +18,7 @@ window.pauseDoorpiArtworkForTransition = function (element) {
         gridBg.src = heroStatic;
     }
 
-    const logoStatic = card.dataset.staticLogo || '';
-    const logoEl = document.getElementById('gameLogo');
-    if (logoStatic && logoEl && !(logoEl.src || '').endsWith(logoStatic)) {
-        logoEl.src = logoStatic;
-    }
+    // stop() restores the static presentation through its single artwork owner.
 };
 
 window.resumeDoorpiArtworkAfterTransition = function (element) {

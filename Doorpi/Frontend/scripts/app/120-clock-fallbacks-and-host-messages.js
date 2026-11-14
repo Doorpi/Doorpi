@@ -110,6 +110,12 @@
     window.chrome.webview.addEventListener('message', event => {
         try {
             const data = JSON.parse(event.data);
+
+            // Session data is fetched again for the chosen user at login. Do not
+            // build cards, fallback canvases or images behind profile selection.
+            if (window._doorpiUserSessionReady !== true &&
+                ['renderGames', 'newGame', 'nativeAppsLoaded', 'storesAppsLoaded',
+                    'showLoadingCards', 'bootstrapStarted'].includes(data.type)) return;
             console.log("Mensagem recebida no JS:", data);
 
             // ── INJEÇÃO DE FALLBACKS (SEM ARTE) ──────────────────────────────────

@@ -16,6 +16,8 @@
         document.body.classList.toggle('doorpi-session-locked', shouldLock);
         if (shouldLock) {
             window.stopHomeFeatureTrailer?.({ resumeAudio: false });
+        } else {
+            window.ensureDoorpiHomeAmbient?.();
         }
     };
 
@@ -474,7 +476,27 @@
         }, 0);
     }
 
+    // A cleared grid contains Add, but is not proof that the host's library arrived.
+    // Track the actual batch through the store and the grid's deferred DOM commit.
+    let _doorpiGamesPresentation = null;
+    window.getDoorpiGamesPresentation = () => _doorpiGamesPresentation;
+    window.resetDoorpiGamesPresentation = () => {
+        _doorpiGamesPresentation = null;
+        _pendingRenderGamesPayload = null;
+        clearTimeout(_pendingRenderGamesTimer);
+        _pendingRenderGamesTimer = 0;
+    };
+
     function _scheduleRenderGamesBatch(payload) {
+        const presentation = {
+            profileId: String(window._doorpiCurrentUserId || ''),
+            count: (payload.games || []).length,
+            committed: false
+        };
+        _doorpiGamesPresentation = presentation;
+        const valid = () => _doorpiGamesPresentation === presentation &&
+            presentation.profileId === String(window._doorpiCurrentUserId || '');
+        payload = { ...payload, presentation, valid };
         _pendingRenderGamesPayload = payload;
         if (_pendingRenderGamesTimer) clearTimeout(_pendingRenderGamesTimer);
 
@@ -491,16 +513,24 @@
             _pendingRenderGamesPayload = null;
 
             requestAnimationFrame(() => {
+                if (!current.valid()) return;
+                if (!window.AppStore?.mutations?.setBatch) return;
                 if (current.silent && typeof window.clearLoadingCards === 'function') {
                     window.clearLoadingCards('games');
                 }
 
-                window.AppStore?.mutations?.setBatch('games', current.games || [], { silent: !!current.silent });
+                window.AppStore.mutations.setBatch('games', current.games || [], {
+                    silent: !!current.silent,
+                    onRendered: () => {
+                        if (current.valid()) current.presentation.committed = true;
+                    }
+                });
                 window._navMenuDataChanged?.('games');
 
                 if (current.wasOnMedia && current.heroSnapSrc && !current.silent) {
-                    requestAnimationFrame(() =>
-                        switchHeroBackground(current.heroSnapSrc, current.heroSnapLogo, current.heroSnapHoriz));
+                    requestAnimationFrame(() => {
+                        if (current.valid()) switchHeroBackground(current.heroSnapSrc, current.heroSnapLogo, current.heroSnapHoriz);
+                    });
                 }
             });
         };
@@ -798,6 +828,7 @@
     };
 
     window.isDoorpiSessionTransitionActive = function () {
+        if (window.isDoorpiHomeEntryRecoveryOpen?.()) return false;
         const overlay = document.getElementById('doorpiUserSwitchLogout');
         const overlayActive = !!overlay &&
             overlay.style.display !== 'none' &&
@@ -2976,10 +3007,10 @@
                 flex-shrink: 0;
                 transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
             }
-            .top-profile-btn:focus .doorpi-avatar, .top-profile-btn:hover .doorpi-avatar {
+            .top-profile-btn:focus .doorpi-avatar, .top-profile-btn.nav-focused-el .doorpi-avatar, .top-profile-btn:hover .doorpi-avatar {
                 transform: scale(1.045);
                 border-color: #fff;
-                box-shadow: 0 0 0 4px rgba(255,255,255,.10), 0 14px 32px rgba(0,0,0,.28);
+                box-shadow: 0 0 0 3px #181d2e, 0 0 0 5px var(--doorpi-shell-focus, #f0efff);
             }
             .top-profile-btn img { width: 100%; height: 100%; object-fit: cover; }
             .top-profile-btn .doorpi-avatar svg { width: 54%; height: 54%; color: rgba(255,255,255,.76); }
@@ -2997,10 +3028,8 @@
                     0 1px 2px rgba(0,0,0,.58),
                     0 0 1px rgba(0,0,0,.40);
             }
-            .top-profile-btn:focus .top-profile-name, .top-profile-btn:hover .top-profile-name {
-                color: #fff;
-            }
-        `;
+
+`;
         document.head.appendChild(s);
     })();
 
@@ -3084,11 +3113,11 @@
             });
 
             root.addEventListener('click', (e) => {
-                const close = e.target?.closest?.('[data-notification-close]');
-                if (close) {
+                const dismissButton = e.target?.closest?.('[data-notification-close]');
+                if (dismissButton) {
                     e.preventDefault();
                     e.stopPropagation();
-                    remove(close.dataset.notificationClose || '');
+                    remove(dismissButton.dataset.notificationClose || '');
                     return;
                 }
 
@@ -3097,6 +3126,9 @@
                     window.DoorpiUpdatePrompt?.show?.();
                 } else if (row?.dataset.action === 'windows-update') {
                     window.DoorpiQuickPanel?.open?.('updates');
+                } else if (row?.dataset.action === 'extensions') {
+                    close({ restoreFocus: false });
+                    window.openExtensionsManager?.();
                 } else if (row?.dataset.action === 'profile-sync-conflict') {
                     close();
                     postToHost?.({
@@ -3467,7 +3499,7 @@
             });
         }
 
-        function close() {
+        function close(options = {}) {
             const root = ensureRoot();
             const restoreButtonFocus = root.querySelector('#doorpiNotificationPanel')?.contains(document.activeElement);
             isOpen = false;
@@ -3476,7 +3508,7 @@
                 if (isForCurrentProfile(n) && !n.persistent && n.read) items.delete(n.id);
             });
             render();
-            if (restoreButtonFocus) {
+            if (restoreButtonFocus && options.restoreFocus !== false) {
                 requestAnimationFrame(() => root.querySelector('#doorpiNotificationButton')?.focus?.({ preventScroll: true }));
             }
         }
@@ -3562,6 +3594,7 @@
                 message: t('notificationsExtensionUpdateMessage', count),
                 toast: t('notificationsExtensionUpdateTitle'),
                 persistent: true,
+                action: 'extensions',
             });
         }
 
@@ -4354,6 +4387,12 @@
     window.chrome.webview.addEventListener('message', event => {
         try {
             const data = JSON.parse(event.data);
+
+            // Session data is fetched again for the chosen user at login. Do not
+            // build cards, fallback canvases or images behind profile selection.
+            if (window._doorpiUserSessionReady !== true &&
+                ['renderGames', 'newGame', 'nativeAppsLoaded', 'storesAppsLoaded',
+                    'showLoadingCards', 'bootstrapStarted'].includes(data.type)) return;
             console.log("Mensagem recebida no JS:", data);
 
             // ── INJEÇÃO DE FALLBACKS (SEM ARTE) ──────────────────────────────────
@@ -5355,6 +5394,8 @@
         }
 
         // 2. Prioridade: Se o usuário estiver na tela principal (jogos, mídia ou lojas)
+        if (window.DoorpiNavigation && !window.isDoorpiOverlayOpen?.())
+            return window.DoorpiNavigation.enter('home');
         const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
         const gridId = typeof window.getHomeGridId === 'function'
             ? window.getHomeGridId(currentTab)
@@ -5428,12 +5469,12 @@
 
     .doorpi-power-row {
         display: flex; align-items: center; justify-content: center;
-        gap: clamp(14px, 1.4vw, 24px); flex-wrap: wrap;
+        gap: calc(14 * var(--doorpi-shell-unit)); flex-wrap: wrap;
         margin-top: 0;
-        padding: clamp(8px, 1.2vh, 12px) clamp(12px, 1.5vw, 20px);
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 14px;
+        padding: calc(8 * var(--doorpi-shell-unit)) calc(14 * var(--doorpi-shell-unit));
+        background: #ffffff05;
+        border: 1px solid #ffffff12;
+        border-radius: var(--doorpi-shell-radius);
     }
     .doorpi-power-sep {
         width: 1px; height: 22px;
@@ -5442,17 +5483,17 @@
     }
     .doorpi-power-btn {
         background: none; border: 1px solid transparent; border-radius: 9px;
-        color: rgba(255,255,255,0.38); padding: 7px 13px;
+        color: var(--doorpi-shell-muted); padding: calc(9 * var(--doorpi-shell-unit)) calc(12 * var(--doorpi-shell-unit));
         display: flex; align-items: center; gap: 7px;
         cursor: pointer; outline: none; font: inherit;
-        font-size: clamp(0.64rem, 0.74vw, 0.8rem); font-weight: 500;
+        font-size: max(16px, calc(17 * var(--doorpi-shell-unit))); font-weight: 500;
         letter-spacing: 0.02em;
         transition: all 0.16s cubic-bezier(0.25, 1, 0.5, 1);
     }
-    .doorpi-power-btn svg { width: 15px; height: 15px; flex-shrink: 0; stroke-width: 1.6; }
+    .doorpi-power-btn svg { width:calc(21 * var(--doorpi-shell-unit)); height:calc(21 * var(--doorpi-shell-unit)); flex-shrink:0; stroke-width:1.8; }
     .doorpi-power-btn:hover, .doorpi-power-btn:focus {
-        background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16);
-        color: rgba(255,255,255,0.82); transform: translateY(-1px);
+        background:var(--doorpi-shell-focus-fill); border-color:var(--doorpi-shell-focus);
+        color:var(--doorpi-shell-ink); box-shadow:0 0 0 2px var(--doorpi-shell-focus); transform:translateY(-1px);
     }
     .doorpi-power-btn.p-danger:hover, .doorpi-power-btn.p-danger:focus {
         background: rgba(255,65,65,0.12); border-color: rgba(255,95,95,0.28);
@@ -5468,17 +5509,32 @@
             -webkit-backdrop-filter: blur(30px) saturate(1.36);
             display: flex; align-items: center; justify-content: center;
             padding: clamp(24px, 5vw, 60px); box-sizing: border-box;
-            animation: doorpiOverlayFadeIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation: doorpiOverlayFadeIn var(--doorpi-shell-motion-feedback) ease-out forwards;
         }
         .doorpi-user-overlay {
             overflow: hidden;
-            background:
-                radial-gradient(ellipse at 80% -18%, rgba(255,255,255,0.055), transparent 38%),
-                radial-gradient(ellipse at -14% 112%, rgba(125,155,210,0.08), transparent 42%),
-                rgba(5, 6, 14, 0.42);
-            backdrop-filter: blur(18px) saturate(1.24);
-            -webkit-backdrop-filter: blur(18px) saturate(1.24);
+            background:radial-gradient(ellipse at 85% 15%, #454569 0%, transparent 52%),
+                linear-gradient(115deg, #171b35, #0b1022);
+            animation:none;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            color: var(--doorpi-shell-ink);
         }
+        .doorpi-user-overlay::before {
+            content:''; position:absolute; inset:0; pointer-events:none;
+            background:linear-gradient(115deg, transparent 52%, #b9b2ed12 52.1%, transparent 72%);
+        }
+        body.user-picker-open #doorpiIntroAmbient {
+            background:radial-gradient(ellipse at 85% 15%, #454569 0%, transparent 52%),
+                linear-gradient(115deg, #171b35, #0b1022);
+        }
+        body.user-picker-open #doorpiIntroAmbient::before {
+            content:''; position:absolute; inset:0; pointer-events:none;
+            background:linear-gradient(115deg, transparent 52%, #b9b2ed12 52.1%, transparent 72%);
+        }
+        body.doorpi-intro-handoff-active .doorpi-user-overlay::before { content:none; }
+        body.user-picker-open #doorpiIntroAmbient .doorpi-intro-ambient-blob { visibility:hidden; }
+        /* No foreground light layer: the intro owns the entire handoff backdrop. */
         .doorpi-user-overlay.doorpi-intro-handoff {
             background: transparent !important;
             background-image: none !important;
@@ -5507,7 +5563,7 @@
             visibility: hidden;
             transform: scale(.985);
             pointer-events: none;
-            transition: opacity .18s ease, transform .22s ease, visibility 0s linear .22s !important;
+            transition: opacity var(--doorpi-shell-motion-feedback) ease !important;
         }
         body.doorpi-session-transition .doorpi-user-overlay.doorpi-switching-out .doorpi-user-panel {
             opacity: 0 !important;
@@ -5687,11 +5743,10 @@
         cursor: pointer;
         outline: none;
         padding: 0;
-        opacity: var(--doorpi-card-opacity, 0.42);
+        opacity: var(--doorpi-card-opacity, 1);
         transition: transform .2s cubic-bezier(0.22, 1, 0.36, 1), opacity .18s ease;
         position: relative;
-        animation: doorpiCardRise 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
-        will-change: transform;
+        animation: doorpiOverlayFadeIn var(--doorpi-shell-motion-feedback) ease-out backwards;
         flex-shrink: 0;
 
         /* Força a lista a sempre parar alinhada no início deste card */
@@ -5713,17 +5768,17 @@
         width: var(--doorpi-user-avatar-size);
         height: var(--doorpi-user-avatar-size);
         border-radius: 50%;
-        background: transparent;
-        border: 3px solid transparent;
+        background:var(--doorpi-profile-avatar-fill, linear-gradient(145deg, #536b96, #252c49));
+        border:clamp(2px, .16vw, 6px) solid var(--doorpi-shell-edge);
         box-sizing: border-box;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
-        color: rgba(255,255,255,0.45);
+        color:var(--doorpi-shell-ink);
         font-size: clamp(38px, 5vw, 58px);
-        box-shadow: none;
-        transition: border-color 0.25s;
+        box-shadow:inset 0 1px 0 #d1f7ff45, 0 14px 36px #020b1938;
+        transition:border-color .2s, box-shadow .2s;
         position: relative;
         z-index: 2;
     }
@@ -5732,10 +5787,15 @@
         height: 100%;
         object-fit: cover;
     }
+    .doorpi-user-panel .doorpi-avatar > svg { width:44%; height:44%; stroke-width:1.6; }
+    .doorpi-user-card:nth-of-type(3n+1) { --doorpi-profile-avatar-fill:linear-gradient(145deg, #9c795d, #49344d); }
+    .doorpi-user-card:nth-of-type(3n+2) { --doorpi-profile-avatar-fill:linear-gradient(145deg, #477e92, #2b3759); }
+    .doorpi-user-card:nth-of-type(3n) { --doorpi-profile-avatar-fill:linear-gradient(145deg, #826aa4, #383356); }
 
     .doorpi-user-card:focus .doorpi-avatar,
     .doorpi-user-card:hover .doorpi-avatar {
-        border-color: #fff;
+        border-color:var(--doorpi-shell-focus);
+        box-shadow:0 0 0 4px #0b1232, 0 0 0 6px var(--doorpi-shell-focus), 0 14px 34px #8f82d322;
     }
 
     .doorpi-user-name {
@@ -5743,7 +5803,7 @@
         font-weight: 500;
         text-align: center;
         letter-spacing: 0.02em;
-        color: rgba(255,255,255,0.65);
+        color:var(--doorpi-shell-ink);
         transition: color 0.2s;
         z-index: 2;
     }
@@ -5765,12 +5825,21 @@
     }
 
     .doorpi-create-user-icon {
-        font-size: clamp(40px, 5vw, 58px);
+        font-size:0;
+        position:relative;
+        width:clamp(26px, 2.2vw, 72px);
+        height:clamp(26px, 2.2vw, 72px);
         font-weight: 200;
-        color: rgba(255,255,255,0.35);
-        transition: color 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        color:var(--doorpi-shell-accent);
+        transition: color var(--doorpi-shell-motion-feedback), transform var(--doorpi-shell-motion-feedback) ease-out;
         line-height: 1;
     }
+    .doorpi-create-user-icon::before, .doorpi-create-user-icon::after {
+        content:''; position:absolute; top:50%; left:50%;
+        width:100%; height:3px; background:currentColor;
+        transform:translate(-50%, -50%);
+    }
+    .doorpi-create-user-icon::after { transform:translate(-50%, -50%) rotate(90deg); }
 
     .doorpi-user-card.create-card .doorpi-avatar {
         border-style: solid;
@@ -5791,13 +5860,13 @@
 
     /* Seletor de perfil: cabeçalho editorial e mais identidades visíveis por linha. */
     .doorpi-user-panel {
-        --doorpi-user-avatar-size: clamp(200px, min(14vw, 27vh), 280px);
+        --doorpi-user-avatar-size: max(148px, calc(220 * var(--doorpi-shell-unit)));
     }
 
     .doorpi-user-main {
         align-items: center;
         justify-content: center;
-        gap: clamp(24px, 3.6vh, 48px);
+        gap:calc(30 * var(--doorpi-shell-unit));
         padding-inline: clamp(28px, 5vw, 96px);
         box-sizing: border-box;
     }
@@ -5805,32 +5874,40 @@
     .doorpi-user-panel .doorpi-panel-head {
         width: 100%;
         margin-inline: auto;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
-        text-align: center;
+        text-align: left;
+        padding-left:3vw;
+        margin-bottom:clamp(12px, 2vh, 40px);
     }
 
     .doorpi-user-panel .doorpi-panel-title {
-        font-size: clamp(2.25rem, 3.45vw, 4.7rem);
+        max-width:15ch;
+        font-size:clamp(30px, 3vw, 88px);
+        font-weight:350;
+        letter-spacing:-.025em;
+        text-shadow:none;
     }
 
     .doorpi-user-panel .doorpi-panel-sub {
-        font-size: clamp(.92rem, 1.06vw, 1.3rem);
+        font-size:clamp(16px, 1.1vw, 30px);
+        color:var(--doorpi-shell-muted);
+        font-weight:400;
     }
 
     .doorpi-user-picker-layout {
-        --doorpi-user-gap: clamp(24px, 3vw, 48px);
+        --doorpi-user-gap:calc(32 * var(--doorpi-shell-unit));
         --doorpi-user-edge-margin: clamp(72px, 7vw, 280px);
         margin-top: 0;
     }
 
     .doorpi-user-scroll-area {
-        padding-block: 18px 24px;
+        padding-block:clamp(20px, 2vh, 44px) clamp(26px, 3vh, 66px);
     }
 
     .doorpi-user-card {
         gap: clamp(18px, 1.9vw, 24px);
-        opacity: var(--doorpi-card-opacity, .58);
+        opacity: var(--doorpi-card-opacity, 1);
     }
 
     .doorpi-user-card:focus,
@@ -5839,20 +5916,21 @@
     }
 
     .doorpi-user-name {
-        font-size: clamp(1rem, 1.14vw, 1.3rem);
+        font-size:max(19px, calc(23 * var(--doorpi-shell-unit)));
+        line-height:1.25;
     }
 
     .doorpi-user-card.create-card .doorpi-avatar {
         transform: scale(.72);
-        background: rgba(255,255,255,.075);
-        border-color: rgba(255,255,255,.08);
+        background:var(--doorpi-shell-surface);
+        border-color:var(--doorpi-shell-edge);
         transition: transform .2s cubic-bezier(.22,1,.36,1), border-color .2s, background .2s;
     }
 
     .doorpi-user-card.create-card:focus .doorpi-avatar,
     .doorpi-user-card.create-card:hover .doorpi-avatar {
         transform: scale(.8);
-        background: rgba(255,255,255,.12);
+        background:var(--doorpi-shell-focus-fill);
     }
 
     .doorpi-user-footer {
@@ -5871,10 +5949,24 @@
         position: absolute;
         left: clamp(28px, 5vw, 96px);
         bottom: clamp(12px, 2vh, 28px);
+        font-size:max(16px, calc(17 * var(--doorpi-shell-unit)));
+        color:var(--doorpi-shell-ink);
+        background:var(--doorpi-shell-surface);
+        border-color:var(--doorpi-shell-edge);
     }
 
     .doorpi-user-footer .doorpi-power-row {
         margin: 0;
+    }
+
+    @media (max-height:800px) {
+        .doorpi-user-panel .doorpi-panel-title { font-size:34px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .doorpi-user-overlay, .doorpi-user-card, .doorpi-user-card .doorpi-avatar,
+        .doorpi-user-card .doorpi-user-name, .doorpi-user-footer button {
+            animation:none !important; transition:none !important;
+        }
     }
 
 
@@ -5888,7 +5980,7 @@
             .doorpi-user-footer { padding-inline: 18px; flex-direction: column; justify-content: center; }
             .doorpi-user-footer #doorpiCloseUsers { position: static; }
         }
-        `;
+`;
         document.head.appendChild(s);
 
         const isVisible = (el) => !!(el && el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
@@ -6382,7 +6474,16 @@
         });
     }
 
+let _userPickerThemeWaitVersion=0;
 function showUserPicker(users, requireSelection = false) {
+    const themeWaitVersion=++_userPickerThemeWaitVersion;
+    if(window.DoorpiThemeSelection?.devicePending){
+        const profile=String(window._doorpiCurrentUserId||'');
+        window.DoorpiThemeSelection.whenDeviceReady().then(()=>{
+            if(themeWaitVersion===_userPickerThemeWaitVersion&&profile===String(window._doorpiCurrentUserId||''))showUserPicker(users,requireSelection);
+        });
+        return;
+    }
     if (window.DoorpiIntro?.shouldDeferUserPicker?.()) {
         window.DoorpiIntro.runAfterIntro(() => showUserPicker(users, requireSelection));
         return;
@@ -6400,7 +6501,9 @@ function showUserPicker(users, requireSelection = false) {
 
     ensureDoorpiOverlayStyles();
     let overlay = document.getElementById('doorpiUserPicker');
-    if (!window.DoorpiIntro?.isHandoffActive?.() && !window.DoorpiIntro?.isRunning?.()) {
+    // Reopening from Home uses the picker backdrop directly. Recreating the
+    // intro ambient here makes transparent themes inherit its 900ms fade.
+    if (requireSelection && !window.DoorpiIntro?.isHandoffActive?.() && !window.DoorpiIntro?.isRunning?.()) {
         window.DoorpiIntro?.startUserPickerAmbient?.();
     }
     const introHandoffClasses = window.DoorpiIntro?.isHandoffActive?.()
@@ -6557,13 +6660,12 @@ function showUserPicker(users, requireSelection = false) {
     const cards = orderedUsers.map((user, idx) => {
         const isCurrent = !!activeSessionUserId && String(user.Id || '').toLowerCase() === activeSessionUserId;
         return `
-        <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''} style="animation-delay: ${idx * 0.03}s">
+        <button class="doorpi-user-card${isCurrent ? ' is-current' : ''}" data-user-id="${escapeHtml(user.Id)}" tabindex="0"${isCurrent ? ' aria-current="true"' : ''}>
             ${avatarMarkup(user)}
             <span class="doorpi-user-name">${escapeHtml(user.Name)}</span>
         </button>`;
     }).join('');
 
-    const createUserDelay = users.length * 0.03;
 
     const svgExit = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>`;
     const svgSleep = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
@@ -6582,7 +6684,7 @@ function showUserPicker(users, requireSelection = false) {
                             <div class="doorpi-user-track">
                                 <div class="doorpi-user-snap-spacer" aria-hidden="true"></div>
                                 ${cards}
-                                <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0" style="animation-delay: ${createUserDelay}s">
+                                <button class="doorpi-user-card create-card" id="doorpiCreateUserCard" tabindex="0">
                                     <div class="doorpi-avatar"><div class="doorpi-create-user-icon">+</div></div>
                                     <span class="doorpi-user-name">${t('newUser')}</span>
                                 </button>
@@ -6592,8 +6694,8 @@ function showUserPicker(users, requireSelection = false) {
                     </div>
                 </div>
                 <div class="doorpi-user-footer">
-                    ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.1)}s">${t('btnBackLabel')}</button>`}
-                    <div class="doorpi-power-row" style="animation: doorpiCardRise 0.5s backwards; animation-delay: ${(createUserDelay + 0.15)}s">
+                    ${requireSelection ? '' : `<button class="doorpi-manager-btn" id="doorpiCloseUsers" tabindex="0">${t('btnBackLabel')}</button>`}
+                    <div class="doorpi-power-row">
                         <button class="doorpi-power-btn" id="doorpiExitApp" tabindex="0">${svgExit}${t('powerExit', 'Sair')}</button>
                         <div class="doorpi-power-sep"></div>
                         <button class="doorpi-power-btn" id="doorpiSuspend" tabindex="0">${svgSleep}${t('powerSuspend', 'Suspender')}</button>
@@ -6610,6 +6712,7 @@ function showUserPicker(users, requireSelection = false) {
     window.__doorpiInitialUiReady = true;
     window.dispatchEvent(new CustomEvent('doorpi:initial-ui-ready', { detail: { target: 'user-picker' } }));
     document.body.classList.add('user-picker-open');
+    window.DoorpiIntro?.freezeUserPickerAmbient?.();
 
     // No retorno da criacao de perfil, o seletor deve estar composto antes de
     // remover o setup. Assim nunca existe um frame intermediario com a Home.
@@ -6623,7 +6726,7 @@ function showUserPicker(users, requireSelection = false) {
     const hidePicker = (options = {}) => {
         overlay.style.display = 'none';
         document.body.classList.remove('user-picker-open');
-        window.DoorpiIntro?.finishHandoff?.();
+        if (!window._userSwitching) window.DoorpiIntro?.finishHandoff?.({ fadeMs:180 });
         if (options?.returnToQuickPanel !== false && overlay.dataset.returnToQuickPanel === 'true' && overlay.dataset.required !== 'true') {
             overlay.dataset.returnToQuickPanel = 'false';
             window.DoorpiQuickPanel?.openMenu?.();
@@ -6691,7 +6794,7 @@ function showUserPicker(users, requireSelection = false) {
             const distance = Math.abs(index - focusedIndex);
             const opacity = distance === 0
                 ? 1
-                : Math.max(0.22, 0.7 - ((distance - 1) * 0.2));
+                : Math.max(0.82, 0.94 - ((distance - 1) * 0.04));
             card.style.setProperty('--doorpi-card-opacity', String(opacity));
         });
     };
@@ -6721,8 +6824,17 @@ function showUserPicker(users, requireSelection = false) {
             if (window._doorpiUserSessionReady === true && selectedUserId && selectedUserId === currentUserId) {
                 window._pendingUserSwitchId = '';
                 overlay.dataset.returnToQuickPanel = 'false';
+                const batch = window.getDoorpiGamesPresentation?.();
+                const target = window.DoorpiNavigation?.getEntryTarget?.('home');
+                const ready = batch?.committed && batch.profileId === String(window._doorpiCurrentUserId || '') &&
+                    target && (batch.count === 0 || !target.classList.contains('add-card'));
+                if (!ready) _userSwitchFadeOut({ mode: 'initial', user, reuseCurrentLibrary: true });
                 hidePicker({ returnToQuickPanel: false });
-                requestAnimationFrame(() => window.focusFeaturedCard?.());
+                if (ready) requestAnimationFrame(() => {
+                    window.DoorpiNavigation?.enter('home');
+                    window.scheduleDoorpiExtensionUpdateCheck?.();
+                });
+                else void _userSwitchFadeIn({ mode: 'initial', showTransition: true });
                 return;
             }
             if (user?.HasPin || user?.hasPin) {
@@ -6822,10 +6934,11 @@ function showUserPicker(users, requireSelection = false) {
                     display: none;
                     align-items: stretch;
                     justify-content: flex-start;
-                    background: linear-gradient(90deg, rgba(12,15,28,.90) 0%, rgba(12,15,28,.72) 38%, rgba(12,15,28,.42) 100%);
-                    backdrop-filter: blur(20px) brightness(1.02) saturate(1.16);
-                    -webkit-backdrop-filter: blur(20px) brightness(1.02) saturate(1.16);
-                    color: #fff;
+                    --dq-sidebar-width: calc(480 * var(--doorpi-shell-unit));
+                    background: var(--doorpi-shell-background);
+                    backdrop-filter: none;
+                    -webkit-backdrop-filter: none;
+                    color: var(--doorpi-shell-ink);
                     font-family: inherit;
                     padding: 0;
                     box-sizing: border-box;
@@ -6837,67 +6950,79 @@ function showUserPicker(users, requireSelection = false) {
                     animation: none;
                 }
                 .doorpi-quick-panel.is-menu-only {
-                    background: transparent;
+                    background: rgba(3,5,10,.62);
                     backdrop-filter: none;
                     -webkit-backdrop-filter: none;
                     pointer-events: none;
                 }
                 .dq-sidebar {
-                    width: clamp(280px, 22vw, 360px);
-                    flex: 0 0 clamp(280px, 22vw, 360px);
-                    max-width: 42vw;
+                    width: var(--dq-sidebar-width);
+                    flex: 0 0 var(--dq-sidebar-width);
+                    max-width: 48vw;
                     min-width: 0;
-                    padding: clamp(34px, 4.5vh, 58px) clamp(24px, 2vw, 34px);
-                    border-right: 1px solid rgba(255,255,255,.075);
-                    background: rgba(16,19,34,.74);
-                    backdrop-filter: blur(18px);
-                    -webkit-backdrop-filter: blur(18px);
-                    box-shadow: 20px 0 70px rgba(0,0,0,.26);
+                    padding: calc(38 * var(--doorpi-shell-unit)) calc(30 * var(--doorpi-shell-unit));
+                    margin:clamp(16px, 2vh, 48px);
+                    border: 1px solid var(--doorpi-shell-edge);
+                    border-radius:12px;
+                    background: linear-gradient(165deg, #181b24, #11141c 70%);
+                    backdrop-filter: none;
+                    -webkit-backdrop-filter: none;
+                    box-shadow: 18px 0 56px rgba(0,0,0,.24);
                     display: flex;
                     flex-direction: column;
-                    gap: 18px;
+                    gap: calc(16 * var(--doorpi-shell-unit));
+                    overflow-y: auto;
                     transform-origin: left center;
-                    animation: dqSidebarIn .22s cubic-bezier(.2, .9, .2, 1) both;
+                    animation: dqSidebarIn var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both;
                     pointer-events: auto;
                 }
                 @keyframes dqSidebarIn {
-                    from { opacity: 0; transform: translateX(-24px) scaleX(.92); }
-                    to { opacity: 1; transform: translateX(0) scaleX(1); }
+                    from { opacity: 0; transform: translateX(-24px); }
+                    to { opacity: 1; transform: translateX(0); }
                 }
-                .dq-brand { min-height:42px; margin-bottom:10px; }
-                .dq-title { font-size: clamp(1.18rem, 1.45vw, 1.65rem); font-weight: 500; letter-spacing: 0; }
-                .dq-menu { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
-                .dq-sidebar-bottom { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(255,255,255,0.06); }
+                .dq-brand { display:grid; gap:6px; padding:0 10px calc(16 * var(--doorpi-shell-unit)); }
+                .dq-brand-name { color:var(--doorpi-shell-muted); font-size:max(12px, calc(12 * var(--doorpi-shell-unit))); font-weight:500; letter-spacing:.22em; }
+                .dq-title { margin:0; font-size:calc(28 * var(--doorpi-shell-unit)); line-height:1.15; font-weight:500; letter-spacing:-.02em; }
+                .dq-menu { display:flex; flex-direction:column; gap:calc(6 * var(--doorpi-shell-unit)); margin:0; flex-shrink:0; }
+                .dq-sidebar-bottom { margin-top:auto; padding-top:calc(18 * var(--doorpi-shell-unit)); border-top:1px solid var(--doorpi-shell-edge); }
                 .dq-menu-btn {
-                    min-height: 64px;
+                    min-height: calc(64 * var(--doorpi-shell-unit));
                     border: 1px solid transparent;
-                    border-radius: 8px;
+                    border-radius: var(--doorpi-shell-radius);
                     background: transparent;
-                    color: rgba(255,255,255,.72);
+                    color: var(--doorpi-shell-ink);
                     font: inherit;
                     text-align: left;
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    gap: 14px;
-                    padding: 0 16px;
+                    gap: 8px;
+                    padding: calc(8 * var(--doorpi-shell-unit)) calc(10 * var(--doorpi-shell-unit));
                     outline: none;
                     cursor: pointer;
                 }
-                .dq-menu-btn.active { background: linear-gradient(90deg, rgba(255,255,255,.10), transparent 78%); color:#fff; border-color: transparent; box-shadow: inset 2px 0 0 rgba(255,255,255,.78); }
+                .dq-menu-btn.active { background:#2b2c3c; color:var(--doorpi-shell-ink); border-color:var(--doorpi-shell-edge); box-shadow:inset 2px 0 0 var(--doorpi-shell-accent); }
                 .dq-menu-btn.nav-focused-el, .dq-menu-btn:focus {
-                    background: rgba(255,255,255,.10);
-                    border-color: rgba(255,255,255,.34);
-                    box-shadow: inset 2px 0 0 rgba(255,255,255,.88), 0 12px 28px rgba(0,0,0,.25);
+                    background: #eeedf6;
+                    color: #1d2030;
+                    border-color: var(--doorpi-shell-focus);
+                    box-shadow: 0 0 0 1px var(--doorpi-shell-focus);
                 }
-                .dq-menu-label { display:flex; align-items:center; gap:14px; min-width:0; font-size:1.02rem; font-weight:560; }
-                .dq-menu-ico { width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.84); flex:0 0 auto; }
-                .dq-menu-ico svg { width:26px; height:26px; stroke-width:1.85; }
-                .dq-dot { width:3px; height:18px; border-radius:1px; background:rgba(255,255,255,.72); }
-                .dq-content {
+                .dq-menu-label { display:flex; align-items:center; gap:calc(14 * var(--doorpi-shell-unit)); min-width:0; font-size:max(18px, calc(22 * var(--doorpi-shell-unit))); font-weight:550; line-height:1.2; }
+                .dq-menu-copy { display:grid; gap:4px; }
+                .dq-menu-copy strong { font:inherit; }
+                .dq-menu-ico { width:calc(34 * var(--doorpi-shell-unit)); height:calc(34 * var(--doorpi-shell-unit)); border:0; display:flex; align-items:center; justify-content:center; color:inherit; flex:0 0 auto; }
+                .dq-menu-ico svg { width:60%; height:60%; stroke-width:2; }
+                .dq-menu-next { margin-left:auto; flex:0 0 auto; display:flex; color:var(--doorpi-shell-muted); }
+                .dq-menu-next svg { width:calc(18 * var(--doorpi-shell-unit)); height:calc(18 * var(--doorpi-shell-unit)); stroke-width:2; }
+                .dq-menu-btn:focus .dq-menu-next, .dq-menu-btn.nav-focused-el .dq-menu-next { color:#50556b; }
+                .dq-menu-btn:focus .dq-menu-ico, .dq-menu-btn.nav-focused-el .dq-menu-ico { color:inherit; }
+                .dq-dot { width:clamp(8px, .55vw, 20px); height:clamp(8px, .55vw, 20px); flex-shrink:0; border-radius:50%; background:#ffd58e; }
+` +
+                `                .dq-content {
                     flex: 1;
                     min-width: 0;
-                    max-width: calc(100vw - clamp(280px, 22vw, 360px));
+                    max-width: calc(100vw - var(--dq-sidebar-width));
                     padding: clamp(42px, 5vh, 72px) clamp(38px, 4.5vw, 86px);
                     display: flex;
                     flex-direction: column;
@@ -6905,13 +7030,13 @@ function showUserPicker(users, requireSelection = false) {
                     overflow-x: hidden;
                     overflow-y: auto;
                     scrollbar-width: none;
-                    animation: dqContentIn .22s ease both;
+                    animation: dqContentIn var(--doorpi-shell-motion-feedback) ease both;
                 }
                 .dq-content::-webkit-scrollbar { display:none; }
                 @keyframes dqContentIn { from { opacity:.35; transform:translateX(-10px); } to { opacity:1; transform:none; } }
-                .dq-kicker { color:rgba(255,255,255,.42); font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
-                .dq-heading { margin:0; font-size:clamp(1.9rem, 2.75vw, 3.35rem); line-height:1.04; font-weight:360; letter-spacing:0; }
-                .dq-sub { margin:0; max-width:720px; color:rgba(255,255,255,.60); line-height:1.48; font-size:clamp(.96rem, 1vw, 1.12rem); }
+                .dq-kicker { color:var(--doorpi-shell-muted); font-size:max(12px, calc(12 * var(--doorpi-shell-unit))); font-weight:600; letter-spacing:.14em; text-transform:uppercase; }
+                .dq-heading { margin:0; font-size:calc(36 * var(--doorpi-shell-unit)); line-height:1.12; font-weight:400; letter-spacing:-.02em; }
+                .dq-sub { margin:0; max-width:48ch; color:var(--doorpi-shell-muted); line-height:1.45; font-size:max(17px, calc(18 * var(--doorpi-shell-unit))); }
                 .dq-grid { display:grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap:16px; width:100%; max-width:980px; margin-top:12px; }
                 .dq-grid.connectivity-grid {
                     grid-template-columns: minmax(0, 360px);
@@ -6920,15 +7045,15 @@ function showUserPicker(users, requireSelection = false) {
                     justify-content: start;
                 }
                 .dq-card, .dq-action {
-                    border:1px solid rgba(255,255,255,.08);
-                    border-radius:8px;
-                    background:rgba(255,255,255,.055);
-                    color:#fff;
+                    border:1px solid var(--doorpi-shell-edge);
+                    border-radius:var(--doorpi-shell-radius);
+                    background:var(--doorpi-shell-surface);
+                    color:var(--doorpi-shell-ink);
                     font:inherit;
                     text-align:left;
                     outline:none;
                     cursor:pointer;
-                    transition:transform .18s, background .18s, border-color .18s, box-shadow .18s;
+                    transition:transform .18s, background .18s, border-color .18s;
                 }
                 .dq-card { min-height:178px; padding:22px; display:flex; flex-direction:column-reverse; justify-content:space-between; gap:22px; }
                 .dq-grid.connectivity-grid .dq-card {
@@ -6939,12 +7064,12 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-action { min-height:60px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
                 .dq-card.nav-focused-el, .dq-action.nav-focused-el, .dq-card:focus, .dq-action:focus {
                     transform:translateY(-2px);
-                    background:rgba(255,255,255,.13);
-                    border-color:rgba(255,255,255,.58);
-                    box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 18px 42px rgba(0,0,0,.32);
+                    background:var(--doorpi-shell-focus-fill);
+                    border-color:var(--doorpi-shell-focus);
+                    box-shadow:0 0 0 2px var(--doorpi-shell-focus), inset 0 1px 0 #ffffff24;
                 }
-                .dq-card h3 { margin:0; font-size:1.22rem; font-weight:650; line-height:1.2; }
-                .dq-card p { margin:7px 0 0; color:rgba(255,255,255,.58); line-height:1.38; max-width:32ch; }
+                .dq-card h3 { margin:0; font-size:max(20px, calc(22 * var(--doorpi-shell-unit))); font-weight:600; line-height:1.2; }
+                .dq-card p { margin:7px 0 0; color:var(--doorpi-shell-muted); font-size:max(17px, calc(17 * var(--doorpi-shell-unit))); line-height:1.4; max-width:32ch; }
                 .dq-pill { display:inline-flex; align-self:flex-start; padding:0 0 5px; border-radius:0; background:transparent; color:rgba(255,255,255,.58); box-shadow:inset 0 -1px 0 rgba(255,255,255,.24); font-size:.66rem; font-weight:750; letter-spacing:.11em; text-transform:uppercase; }
                 .dq-pill.warn { background:transparent; color:rgba(255,226,164,.78); box-shadow:inset 0 -1px 0 rgba(255,226,164,.32); }
                 .dq-pill.err { background:transparent; color:rgba(244,168,168,.82); box-shadow:inset 0 -1px 0 rgba(244,168,168,.32); }
@@ -7270,13 +7395,6 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-storage-program-guidance { align-self:start; max-width:70ch; color:rgba(255,255,255,.55); font-size:.88rem; line-height:1.55; }
                 .dq-storage-program-detail-page .dq-storage-program-actions { max-width:680px; justify-self:end; margin-top:0; }
                 @media (min-width: 3000px) and (min-height: 1600px) {
-                    .dq-sidebar { width:480px; padding:64px 44px; gap:24px; }
-                    .dq-brand { min-height:52px; margin-bottom:14px; }
-                    .dq-menu { gap:14px; margin-top:14px; }
-                    .dq-menu-btn { min-height:80px; padding:0 22px; }
-                    .dq-menu-label { gap:18px; }
-                    .dq-menu-ico { width:34px; height:34px; }
-                    .dq-menu-ico svg { width:32px; height:32px; }
                     .dq-content { padding:90px 120px; gap:24px; }
                     .dq-sub { max-width:900px; }
                     .dq-grid { grid-template-columns:repeat(3,minmax(320px,1fr)); gap:22px; max-width:1240px; }
@@ -7291,8 +7409,8 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-tab { min-width:165px; min-height:52px; }
                 }
                 @media (max-width: 900px) {
-                    .dq-sidebar { width: 230px; flex-basis:230px; padding-inline:18px; }
-                    .dq-content { max-width:calc(100vw - 230px); padding-inline:26px; }
+                    .doorpi-quick-panel { --dq-sidebar-width:320px; }
+                    .dq-content { padding-inline:26px; }
                     .dq-grid, .dq-actions { grid-template-columns:1fr; }
                     .dq-storage-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
                     .dq-storage-console { grid-template-columns:1fr; }
@@ -7312,21 +7430,10 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-action.verify, .dq-action.manual, .dq-action.install, .dq-action.restart { grid-area: auto; }
                 }
                 @media (max-width: 1366px), (max-height: 780px) {
-                    .dq-sidebar { width:260px; flex-basis:260px; padding:28px 18px; gap:12px; }
-                    .dq-brand { min-height:34px; margin-bottom:4px; }
-                    .dq-title { font-size:1.08rem; }
-                    .dq-menu { gap:7px; margin-top:4px; }
-                    .dq-menu-btn { min-height:52px; padding:0 12px; }
-                    .dq-menu-label { gap:10px; font-size:.9rem; }
-                    .dq-menu-ico, .dq-menu-ico svg { width:22px; height:22px; }
-                    .dq-content { max-width:calc(100vw - 260px); padding:28px; gap:12px; }
-                    .dq-heading { font-size:clamp(1.65rem, 3.2vw, 2.35rem); }
-                    .dq-sub { font-size:.88rem; line-height:1.38; }
+                    .dq-content { padding:28px; gap:12px; }
                     .dq-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
                     .dq-card { min-height:132px; padding:16px; gap:14px; }
                     .dq-update-entry { min-height:62px; padding:8px 12px; gap:12px; }
-                    .dq-card h3 { font-size:1rem; }
-                    .dq-card p { font-size:.78rem; line-height:1.3; }
                     .dq-panel { padding:14px; }
                     .dq-actions { grid-template-columns:repeat(2,minmax(170px,1fr)); gap:10px; }
                     .dq-action, .dq-power-list .dq-action { min-height:50px; font-size:.9rem; }
@@ -7334,7 +7441,11 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-app-card { min-height:198px; padding:12px; gap:12px; }
                     .dq-app-art { min-height:96px; }
                 }
-            `;
+                @media (prefers-reduced-motion: reduce) {
+                    .dq-sidebar, .dq-content { animation:none; }
+                    .dq-menu-btn, .dq-card, .dq-action { transition:none; }
+                }
+`;
             document.head.appendChild(s);
         }
 
@@ -7488,15 +7599,15 @@ function showUserPicker(users, requireSelection = false) {
             ];
             return `
                 <aside class="dq-sidebar">
-                    <div class="dq-brand" aria-hidden="true"></div>
+                    <header class="dq-brand"><span class="dq-brand-name">DOORPI</span><h2 class="dq-title">${t('quickPanel')}</h2></header>
                     <div class="dq-menu">
                         ${items.map(([id, label, badge]) => `
                             <button class="dq-menu-btn ${section === id ? 'active' : ''}" data-section="${id}" tabindex="0">
                                 <span class="dq-menu-label">
                                     <span class="dq-menu-ico">${iconSvg(id)}</span>
-                                    <span>${label}</span>
+                                    <span class="dq-menu-copy"><strong>${label}</strong></span>
                                 </span>
-                                ${badge}
+                                ${badge}<span class="dq-menu-next" aria-hidden="true">${iconSvg('arrowRight')}</span>
                             </button>
                         `).join('')}
                     </div>
@@ -9128,19 +9239,20 @@ function showUserPicker(users, requireSelection = false) {
         return api;
     })();
 
-    window.openExtensionsManager = function () {
+    window.openExtensionsManager = async function () {
         if (window.isDoorpiSessionTransitionActive?.()) return;
-        // Se o Nav Menu estiver fechado, manda abrir
+        const profileId = String(window._doorpiCurrentUserId || '');
+        const transitionVersion = _doorpiSessionTransitionVersion;
+        // Complete the menu's opening before replacing its content. A fixed delay
+        // raced its own render on slower machines and could lose the destination.
         if (!window.isNavMenuOpen) {
             if (typeof window.openNavMenu === 'function') {
-                window.openNavMenu();
+                await window.openNavMenu(2);
             }
         }
-        setTimeout(() => {
-            if (typeof window._navMenuOpenExtensions === 'function') {
-                window._navMenuOpenExtensions();
-            }
-        }, 120);
+        if (profileId !== String(window._doorpiCurrentUserId || '') ||
+            transitionVersion !== _doorpiSessionTransitionVersion || window.isDoorpiSessionTransitionActive?.()) return;
+        window._navMenuOpenExtensions?.();
     };
 
     window.openCreateUserDialog = openCreateUserDialog;
@@ -9311,6 +9423,12 @@ function showUserPicker(users, requireSelection = false) {
         const overlays = Array.from(document.querySelectorAll('.doorpi-user-overlay, .doorpi-manager-overlay, .doorpi-pin-panel, .profile-sync-overlay'))
             .filter(el => el.style.display !== 'none' && el.offsetWidth > 0 && el.offsetHeight > 0);
         const top = overlays.at(-1);
+        if (top?.id === 'doorpiUserSwitchLogout' && window.isDoorpiHomeEntryRecoveryOpen?.()) {
+            const profiles = top.querySelector('[data-recovery-action="profiles"]');
+            if (profiles) profiles.click();
+            else top.querySelector('.logout-recovery-actions button')?.focus();
+            return;
+        }
         if (top?.id === 'emulatorDiscSelector') {
             window.closeEmulatorDiscSelector(true);
             return;
@@ -9829,7 +9947,7 @@ document.getElementById('btnAddStore')?.addEventListener('click', () => openAddM
             modal.style.display = 'none';
             modal.classList.remove('is-closing');
             window.focusFeaturedCard?.();
-        }, 210);
+        }, 180);
     }
 
     function formatBytes(kb) {
@@ -10538,8 +10656,8 @@ function renderFolderList(folders) {
         });
     }
 
-    function switchHeroBackground(bgSrc, logoSrc, heroSrc) {
-        if (window._userSwitching) return;
+    function switchHeroBackground(bgSrc, logoSrc, heroSrc, options = {}) {
+        if (window._userSwitching && options.prepareSession !== true) return;
 
 
         const currentTab = (typeof window.getCurrentHomeTab === 'function') ? window.getCurrentHomeTab() : 'games';
@@ -10590,7 +10708,8 @@ function renderFolderList(folders) {
         cancelHeroTransition();
         const reqId = ++_heroReqId;
 
-        if (logoImg) logoImg.classList.remove('visible');
+        // A null logo leaves the selection's logo under the presentation owner.
+        if (logoImg && logoSrc) logoImg.classList.remove('visible');
 
         const loadPromise = Promise.all([
             preloadImage(heroSrc || bgSrc),
@@ -10824,9 +10943,8 @@ function renderFolderList(folders) {
             #gridBgImg,
             #bgBlur,
             #gameLogo,[class*="crossfade-clone-"] {
-                /* Curva 'Quintic Out': Começa muito rápido, termina muito lento */
-                transition: transform 0.60s cubic-bezier(0.23, 1, 0.32, 1), 
-                            opacity 0.25s ease-out !important;
+                transition: transform var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1),
+                            opacity var(--doorpi-shell-motion-feedback) ease-out !important;
             }
 
             /* 2. Movimento Consistente */
@@ -11209,6 +11327,9 @@ function renderFolderList(folders) {
             background: rgba(255,255,255,0.025);
         }
 
+        .edit-modal-actions [hidden] { display:none !important; }
+        .edit-save-shortcut { font-size:.72em; font-weight:400; opacity:.7; margin-right:.6em; }
+
         .vkb-overlay {
             position: fixed;
             bottom: 0; left: 0; right: 0;
@@ -11585,7 +11706,7 @@ function renderFolderList(folders) {
         background: rgba(255,255,255,.12);
         box-shadow: 0 0 0 3px rgba(255,255,255,.11), 0 10px 22px rgba(0,0,0,.22);
     }
-        `;
+`;
         document.head.appendChild(s);
     })();
 
@@ -12290,7 +12411,8 @@ function renderFolderList(folders) {
             }
             overlay.remove();
             if (_artworkWizard === state) _artworkWizard = null;
-            if (options.returnFocus?.isConnected)
+            const returnedHome = state.committed && options.onCommittedClose?.() === true;
+            if (!returnedHome && options.returnFocus?.isConnected)
                 requestAnimationFrame(() => options.returnFocus.focus?.({ preventScroll: true }));
         };
 
@@ -12526,6 +12648,7 @@ function renderFolderList(folders) {
                 return;
             }
             const patch = _artworkPatchFromCategories(images || {});
+            state.committed = Object.keys(patch).length > 0;
             const channel = isStore ? 'stores' : (isMedia ? 'media' : 'games');
             window.AppStore?.mutations?.patchItem(channel, gameId, patch);
             const pending = Array.isArray(data?.pendingStaticTypes)
@@ -12683,6 +12806,10 @@ function renderFolderList(folders) {
     };
 
     function openEditGameModal(card) {
+        const editingProfile = window._doorpiCurrentUserId;
+        const editingSession = typeof _doorpiSessionTransitionVersion === 'undefined' ? 0 : _doorpiSessionTransitionVersion;
+        const ownsSession = () => editingProfile === window._doorpiCurrentUserId &&
+            editingSession === (typeof _doorpiSessionTransitionVersion === 'undefined' ? 0 : _doorpiSessionTransitionVersion);
         ensureDoorpiOverlayStyles();
         window.stopHomeFeatureTrailer?.();
 
@@ -12909,7 +13036,7 @@ function renderFolderList(folders) {
                 </div>
                 <div class="edit-modal-actions">
                     <button class="modal-btn cancel" id="editCancelBtn" data-nav-up="#editTrailerLocalBtn" data-nav-right="#editSaveBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
-                    <button class="modal-btn primary" id="editSaveBtn" data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
+                    <button class="modal-btn primary" id="editSaveBtn" hidden data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn"><span class="edit-save-shortcut">Start</span> ${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
                 </div>  
             </div>
         `;
@@ -12926,15 +13053,38 @@ function renderFolderList(folders) {
             if (hint) hint.textContent = typeof t === 'function' ? t('editStoreNameLocked', 'O nome da loja é fixo.') : 'O nome da loja é fixo.';
         }
 
+        const normalizedUrl = value => value && !/^https?:\/\//i.test(value) ? `https://${value}` : value;
+        const hasPendingChanges = () => {
+            const name = input.value.trim();
+            const target = commandInput?.value?.trim() || '';
+            const trailer = pendingTrailerType === 'url' ? normalizedUrl(pendingTrailerSource) : pendingTrailerSource;
+            return (!isStoreCard && !!name && name !== currentName) ||
+                (canEditLaunchTarget && !!target && (canEditWebUrl ? normalizedUrl(target) : target) !== currentLaunchTarget) ||
+                (!isStoreCard && !isMediaCard && (trailer !== currentTrailerSource || pendingTrailerType !== currentTrailerType)) ||
+                (canConfigureMediaHistory && pendingMediaHistoryCategory !== currentMediaHistoryCategory) ||
+                (isStoreCard && overlay.querySelector('#editStoreAutoAdd')?.checked !== storeAutoAdd);
+        };
+        const refreshSaveState = () => {
+            const dirty = hasPendingChanges(), save = overlay.querySelector('#editSaveBtn');
+            if (!dirty && document.activeElement === save) overlay.querySelector('#editCancelBtn')?.focus();
+            save.hidden = !dirty;
+            overlay.querySelector('#editCancelBtn').textContent = dirty ? t('editModalCancel', 'Cancelar') : t('navBack', 'Voltar');
+        };
+        overlay.addEventListener('input', refreshSaveState);
+        overlay.addEventListener('change', refreshSaveState);
+
         const doClose = () => {
+            if (_editOverlay !== overlay) return;
             isEditModalOpen = false;
+            window._editModalSave = null;
+            window._editModalClose = null;
             window._editLaunchCommandBrowseResult = null;
             window._editTrailerBrowseResult = null;
             window._editTrailerBrowserUrlResult = null;
             window._vkbForceClose();
             overlay.style.opacity = '0';
             overlay.style.transition = 'opacity 0.12s';
-            setTimeout(() => { overlay.remove(); _editOverlay = null; }, 130);
+            setTimeout(() => { overlay.remove(); if (_editOverlay === overlay) _editOverlay = null; }, 130);
             window.focusFeaturedCard?.();
         };
 
@@ -12949,13 +13099,19 @@ function renderFolderList(folders) {
             window._navMenuOpenAccountSharing?.(appId);
         });
 
-        overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'steamgrid', card.dataset.assetQuery || input.value.trim() || currentName);
+        const editArtwork = (mode, button) => openArtworkWizard(card, mode, card.dataset.assetQuery || input.value.trim() || currentName, {
+            returnFocus: button,
+            onCommittedClose: () => {
+                if (_editOverlay !== overlay || !ownsSession()) return;
+                if (hasPendingChanges()) { refreshSaveState(); return; }
+                doClose();
+                window._ctxMenuClose?.({ restoreFocus:false });
+                if (window.isNavMenuOpen) window.closeNavMenu?.();
+                return true;
+            }
         });
-
-        overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', () => {
-            openArtworkWizard(card, 'local', card.dataset.assetQuery || input.value.trim() || currentName);
-        });
+        overlay.querySelector('#editArtworkSteamGridBtn')?.addEventListener('click', event => editArtwork('steamgrid', event.currentTarget));
+        overlay.querySelector('#editArtworkLocalBtn')?.addEventListener('click', event => editArtwork('local', event.currentTarget));
 
         const trailerStatus = overlay.querySelector('#editTrailerStatus');
         const trailerHint = overlay.querySelector('#editTrailerHint');
@@ -12973,6 +13129,7 @@ function renderFolderList(folders) {
             catch { return 'Trailer online'; }
         };
         const refreshTrailerSummary = () => {
+            refreshSaveState();
             if (!trailerStatus) return;
             trailerStatus.textContent = trailerDisplayName(pendingTrailerSource);
             if (trailerHint) trailerHint.textContent = pendingTrailerSource
@@ -12997,6 +13154,7 @@ function renderFolderList(folders) {
             button.addEventListener('click', () => {
                 pendingMediaHistoryCategory = button.dataset.mediaHistoryCategory || 'auto';
                 refreshMediaHistoryCategory();
+                refreshSaveState();
                 button.focus({ preventScroll: true });
             });
         });
@@ -13074,6 +13232,7 @@ function renderFolderList(folders) {
         });
 
         const doSave = () => {
+            if (_editOverlay !== overlay || !isEditModalOpen || !ownsSession() || !hasPendingChanges()) return;
             const newName = input.value.trim();
             const nameChanged = newName && newName !== currentName;
             let newLaunchTarget = commandInput?.value?.trim() || '';
@@ -13261,6 +13420,7 @@ function renderFolderList(folders) {
                 e.preventDefault();
                 const chk = e.target.querySelector('input[type="checkbox"]');
                 if (chk) chk.checked = !chk.checked;
+                refreshSaveState();
                 return;
             }
 
@@ -13312,6 +13472,7 @@ function renderFolderList(folders) {
         window._editModalClose = doClose;
         window._editModalSave = doSave;
         isEditModalOpen = true;
+        refreshSaveState();
 
         requestAnimationFrame(() => {
             if (isStoreCard) {
@@ -13889,7 +14050,8 @@ function renderFolderList(folders) {
 
     // ── Fundo animado (blobs) — aparece quando não há hero ativo ──────────────────
     // ── Fundo animado (blobs) — Renderizado via GPU (Zero Stutter/Sem Pausas) ────
-    (function initBlobBackground() {
+    window.ensureDoorpiHomeAmbient = function () {
+        if (!window._doorpiUserSessionReady || document.getElementById('appBlobBg')) return;
         // 1. Remove qualquer canvas antigo para evitar lixo
         const oldCanvas = document.getElementById('appBlobBg');
         if (oldCanvas) oldCanvas.remove();
@@ -14031,6 +14193,13 @@ function renderFolderList(folders) {
         let _blobHideTimer = null;
 
         function checkHeroState() {
+            const selectingProfile = !window._doorpiUserSessionReady || document.body.classList.contains('user-picker-open');
+            container.hidden = selectingProfile;
+            if (selectingProfile) {
+                if (_blobShowTimer) { clearTimeout(_blobShowTimer); _blobShowTimer = null; }
+                container.style.opacity = '0';
+                return;
+            }
             const bgBlur = document.getElementById('bgBlur');
             const heroInactive = !bgBlur?.src || bgBlur.style.opacity === '0';
 
@@ -14052,6 +14221,8 @@ function renderFolderList(folders) {
         }
 
         window._startBlobBg = () => {
+            if (!window._doorpiUserSessionReady || document.body.classList.contains('user-picker-open')) return;
+            container.hidden = false;
             if (_blobHideTimer) { clearTimeout(_blobHideTimer); _blobHideTimer = null; }
             container.style.opacity = '1';
         };
@@ -14068,6 +14239,9 @@ function renderFolderList(folders) {
                 attributeFilter: ['src', 'style']
             });
         }
+        new MutationObserver(checkHeroState).observe(document.body, {
+            attributes: true, attributeFilter: ['class']
+        });
 
         const _origSwitch = window.switchHeroBackground;
         window.switchHeroBackground = function (...args) {
@@ -14076,39 +14250,8 @@ function renderFolderList(folders) {
         };
 
         checkHeroState();
-    })();
-
-    document.addEventListener('focusin', () => {
-        const focused = document.activeElement;
-        const isCard = focused?.classList?.contains('card');
-        const isInGrid = focused?.closest('#gameGrid');
-        const keepPreparedHomeVisual = window.DoorpiFirstRunTutorial?.isOpen?.() === true
-            || window._userSwitching === true
-            || document.body.classList.contains('doorpi-session-transition');
-
-        const isNavMenuActive =
-            document.body.classList.contains('nav-menu-active') ||
-            document.body.classList.contains('nav-menu-closing') ||
-            window.isNavMenuOpen;
-
-        if (!isCard && !isInGrid && !isNavMenuActive && !keepPreparedHomeVisual) {
-            window._heroCleanupTimer = setTimeout(() => {
-                const bgBlur = document.getElementById('bgBlur');
-                const heroImg = document.getElementById('heroImage');
-                const logoEl = document.getElementById('gameLogo');
-                const gridBgImg = document.getElementById('gridBgImg');
-
-                if (bgBlur) bgBlur.style.opacity = '0';
-                if (heroImg) heroImg.style.opacity = '0';
-                if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
-                if (gridBgImg) gridBgImg.removeAttribute('src');
-
-                _currentBgSrc = '';
-                if (typeof _heroReqId !== 'undefined') _heroReqId++;
-                if (typeof window._startBlobBg === 'function') window._startBlobBg();
-            }, 80);
-        }
-    });
+    };
+    let _doorpiSessionTransitionVersion = 0;
     function _delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -14154,40 +14297,56 @@ function renderFolderList(folders) {
         });
     }
 
-    async function _waitForDoorpiHomeReady() {
-        const started = performance.now();
+    async function _waitForDoorpiHomeReady(valid = () => true, deadline = performance.now() + 8000) {
         await _afterFrames(1);
 
-        // Libera assim que a aba ativa possui uma superfície utilizável. Downloads,
-        // esqueletos de outras abas e renders em segundo plano não bloqueiam a entrada.
-        while (performance.now() - started < 1000) {
-            const grid = _getActiveHomeGrid();
-            const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card)');
-            const hasActiveLoadingCards = !!grid?.querySelector('.card.loading-card');
-            const hasNavigableTarget = typeof getNavigableItems === 'function' &&
-                getNavigableItems().some(el =>
-                    el &&
-                    el.offsetWidth > 0 &&
-                    el.offsetHeight > 0 &&
-                    !el.disabled &&
-                    el.getAttribute('aria-disabled') !== 'true');
-            const isHomeStillLoading = !!window.isSystemLoading || !!window.isGlobalLoading;
+        await window.DoorpiThemeSelection?.whenReady?.();
 
-            if (!isHomeStillLoading &&
-                (hasRenderableCard || (!hasActiveLoadingCards && hasNavigableTarget))) break;
+        // Add appears during clearGamesGrid too. Only the host's committed batch
+        // distinguishes an empty library from one that has not rendered yet.
+        let target = null;
+        while (valid() && performance.now() < deadline) {
+            const grid = _getActiveHomeGrid();
+            const hasRenderableCard = !!grid?.querySelector('.card:not(.loading-card):not(.add-card)');
+            const hasActiveLoadingCards = !!grid?.querySelector('.card.loading-card');
+            target = window.DoorpiNavigation?.getEntryTarget?.('home') || null;
+            const isHomeStillLoading = !!window.isSystemLoading || !!window.isGlobalLoading;
+            const batch = window.getDoorpiGamesPresentation?.();
+            const batchReady = batch?.committed && batch.profileId === String(window._doorpiCurrentUserId || '');
+            const trulyEmpty = batchReady && batch.count === 0;
+
+            if (batchReady && !isHomeStillLoading && target &&
+                (hasRenderableCard || (trulyEmpty && !hasActiveLoadingCards))) break;
+            target = null;
             await _delay(40);
         }
+        if (!valid() || !target) return null;
+        const preparedBatch = window.getDoorpiGamesPresentation?.();
+        target.scrollIntoView?.({ behavior: 'instant', block: 'nearest', inline: 'nearest' });
 
         // Inicia o primeiro hero atrás da tela "Entrando", com uma espera curta:
         // artes ainda em download continuam sendo substituídas depois do fade.
-        _focusDoorpiInteractiveTarget();
+        window.updateHomeFeatureStage?.(target);
+        if (!target.classList.contains('add-card') && typeof switchHeroBackground === 'function') {
+            const art = target.dataset;
+            switchHeroBackground(art.staticVertical || art.vertical || '', null,
+                art.staticHero || art.hero || art.staticHorizontal || art.horizontal || art.staticVertical || art.vertical || '',
+                { prepareSession: true });
+        }
         await _afterFrames(1);
+        const visibleCards = [...(_getActiveHomeGrid()?.querySelectorAll('.card img, .store-card img') || [])]
+            .filter(image => { const rect = image.getBoundingClientRect(); return rect.right > 0 && rect.left < window.innerWidth; });
         await Promise.all([
+            ...visibleCards.map(image => _waitImageReady(image, 400)),
             _waitImageReady(document.getElementById('bgBlur'), 200),
             _waitImageReady(document.getElementById('heroImage'), 200),
             _waitImageReady(document.getElementById('gridBgImg'), 200)
         ]);
         await _afterFrames(1);
+        if (!valid()) return null;
+        if (preparedBatch !== window.getDoorpiGamesPresentation?.() || !target.isConnected)
+            return performance.now() < deadline ? _waitForDoorpiHomeReady(valid, deadline) : null;
+        return target;
     }
 
     function _focusDoorpiInteractiveTarget() {
@@ -14199,8 +14358,10 @@ function renderFolderList(folders) {
                 return userPicker._doorpiFocusInitialCard('auto');
         }
 
-        if (!window.isDoorpiOverlayOpen?.() && window.focusFeaturedCard?.() === true)
-            return true;
+        if (!window.isDoorpiOverlayOpen?.()) {
+            if (window.DoorpiNavigation) return window.DoorpiNavigation.enter('home');
+            if (window.focusFeaturedCard?.() === true) return true;
+        }
 
         const items = typeof getNavigableItems === 'function'
             ? getNavigableItems().filter(el =>
@@ -14231,7 +14392,8 @@ function renderFolderList(folders) {
                 mode: data.mode || '',
                 activeTag: document.activeElement?.tagName || '',
                 activeId: document.activeElement?.id || '',
-                activeClass: document.activeElement?.className || ''
+                activeClass: document.activeElement?.className || '',
+                activeRegion: window.DoorpiNavigation?.getRegionId?.() ?? null
             });
         } catch { }
     }
@@ -14243,6 +14405,7 @@ function renderFolderList(folders) {
     }
 
     window._releaseDoorpiSessionInputNow = function (reason = '') {
+        _doorpiSessionTransitionVersion++;
         window._doorpiSessionTransitionBlockUntil = 0;
         window._userSwitching = false;
         window._doorpiPointerSuppressUntil = 0;
@@ -14283,6 +14446,8 @@ function renderFolderList(folders) {
     };
 
     async function _completeUserSwitchInteraction(data = {}) {
+        if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
+        if (data._transitionProfileId != null && data._transitionProfileId !== String(window._doorpiCurrentUserId || '')) return;
         window._doorpiSessionTransitionBlockUntil = 0;
         window._userSwitching = false;
         window._doorpiPointerSuppressUntil = 0;
@@ -14293,15 +14458,20 @@ function renderFolderList(folders) {
         window.clearDoorpiInputQuarantine?.({ dropPending: true });
         window._setDoorpiHomeInteractionBlocked?.(false);
 
+        window.scheduleDoorpiExtensionUpdateCheck?.();
         if (_runDeferredFirstRunTutorial()) {
             window.resetDoorpiGamepadInputState?.();
             return;
         }
 
         requestAnimationFrame(async () => {
+            if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
+            if (data._transitionProfileId != null && data._transitionProfileId !== String(window._doorpiCurrentUserId || '')) return;
             await _waitForDoorpiInteractiveReady(data);
+            if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
             window.updateDoorpiTopClusterVisibility?.();
             scheduleDoorpiFocusRecovery?.();
+            window.DoorpiUpdatePrompt?.evaluate?.();
         });
     }
 
@@ -14310,7 +14480,7 @@ function renderFolderList(folders) {
             return {
                 mark: 'Conta',
                 title: 'Entrando',
-                sub: 'Preparando sua tela inicial',
+                sub: '',
             };
         }
 
@@ -14360,7 +14530,7 @@ function renderFolderList(folders) {
                 <div class="logout-title">${copy.title}</div>
                 <div class="logout-mark">${escapeHtml(markText)}</div>
                 <div class="logout-avatar-slot">${_userSwitchAvatarHtml(user)}</div>
-                <div class="logout-sub">${copy.sub}</div>
+                <div class="logout-sub"${copy.sub ? '' : ' hidden'}>${copy.sub}</div>
                 <div class="logout-spinner" aria-hidden="true"></div>
             `;
             document.body.appendChild(overlay);
@@ -14372,13 +14542,16 @@ function renderFolderList(folders) {
             if (avatar) avatar.innerHTML = _userSwitchAvatarHtml(user);
             if (mark) mark.textContent = markText;
             if (title) title.textContent = copy.title;
-            if (sub) sub.textContent = copy.sub;
+            if (sub) { sub.textContent = copy.sub; sub.hidden = !copy.sub; }
         }
+        overlay.dataset.transitionMode = mode;
         return overlay;
     }
 
     function _userSwitchFadeOut(data = {}) {
+        _doorpiSessionTransitionVersion++;
         if (data.showTransition === false) return;
+        if (!data.reuseCurrentLibrary) window.resetDoorpiGamesPresentation?.();
         closeUserPinPrompt({ immediate: true, restoreFocus: false });
         // Limpa o hero na hora, sem delay, e bloqueia novos switches
         window._userSwitching = true;
@@ -14406,6 +14579,9 @@ function renderFolderList(folders) {
         if (userPicker?.style.display !== 'none') userPicker.classList.add('doorpi-switching-out');
 
         const logoutOverlay = _ensureUserSwitchLogoutOverlay(data.mode || 'switch', data.user || window._doorpiProfile || {});
+        logoutOverlay.classList.remove('home-entry-recovery', 'doorpi-manager-overlay');
+        logoutOverlay.querySelector('.logout-recovery-actions')?.remove();
+        logoutOverlay.querySelector('.logout-spinner').hidden = false;
         logoutOverlay.style.display = 'flex';
         logoutOverlay.style.pointerEvents = 'auto';
         window._setDoorpiHomeInteractionBlocked?.(true);
@@ -14418,7 +14594,52 @@ function renderFolderList(folders) {
         wrap.style.pointerEvents = 'none';
     }
 
+    window.isDoorpiHomeEntryRecoveryOpen = () => {
+        const overlay = document.getElementById('doorpiUserSwitchLogout');
+        return !!overlay && overlay.style.display !== 'none' && overlay.classList.contains('home-entry-recovery');
+    };
+
+    function _showDoorpiHomeEntryRecovery(data, valid) {
+        if (!valid()) return;
+        const overlay = document.getElementById('doorpiUserSwitchLogout');
+        if (!overlay) return;
+        overlay.style.display = 'flex'; overlay.style.pointerEvents = 'auto';
+        overlay.classList.add('visible', 'home-entry-recovery', 'doorpi-manager-overlay');
+        overlay.querySelector('.logout-sub').textContent = t('sessionHomePrepareError');
+        overlay.querySelector('.logout-sub').hidden = false;
+        overlay.querySelector('.logout-spinner').hidden = true;
+        overlay.querySelector('.logout-recovery-actions')?.remove();
+        const actions = document.createElement('div'); actions.className = 'logout-recovery-actions';
+        const retry = document.createElement('button'); retry.textContent = t('sessionHomePrepareRetry');
+        retry.onclick = () => { if (valid()) void _userSwitchFadeIn({ ...data, _delayed: true }); };
+        actions.appendChild(retry);
+        if (Array.isArray(window._doorpiUsers) && window._doorpiUsers.length) {
+            const back = document.createElement('button'); back.textContent = t('sessionHomePrepareProfiles');
+            back.dataset.recoveryAction = 'profiles';
+            back.onclick = () => {
+                if (!valid()) return;
+                _doorpiSessionTransitionVersion++; window._userSwitching = false;
+                document.body.classList.remove('doorpi-session-transition');
+                overlay.classList.remove('visible', 'home-entry-recovery', 'doorpi-manager-overlay');
+                overlay.style.display = 'none';
+                window.DoorpiIntro?.resumeUserPickerAmbient?.();
+                showUserPicker(window._doorpiUsers, true);
+            };
+            actions.appendChild(back);
+        }
+        overlay.appendChild(actions); retry.focus();
+    }
+
     async function _userSwitchFadeIn(data = {}) {
+        if (data._transitionVersion != null && data._transitionVersion !== _doorpiSessionTransitionVersion) return;
+        if (data._transitionProfileId != null && data._transitionProfileId !== String(window._doorpiCurrentUserId || '')) return;
+        if (data.mode === 'initial' && data.showTransition !== false && !window._userSwitching)
+            _userSwitchFadeOut({ mode: 'initial', user: window._doorpiProfile || {}, reuseCurrentLibrary: true });
+        const version = data._transitionVersion ?? _doorpiSessionTransitionVersion;
+        const profile = data._transitionProfileId ?? String(window._doorpiCurrentUserId || '');
+        const valid = () => version === _doorpiSessionTransitionVersion && profile === String(window._doorpiCurrentUserId || '');
+        if (!valid()) return;
+        data = { ...data, _transitionVersion: version, _transitionProfileId: profile };
         const shouldShowTransition = data.showTransition !== false && window._userSwitching;
         const shouldRestartAudio = !!data.restartAudio;
         const resumeTransitionAudio = () => {
@@ -14435,14 +14656,6 @@ function renderFolderList(folders) {
                 setTimeout(() => _userSwitchFadeIn({ ...data, _delayed: true }), minVisibleMs - elapsed);
                 return;
             }
-        }
-
-        if (shouldShowTransition) {
-            window._doorpiSessionTransitionBlockUntil = 0;
-            window._userSwitching = false;
-            document.body.classList.remove('doorpi-session-transition');
-            const wrap = document.querySelector('.main-content-wrapper');
-            if (wrap) wrap.style.pointerEvents = '';
         }
 
         if (!shouldShowTransition) {
@@ -14526,63 +14739,53 @@ function renderFolderList(folders) {
             return;
         }
 
-        if (data.waitForHomeReady === true && !data._homeReadyWaited) {
-            try { await _waitForDoorpiHomeReady(); } catch { }
-            _userSwitchFadeIn({ ...data, _homeReadyWaited: true, _delayed: true });
-            return;
-        }
-
         const wrap = document.querySelector('.main-content-wrapper');
-        if (!wrap) {
-            const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
-            if (logoutOverlay) {
-                logoutOverlay.classList.remove('visible');
-                logoutOverlay.style.pointerEvents = 'none';
-                logoutOverlay.style.display = 'none';
-            }
-            resumeTransitionAudio();
-            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            window._setDoorpiHomeInteractionBlocked?.(false);
-            window.DoorpiIntro?.finishHandoff?.();
-            await _completeUserSwitchInteraction(data);
-            return;
-        }
-
-        wrap.style.setProperty('transition', 'none', 'important');
-        wrap.style.opacity = '0';
-        wrap.style.transform = 'scale(0.98) translateY(10px)'; 
-
-        void wrap.offsetWidth;
-
-        wrap.style.setProperty(
-            'transition',
-            'opacity 0.25s ease, transform 0.3s cubic-bezier(0.23, 1, 0.32, 1)',
-            'important'
-        );
-        wrap.style.opacity = '1';
-        wrap.style.transform = 'none';
-        wrap.style.pointerEvents = '';
-
+        const ui = document.getElementById('doorpi-app-ui');
         const logoutOverlay = document.getElementById('doorpiUserSwitchLogout');
+        if (ui) { ui.style.transition = 'none'; ui.style.display = 'block'; ui.style.opacity = '1'; }
         if (logoutOverlay) {
-            logoutOverlay.classList.remove('visible');
-            logoutOverlay.style.pointerEvents = 'none';
-            setTimeout(() => {
-                if (!logoutOverlay.classList.contains('visible')) {
-                    logoutOverlay.style.display = 'none';
-                }
-            }, 300);
+            logoutOverlay.classList.remove('home-entry-recovery', 'doorpi-manager-overlay');
+            logoutOverlay.querySelector('.logout-recovery-actions')?.remove();
+            logoutOverlay.querySelector('.logout-spinner').hidden = false;
+            const sub = logoutOverlay.querySelector('.logout-sub');
+            sub.textContent = _getUserSwitchOverlayCopy(logoutOverlay.dataset.transitionMode || data.mode).sub;
+            sub.hidden = !sub.textContent;
         }
+        window._setDoorpiHomeInteractionBlocked?.(true);
+        const target = await _waitForDoorpiHomeReady(valid);
+        if (!valid()) return;
+        if (!wrap || !target) { _showDoorpiHomeEntryRecovery(data, valid); return; }
 
-        requestAnimationFrame(async () => {
-            wrap.style.removeProperty('transition');
-            wrap.style.transform = '';
-            window._doorpiAllowLibraryRenderDuringSessionTransition = false;
-            window._setDoorpiHomeInteractionBlocked?.(false);
-            resumeTransitionAudio();
-            window.DoorpiIntro?.finishHandoff?.();
-            await _completeUserSwitchInteraction(data);
-        });
+        await window.prepareDoorpiNavMenuEntry?.(valid);
+        if (!valid()) return;
+
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const remaining = reducedMotion ? 0 : Math.max(0, 120 - (performance.now() - (window._userSwitchStartedAt || 0)));
+        if (remaining) await _delay(remaining);
+        if (!valid()) return;
+        wrap.style.setProperty('transition', 'none', 'important');
+        wrap.style.opacity = '0'; wrap.style.transform = 'translateY(4px)';
+        void wrap.offsetWidth;
+        wrap.style.setProperty('transition', reducedMotion ? 'none' : 'opacity .12s ease, transform .18s cubic-bezier(.22,1,.36,1)', 'important');
+        wrap.style.opacity = '1'; wrap.style.transform = 'none';
+        window.DoorpiIntro?.finishHandoff?.({ fadeMs: reducedMotion ? 0 : 180 });
+        logoutOverlay?.classList.remove('visible');
+        // Keep input/inert locked during the crossfade, not just during loading.
+        if (!reducedMotion) await _delay(180);
+        if (!valid()) return;
+        if (logoutOverlay) { logoutOverlay.style.display = 'none'; logoutOverlay.style.pointerEvents = 'none'; }
+        window._userSwitching = false;
+        document.body.classList.remove('doorpi-session-transition');
+        window._setDoorpiHomeInteractionBlocked?.(false);
+        if (!window.DoorpiNavigation?.enter('home')) {
+            window._userSwitching = true; document.body.classList.add('doorpi-session-transition');
+            window._setDoorpiHomeInteractionBlocked?.(true);
+            _showDoorpiHomeEntryRecovery(data, valid); return;
+        }
+        wrap.style.removeProperty('transition'); wrap.style.transform = '';
+        window._doorpiAllowLibraryRenderDuringSessionTransition = false;
+        resumeTransitionAudio();
+        await _completeUserSwitchInteraction(data);
     }
 
     function clearLoadingCards(tab = 'games') {
@@ -14612,6 +14815,7 @@ function renderFolderList(folders) {
 
             if (bgBlur) { bgBlur.style.opacity = '0'; bgBlur.removeAttribute('src'); }
             if (heroImg) { heroImg.style.opacity = '0'; }
+            window.clearHomeFeatureLogo?.();
             if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
             if (gridBgImg) { gridBgImg.style.opacity = '0'; gridBgImg.removeAttribute('src'); }
 
@@ -14627,11 +14831,8 @@ function renderFolderList(folders) {
             window._heroCleanupTimer = setTimeout(doClear, 80);
         }
     }
-    document.getElementById('btnAdd')?.addEventListener('mouseenter', clearHero);
-    document.getElementById('btnAdd')?.addEventListener('focus', clearHero);
-
-    document.getElementById('btnAddMedia')?.addEventListener('mouseenter', clearHero);
-    document.getElementById('btnAddMedia')?.addEventListener('focus', clearHero);
+    // Moving to Add or the system controls keeps the last selection's artwork.
+    // Session resets and screen changes still clear it explicitly through clearHero.
 
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -15574,6 +15775,26 @@ function renderFolderList(folders) {
     })();
 
 
-    setTimeout(() => {
-        postToHost({ action: 'requestExtensionUpdates' });
-    }, 1500);
+    // Announce the installed input/bridge handlers independently of ExecuteScript
+    // health probes, whose reply can time out during debugger startup.
+    const announceFrontendReady = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+        postToHost({ action: 'doorpiFrontendReady' });
+    }));
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', announceFrontendReady, { once:true });
+    else announceFrontendReady();
+
+    let _extensionUpdateTimer = 0;
+    let _extensionUpdatesRequested = false;
+    window.scheduleDoorpiExtensionUpdateCheck = () => {
+        if (_extensionUpdatesRequested || _extensionUpdateTimer || !window._doorpiUserSessionReady) return;
+        const profileId = String(window._doorpiCurrentUserId || '');
+        _extensionUpdateTimer = setTimeout(() => {
+            _extensionUpdateTimer = 0;
+            if (!window._doorpiUserSessionReady || profileId !== String(window._doorpiCurrentUserId || '')) {
+                window.scheduleDoorpiExtensionUpdateCheck();
+                return;
+            }
+            _extensionUpdatesRequested = true;
+            postToHost({ action: 'requestExtensionUpdates' });
+        }, 1500);
+    };

@@ -2,8 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DoorpiVersion,
 
-    [string]$UpdaterVersion = "0.1.2",
-    [string]$MinUpdaterVersion = "0.1.2",
+    [string]$UpdaterVersion = "0.1.3",
+    [string]$MinUpdaterVersion = "0.1.3",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [bool]$SelfContained = $true,
