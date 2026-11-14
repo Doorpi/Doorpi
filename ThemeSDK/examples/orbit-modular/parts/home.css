@@ -1,0 +1,77 @@
+/* Orbit 2 — independent dossier + gallery. Only public SDK roots/regions. */
+:scope { color:#f2f1eb; }
+.main-content-wrapper {
+ padding:clamp(112px, 14vh, 250px) 0 clamp(20px, 3vh, 64px);
+ column-gap:clamp(24px, 3vw, 100px); row-gap:clamp(12px, 2vh, 38px);
+}
+.home-feature-stage {
+ width:auto; height:100%; min-height:0; margin:0 0 0 clamp(30px, 4vw, 160px);
+ align-self:stretch; align-content:stretch; transform:none;
+ gap:clamp(18px, 3vh, 65px);
+}
+.home-feature-copy {
+ width:100%; max-width:100%; padding:0; align-self:center;
+ gap:clamp(8px, 1.3vh, 24px); align-content:center;
+}
+.home-feature-eyebrow { display:none; }
+.home-feature-copy #gameLogo { margin:0 0 1vh; max-width:95%; max-height:clamp(64px, 10vh, 200px); }
+.home-feature-title { max-width:25ch; }
+.home-feature-meta span { padding:0; }
+.home-feature-playtime {
+ display:flex; flex-direction:column; align-items:flex-start;
+ gap:4px; margin:clamp(6px, 1vh, 20px) 0; border:0; padding:0;
+}
+.home-feature-playtime[hidden] { display:none; }
+.home-feature-playtime-label { color:#a5b2ae; font-size:clamp(12px, .8vw, 25px); letter-spacing:.06em; }
+.home-feature-playtime strong { font-weight:400; }
+.home-feature-primary { margin:0; }
+.home-feature-art-shell {
+ width:100%; height:auto; aspect-ratio:16 / 9; max-height:28vh;
+ justify-self:stretch; align-self:end; transform:none;
+}
+.home-library-toolbar {
+ width:100%; margin:0; min-height:40px; padding:0 clamp(24px, 2vw, 80px);
+ align-self:end;
+}
+.home-library-rail { height:100%; display:flex; align-items:center; }
+.home-library-rail .game-grid { padding-top:30px; padding-bottom:30px; }
+.home-library-rail .card { border-radius:8px; }
+.home-library-rail .card:focus, .home-library-rail .card.nav-focused-el { transform:translateY(-4px); }
+.home-library-rail .card .title { font-size:clamp(13px, .95vw, 30px); font-weight:500; }
+.main-content-wrapper .home-tab { border-radius:3px; color:#a5b2ae; font-size:clamp(14px, 1.05vw, 32px); }
+.main-content-wrapper .home-tab.active { color:#f2f1eb; }
+.main-content-wrapper .home-tab:focus, .main-content-wrapper .home-tab.nav-focused-el {
+ background:#d9eee510; border-color:#d7eee1;
+}
+.home-controls-bar { width:calc(100% - 8vw); margin:0 auto; padding-top:2vh; border-top:1px solid #d6eee21a; }
+.home-trailer-fullscreen-hint { bottom:0; right:0; font-size:clamp(12px, .8vw, 25px); }
+@media (max-aspect-ratio: 4 / 3) {
+ .main-content-wrapper { column-gap:20px; grid-template-columns:minmax(0, 40fr) minmax(0, 60fr); }
+ .home-feature-stage { margin-left:28px; }
+ .home-feature-copy #gameLogo { max-width:90%; }
+}
+@media (max-height: 800px) {
+ .main-content-wrapper { padding-top:110px; padding-bottom:16px; row-gap:8px; }
+ .home-feature-copy { gap:7px; }
+ .home-feature-copy #gameLogo { max-height:58px; margin-bottom:2px; }
+ .home-feature-art-shell { max-height:23vh; }
+ .home-feature-stage { gap:12px; }
+ .home-controls-bar { display:flex; padding-top:10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+ .card, .home-feature-copy { transition:none; }
+}
+
+/* Native cinema is entered only by the user. Contextual CSS stays inside Home. */
+:scope:where(body.home-trailer-cinema *) .home-feature-copy {
+ width:clamp(280px, 23vw, 600px); max-width:45vw; padding:18px;
+ gap:10px; background:#101a1cdd; border-color:#d6eee226; border-radius:8px;
+}
+:scope:where(body.home-trailer-cinema *) .home-feature-copy #gameLogo {
+ max-width:85%; max-height:10vh; margin:0;
+}
+:scope:where(body.home-trailer-cinema *) .home-feature-playtime { align-items:center; }
+
+.home-controls-bar .gp-hint-label, .home-controls-bar .gp-hint-key { font-size:clamp(12px, .8vw, 25px); }
+
+button, input, select, textarea { font-family:inherit; }

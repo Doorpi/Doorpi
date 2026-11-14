@@ -1,0 +1,38 @@
+
+                .nav-api-row { display: flex; gap: 10px; width: 100%; }
+                .nav-icon-btn { min-height:48px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.11); border-radius: 7px; padding: 0 clamp(12px, 1.2vw, 18px); color: rgba(255,255,255,0.8); cursor: pointer; outline: none; transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.1s, border-color 0.1s, color 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; gap:9px; font-family: inherit; font-size: 0.9rem; font-weight: 560; }
+                .nav-icon-btn.nav-focused-el { border-color: #fff; background: rgba(255,255,255,0.15); color: #fff; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0,0,0,0.4); z-index: 10; position: relative;}
+                .nav-btn-danger { color: #e99a9a; border-color: rgba(255,107,107,0.24); width: 100%; padding: 14px; margin-top:0; font-size: 1rem; justify-content:flex-start; }
+                .nav-btn-danger.nav-focused-el { background: rgba(255,107,107,0.15); border-color: #ff6b6b; color: #fff; }
+                .nav-account-identity-kicker { color:rgba(255,255,255,.42); font-size:.72rem; font-weight:720; letter-spacing:.14em; text-transform:uppercase; }
+                .nav-account-identity-name { color:#fff; font-size:clamp(1.45rem,2vw,2.5rem); font-weight:360; line-height:1.05; }
+                .nav-account-identity-help { max-width:270px; color:rgba(255,255,255,.5); font-size:.84rem; line-height:1.5; }
+                .nav-account-section-label { margin-top:4px; padding:0 2px 8px; border-bottom:1px solid rgba(255,255,255,.09); color:rgba(255,255,255,.42); font-size:.7rem; font-weight:720; letter-spacing:.13em; text-transform:uppercase; }
+                .nav-profile-sync { margin:2px 0 0; display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:62px; padding:10px 0 14px; border-bottom:1px solid rgba(255,255,255,.08); }
+                .nav-profile-sync-status { color:rgba(255,255,255,.52); font-size:.86rem; }
+                .nav-profile-sync-status.connected { color:#83d7a0; }
+                .nav-profile-sync-actions { display:flex; gap:10px; }
+                .nav-profile-sync-actions .nav-icon-btn { min-width:0; min-height:46px; height:46px; padding:0 15px; border-radius:7px; flex:none; }
+                .nav-profile-sync-actions .profile-sync-google { width:21px; height:21px; }
+                .nav-profile-sync-actions svg:not(.profile-sync-google) { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+                .nav-account-route { width:100%; min-height:60px; justify-content:space-between; padding:0 17px; font-size:1rem; }
+                .nav-account-route-copy { display:grid; gap:3px; text-align:left; }
+                .nav-account-route-copy strong { font-size:.98rem; font-weight:590; color:#fff; }
+                .nav-account-route-copy small { font-size:.78rem; font-weight:400; color:rgba(255,255,255,.46); }
+                .nav-account-route-chevron { color:rgba(255,255,255,.38); font-size:1.25rem; }
+                .nav-account-toggle { width:100%; min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:10px 17px; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:rgba(255,255,255,.025); color:#fff; font:inherit; outline:none; text-align:left; }
+                .nav-account-toggle.nav-focused-el { border-color:rgba(255,255,255,.72); background:rgba(255,255,255,.09); }
+                .nav-account-toggle-copy { min-width:0; display:grid; gap:4px; }
+                .nav-account-toggle-copy strong { font-size:.98rem; font-weight:590; }
+                .nav-account-toggle-copy small { color:rgba(255,255,255,.46); font-size:.78rem; font-weight:400; line-height:1.35; }
+                .nav-account-switch { width:46px; height:25px; flex:none; position:relative; border-radius:999px; background:rgba(255,255,255,.16); transition:.18s ease; }
+                .nav-account-switch::after { content:""; position:absolute; top:3px; left:3px; width:19px; height:19px; border-radius:50%; background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.28); transition:.18s ease; }
+                .nav-account-toggle[aria-pressed="true"] .nav-account-switch { background:#5f9dff; }
+                .nav-account-toggle[aria-pressed="true"] .nav-account-switch::after { transform:translateX(21px); }
+                .nav-profile-avatar-sec .nav-profile-photo { width:clamp(112px,10vw,164px); height:clamp(112px,10vw,164px); }
+                .nav-profile-fields { padding:0; }
+                @media (max-width: 940px) {
+                    .nav-profile-dashboard { grid-template-columns:1fr; }
+                    .nav-profile-avatar-sec { min-height:230px; }
+                }
+            

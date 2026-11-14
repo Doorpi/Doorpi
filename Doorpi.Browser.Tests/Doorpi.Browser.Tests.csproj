@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Doorpi.Storage/Doorpi.Storage.csproj" />
+    <Compile Include="../Doorpi/Browser/BrowserPermissionPolicy.cs" Link="BrowserPermissionPolicy.cs" />
+    <Compile Include="../Doorpi/Browser/BrowserPermissionService.cs" Link="BrowserPermissionService.cs" />
+    <Compile Include="../Doorpi/Browser/BrowserPermissionStore.cs" Link="BrowserPermissionStore.cs" />
+    <Compile Include="../Doorpi/Browser/LocalStateResourcePolicy.cs" Link="LocalStateResourcePolicy.cs" />
+    <Compile Include="../Doorpi/DurableFileStore.cs" Link="DurableFileStore.cs" />
+  </ItemGroup>
+</Project>

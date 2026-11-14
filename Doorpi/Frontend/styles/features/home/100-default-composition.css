@@ -1,0 +1,97 @@
+/* Single backdrop and a clear information group. Explicit theme layouts keep their own composition. */
+:where(html:not([data-doorpi-feature-layout])) .home-feature-stage {
+    display:flex;
+    align-items:center;
+    align-self:center;
+    transform:none;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-art-shell {
+    visibility:hidden;
+    position:absolute;
+    right:0;
+    height:80%;
+    max-width:40%;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-stage.has-scene-art .home-feature-art-shell {
+    opacity:0;
+    pointer-events:none;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-copy {
+    width:var(--doorpi-home-copy-width);
+    gap:var(--doorpi-home-copy-gap);
+    padding:0;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-eyebrow {
+    display:none;
+    font-size:max(12px, calc(12 * var(--doorpi-shell-unit)));
+    letter-spacing:.09em;
+    color:var(--doorpi-home-eyebrow-color);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo {
+    max-width:var(--doorpi-home-logo-width);
+    max-height:var(--doorpi-home-logo-height);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-title {
+    max-width:24ch;
+    font-size:var(--doorpi-home-title-size);
+    line-height:var(--doorpi-home-title-line-height);
+    font-weight:var(--doorpi-home-title-weight);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-stage.has-logo .home-feature-title {
+    font-size:var(--doorpi-home-secondary-title-size);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-meta span {
+    padding:0;
+    border:var(--doorpi-home-meta-border);
+    background:var(--doorpi-home-meta-background);
+    color:var(--doorpi-home-meta-color);
+    font-size:var(--doorpi-home-meta-size);
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-meta .is-runtime { color:var(--doorpi-home-runtime-color); }
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime {
+    display:grid;
+    grid-template-columns:max-content;
+    grid-template-areas:"label" "total";
+    align-items:center;
+    column-gap:calc(28 * var(--doorpi-shell-unit));
+    row-gap:calc(3 * var(--doorpi-shell-unit));
+    max-width:100%;
+    margin:calc(10 * var(--doorpi-shell-unit)) 0;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime[hidden] { display:none; }
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime-label {
+    grid-area:label;
+    font-size:max(13px, calc(13 * var(--doorpi-shell-unit)));
+    color:var(--doorpi-home-playtime-label-color);
+    letter-spacing:.04em;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-playtime strong {
+    grid-area:total;
+    font-size:var(--doorpi-home-playtime-size);
+    font-weight:500;
+}
+:where(html:not([data-doorpi-feature-layout])) .home-feature-primary {
+    font-size:var(--doorpi-home-action-size);
+    margin-top:calc(6 * var(--doorpi-shell-unit));
+}
+:where(html:not([data-doorpi-feature-layout])) body:not(.home-trailer-playing) .capaJogo::after {
+    z-index:101;
+    background:linear-gradient(90deg, #060912dc, #06091266 44%, transparent 74%),
+        linear-gradient(0deg, #060912 8%, #060912a6 28%, transparent 70%);
+}
+/* The trailer replaces the artwork without moving the information beside it. */
+:where(html:not([data-doorpi-feature-layout])) body:not(.home-trailer-cinema) .home-trailer-backdrop::after {
+    content:'';
+    position:absolute;
+    inset:0;
+    z-index:2;
+    pointer-events:none;
+    background:linear-gradient(90deg, #060912ed, #06091299 30%, #06091226 58%, transparent 76%);
+}
+/* Reading the system menu takes priority over the underlying game artwork. */
+body.quick-panel-open .home-feature-stage { opacity:.35; }
+@media (max-height: 800px) {
+    :where(html:not([data-doorpi-feature-layout])) .home-feature-copy { gap:6px; }
+    :where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo { max-height:72px; }
+    :where(html:not([data-doorpi-feature-layout])) .home-feature-playtime { margin:3px 0; column-gap:18px; row-gap:2px; }
+}

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "themes": [
+    { "id": "default", "name": "Doorpi padrão", "description": "O visual original. Você pode voltar a ele a qualquer momento.", "manifest": null },
+    { "id": "orbit", "name": "Orbit", "description": "Tema oficial. Galeria de capas, painel de jogo e trailer dedicado. Cinco áreas independentes, criadas com o SDK público.", "manifest": "themes/builtin/orbit.json", "parts": ["home", "nav-menu", "side-panels", "popups", "login"] }
+  ]
+}

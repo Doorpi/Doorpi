@@ -134,8 +134,7 @@ namespace Doorpi
                 string assetsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
                 overlayView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                     "app.local", assetsFolder, CoreWebView2HostResourceAccessKind.Allow);
-                overlayView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                    "data.local", DoorpiPaths.DataFolder, CoreWebView2HostResourceAccessKind.Allow);
+                AttachStateResourceHost(overlayView.CoreWebView2, trustedHome: true);
                 overlayView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
 
                 var loaded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

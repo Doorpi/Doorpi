@@ -1,0 +1,1123 @@
+{
+    "schemaVersion":  1,
+    "apiVersion":  1,
+    "coverage":  [
+                     "home",
+                     "library",
+                     "clock",
+                     "add-dialog-surfaces"
+                 ],
+    "tokens":  {
+                   "--doorpi-font-family":  {
+                                                "cssProperty":  "font-family",
+                                                "bindings":  [
+                                                                 {
+                                                                     "file":  "shell/100-reset-and-demo-controls.css",
+                                                                     "selector":  "body",
+                                                                     "property":  "font-family",
+                                                                     "occurrence":  0
+                                                                 }
+                                                             ],
+                                                "default":  "\u0027Segoe UI\u0027, system-ui, sans-serif"
+                                            },
+                   "--doorpi-text-primary":  {
+                                                 "cssProperty":  "color",
+                                                 "bindings":  [
+                                                                  {
+                                                                      "file":  "shell/040-document-and-home.css",
+                                                                      "selector":  "body",
+                                                                      "property":  "color",
+                                                                      "occurrence":  0
+                                                                  }
+                                                              ],
+                                                 "default":  "#ddddf0"
+                                             },
+                   "--doorpi-card-radius":  {
+                                                "cssProperty":  "border-radius",
+                                                "bindings":  [
+                                                                 {
+                                                                     "file":  "components/020-loading-and-library-tokens.css",
+                                                                     "selector":  ":root",
+                                                                     "property":  "--card-radius",
+                                                                     "occurrence":  0
+                                                                 }
+                                                             ],
+                                                "default":  "clamp(8px, min(0.72vw, 1.28vh), 22px)"
+                                            },
+                   "--doorpi-card-gap":  {
+                                             "cssProperty":  "gap",
+                                             "bindings":  [
+                                                              {
+                                                                  "file":  "components/020-loading-and-library-tokens.css",
+                                                                  "selector":  ":root",
+                                                                  "property":  "--card-gap",
+                                                                  "occurrence":  0
+                                                              }
+                                                          ],
+                                             "default":  "clamp(18px, min(2vw, 1.65vh), 36px)"
+                                         },
+                   "--doorpi-library-side-padding":  {
+                                                         "cssProperty":  "padding-left",
+                                                         "bindings":  [
+                                                                          {
+                                                                              "file":  "components/020-loading-and-library-tokens.css",
+                                                                              "selector":  ":root",
+                                                                              "property":  "--grid-pad-side",
+                                                                              "occurrence":  0
+                                                                          }
+                                                                      ],
+                                                         "default":  "clamp(30px, min(3.6vw, 6.4vh), 72px)"
+                                                     },
+                   "--doorpi-accent":  {
+                                           "cssProperty":  "color",
+                                           "bindings":  [
+                                                            {
+                                                                "file":  "components/020-loading-and-library-tokens.css",
+                                                                "selector":  ":root",
+                                                                "property":  "--accent",
+                                                                "occurrence":  0
+                                                            }
+                                                        ],
+                                           "default":  "rgba(255,255,255,0.92)"
+                                       },
+                   "--doorpi-card-focus-color":  {
+                                                     "cssProperty":  "border-color",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "components/050-library-cards-and-keyboard.css",
+                                                                          "selector":  ".card.nav-focused-el",
+                                                                          "property":  "border-color",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "white"
+                                                 },
+                   "--doorpi-home-background":  {
+                                                    "cssProperty":  "background",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/210-editorial-home.css",
+                                                                         "selector":  ".capaJogo",
+                                                                         "property":  "background",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "linear-gradient(135deg, #050b19 0%, #081a36 46%, #10143a 100%)"
+                                                },
+                   "--doorpi-home-hero-height":  {
+                                                     "cssProperty":  "height",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/210-editorial-home.css",
+                                                                          "selector":  "body:not(.nav-menu-active) #heroImage",
+                                                                          "property":  "height",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "min(72vh, 37vw)"
+                                                 },
+                   "--doorpi-home-hero-position":  {
+                                                       "cssProperty":  "object-position",
+                                                       "bindings":  [
+                                                                        {
+                                                                            "file":  "features/210-editorial-home.css",
+                                                                            "selector":  "body:not(.nav-menu-active) #heroImage",
+                                                                            "property":  "object-position",
+                                                                            "occurrence":  0
+                                                                        }
+                                                                    ],
+                                                       "default":  "center top"
+                                                   },
+                   "--doorpi-home-hero-opacity":  {
+                                                      "cssProperty":  "opacity",
+                                                      "bindings":  [
+                                                                       {
+                                                                           "file":  "features/210-editorial-home.css",
+                                                                           "selector":  "body:not(.nav-menu-active) #heroImage",
+                                                                           "property":  "opacity",
+                                                                           "occurrence":  0
+                                                                       }
+                                                                   ],
+                                                      "default":  ".64"
+                                                  },
+                   "--doorpi-home-hero-filter":  {
+                                                     "cssProperty":  "filter",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/210-editorial-home.css",
+                                                                          "selector":  "body:not(.nav-menu-active) #heroImage",
+                                                                          "property":  "filter",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "none"
+                                                 },
+                   "--doorpi-home-hero-mask":  {
+                                                   "cssProperty":  "mask-image",
+                                                   "bindings":  [
+                                                                    {
+                                                                        "file":  "features/210-editorial-home.css",
+                                                                        "selector":  "body:not(.nav-menu-active) #heroImage",
+                                                                        "property":  "mask-image",
+                                                                        "occurrence":  0
+                                                                    },
+                                                                    {
+                                                                        "file":  "features/210-editorial-home.css",
+                                                                        "selector":  "body:not(.nav-menu-active) #heroImage",
+                                                                        "property":  "-webkit-mask-image",
+                                                                        "occurrence":  0
+                                                                    }
+                                                                ],
+                                                   "default":  "linear-gradient(\r\n        180deg,\r\n        #000 0%,\r\n        #000 54%,\r\n        rgba(0,0,0,.82) 66%,\r\n        rgba(0,0,0,.34) 84%,\r\n        transparent 100%\r\n    )"
+                                               },
+                   "--doorpi-home-shade":  {
+                                               "cssProperty":  "background",
+                                               "bindings":  [
+                                                                {
+                                                                    "file":  "features/210-editorial-home.css",
+                                                                    "selector":  ".capaJogo::after",
+                                                                    "property":  "background",
+                                                                    "occurrence":  0
+                                                                }
+                                                            ],
+                                               "default":  "radial-gradient(ellipse 70% 78% at 30% 32%, transparent 0%, rgba(4,6,16,.16) 58%, rgba(4,6,16,.46) 100%),\r\n        linear-gradient(180deg, rgba(3,5,14,.18) 0%, rgba(3,5,14,.08) 40%, rgba(3,5,14,.68) 100%)"
+                                           },
+                   "--doorpi-home-glow":  {
+                                              "cssProperty":  "background",
+                                              "bindings":  [
+                                                               {
+                                                                   "file":  "features/210-editorial-home.css",
+                                                                   "selector":  ".grid-bg::before",
+                                                                   "property":  "background",
+                                                                   "occurrence":  0
+                                                               }
+                                                           ],
+                                              "default":  "radial-gradient(ellipse 48% 42% at 72% 35%, rgba(255,255,255,.045), transparent 72%),\r\n        linear-gradient(180deg, rgba(4,6,16,.04) 0%, rgba(4,6,16,.08) 55%, rgba(4,6,16,.34) 100%)"
+                                          },
+                   "--doorpi-home-rows":  {
+                                              "cssProperty":  "grid-template-rows",
+                                              "bindings":  [
+                                                               {
+                                                                   "file":  "features/home/020-layout.css",
+                                                                   "selector":  ".main-content-wrapper",
+                                                                   "property":  "grid-template-rows",
+                                                                   "occurrence":  0
+                                                               }
+                                                           ],
+                                              "default":  "minmax(0, 1fr) auto auto auto"
+                                          },
+                   "--doorpi-home-card-ratio":  {
+                                                    "cssProperty":  "flex-grow",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/home/020-layout.css",
+                                                                         "selector":  ".main-content-wrapper",
+                                                                         "property":  "--card-h",
+                                                                         "occurrence":  0,
+                                                                         "part":  "1.5"
+                                                                     }
+                                                                 ],
+                                                    "fixed":  true,
+                                                    "default":  "1.5"
+                                                },
+                   "--doorpi-home-feature-columns":  {
+                                                         "cssProperty":  "grid-template-columns",
+                                                         "bindings":  [
+                                                                          {
+                                                                              "file":  "features/home/020-layout.css",
+                                                                              "selector":  ".home-feature-stage",
+                                                                              "property":  "grid-template-columns",
+                                                                              "occurrence":  0
+                                                                          }
+                                                                      ],
+                                                         "default":  "auto minmax(0, 1fr)"
+                                                     },
+                   "--doorpi-home-art-radius":  {
+                                                    "cssProperty":  "border-radius",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/home/040-feature-art.css",
+                                                                         "selector":  ".home-feature-art-shell",
+                                                                         "property":  "border-radius",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "clamp(10px, .8vw, 16px)"
+                                                },
+                   "--doorpi-home-art-border":  {
+                                                    "cssProperty":  "border",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/home/040-feature-art.css",
+                                                                         "selector":  ".home-feature-art-shell",
+                                                                         "property":  "border",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "1px solid rgba(255,255,255,.13)"
+                                                },
+                   "--doorpi-home-art-background":  {
+                                                        "cssProperty":  "background",
+                                                        "bindings":  [
+                                                                         {
+                                                                             "file":  "features/home/040-feature-art.css",
+                                                                             "selector":  ".home-feature-art-shell",
+                                                                             "property":  "background",
+                                                                             "occurrence":  0
+                                                                         }
+                                                                     ],
+                                                        "default":  "radial-gradient(circle at 68% 28%, rgba(116,150,230,.22), transparent 48%),\r\n        rgba(10,13,25,.58)"
+                                                    },
+                   "--doorpi-home-art-shadow":  {
+                                                    "cssProperty":  "box-shadow",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/home/040-feature-art.css",
+                                                                         "selector":  ".home-feature-art-shell",
+                                                                         "property":  "box-shadow",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "0 26px 70px rgba(0,0,0,.34)"
+                                                },
+                   "--doorpi-home-art-shade":  {
+                                                   "cssProperty":  "background",
+                                                   "bindings":  [
+                                                                    {
+                                                                        "file":  "features/home/040-feature-art.css",
+                                                                        "selector":  ".home-feature-art-shell::after",
+                                                                        "property":  "background",
+                                                                        "occurrence":  0
+                                                                    }
+                                                                ],
+                                                   "default":  "linear-gradient(90deg, rgba(5,7,16,.16), transparent 24%, transparent 78%, rgba(5,7,16,.1)),\r\n        linear-gradient(0deg, rgba(4,6,14,.24), transparent 34%)"
+                                               },
+                   "--doorpi-home-eyebrow-color":  {
+                                                       "cssProperty":  "color",
+                                                       "bindings":  [
+                                                                        {
+                                                                            "file":  "features/home/050-feature-copy.css",
+                                                                            "selector":  ".home-feature-eyebrow",
+                                                                            "property":  "color",
+                                                                            "occurrence":  0
+                                                                        },
+                                                                        {
+                                                                            "file":  "features/home/100-default-composition.css",
+                                                                            "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-eyebrow",
+                                                                            "property":  "color",
+                                                                            "occurrence":  0
+                                                                        }
+                                                                    ],
+                                                       "default":  "#bbc3d1"
+                                                   },
+                   "--doorpi-home-title-color":  {
+                                                     "cssProperty":  "color",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/home/050-feature-copy.css",
+                                                                          "selector":  ".home-feature-title",
+                                                                          "property":  "color",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "#fff"
+                                                 },
+                   "--doorpi-home-title-weight":  {
+                                                      "cssProperty":  "font-weight",
+                                                      "bindings":  [
+                                                                       {
+                                                                           "file":  "features/home/050-feature-copy.css",
+                                                                           "selector":  ".home-feature-title",
+                                                                           "property":  "font-weight",
+                                                                           "occurrence":  0
+                                                                       },
+                                                                       {
+                                                                           "file":  "features/home/100-default-composition.css",
+                                                                           "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-title",
+                                                                           "property":  "font-weight",
+                                                                           "occurrence":  0
+                                                                       }
+                                                                   ],
+                                                      "default":  "500"
+                                                  },
+                   "--doorpi-home-secondary-title-color":  {
+                                                               "cssProperty":  "color",
+                                                               "bindings":  [
+                                                                                {
+                                                                                    "file":  "features/home/050-feature-copy.css",
+                                                                                    "selector":  ".home-feature-stage.has-logo .home-feature-title",
+                                                                                    "property":  "color",
+                                                                                    "occurrence":  0
+                                                                                }
+                                                                            ],
+                                                               "default":  "rgba(255,255,255,.66)"
+                                                           },
+                   "--doorpi-home-meta-color":  {
+                                                    "cssProperty":  "color",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/home/050-feature-copy.css",
+                                                                         "selector":  ".home-feature-meta span",
+                                                                         "property":  "color",
+                                                                         "occurrence":  0
+                                                                     },
+                                                                     {
+                                                                         "file":  "features/home/100-default-composition.css",
+                                                                         "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+                                                                         "property":  "color",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "#bbc3d1"
+                                                },
+                   "--doorpi-home-meta-background":  {
+                                                         "cssProperty":  "background",
+                                                         "bindings":  [
+                                                                          {
+                                                                              "file":  "features/home/050-feature-copy.css",
+                                                                              "selector":  ".home-feature-meta span",
+                                                                              "property":  "background",
+                                                                              "occurrence":  0
+                                                                          },
+                                                                          {
+                                                                              "file":  "features/home/100-default-composition.css",
+                                                                              "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+                                                                              "property":  "background",
+                                                                              "occurrence":  0
+                                                                          }
+                                                                      ],
+                                                         "default":  "transparent"
+                                                     },
+                   "--doorpi-home-meta-border":  {
+                                                     "cssProperty":  "border",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/home/050-feature-copy.css",
+                                                                          "selector":  ".home-feature-meta span",
+                                                                          "property":  "border",
+                                                                          "occurrence":  0
+                                                                      },
+                                                                      {
+                                                                          "file":  "features/home/100-default-composition.css",
+                                                                          "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+                                                                          "property":  "border",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "0"
+                                                 },
+                   "--doorpi-home-meta-radius":  {
+                                                     "cssProperty":  "border-radius",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/home/050-feature-copy.css",
+                                                                          "selector":  ".home-feature-meta span",
+                                                                          "property":  "border-radius",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "5px"
+                                                 },
+                   "--doorpi-home-runtime-color":  {
+                                                       "cssProperty":  "color",
+                                                       "bindings":  [
+                                                                        {
+                                                                            "file":  "features/home/050-feature-copy.css",
+                                                                            "selector":  ".home-feature-meta .is-runtime",
+                                                                            "property":  "color",
+                                                                            "occurrence":  0
+                                                                        },
+                                                                        {
+                                                                            "file":  "features/home/100-default-composition.css",
+                                                                            "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta .is-runtime",
+                                                                            "property":  "color",
+                                                                            "occurrence":  0
+                                                                        }
+                                                                    ],
+                                                       "default":  "#b7dcc5"
+                                                   },
+                   "--doorpi-home-runtime-background":  {
+                                                            "cssProperty":  "background",
+                                                            "bindings":  [
+                                                                             {
+                                                                                 "file":  "features/home/050-feature-copy.css",
+                                                                                 "selector":  ".home-feature-meta .is-runtime",
+                                                                                 "property":  "background",
+                                                                                 "occurrence":  0
+                                                                             }
+                                                                         ],
+                                                            "default":  "rgba(8,11,22,.32)"
+                                                        },
+                   "--doorpi-home-playtime-label-color":  {
+                                                              "cssProperty":  "color",
+                                                              "bindings":  [
+                                                                               {
+                                                                                   "file":  "features/home/050-feature-copy.css",
+                                                                                   "selector":  ".home-feature-playtime-label",
+                                                                                   "property":  "color",
+                                                                                   "occurrence":  0
+                                                                               },
+                                                                               {
+                                                                                   "file":  "features/home/100-default-composition.css",
+                                                                                   "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-playtime-label",
+                                                                                   "property":  "color",
+                                                                                   "occurrence":  0
+                                                                               }
+                                                                           ],
+                                                              "default":  "#aeb8c9"
+                                                          },
+                   "--doorpi-home-playtime-color":  {
+                                                        "cssProperty":  "color",
+                                                        "bindings":  [
+                                                                         {
+                                                                             "file":  "features/home/050-feature-copy.css",
+                                                                             "selector":  ".home-feature-playtime strong",
+                                                                             "property":  "color",
+                                                                             "occurrence":  0
+                                                                         }
+                                                                     ],
+                                                        "default":  "rgba(255,255,255,.9)"
+                                                    },
+                   "--doorpi-home-playtime-unit-color":  {
+                                                             "cssProperty":  "color",
+                                                             "bindings":  [
+                                                                              {
+                                                                                  "file":  "features/home/050-feature-copy.css",
+                                                                                  "selector":  ".home-feature-playtime small",
+                                                                                  "property":  "color",
+                                                                                  "occurrence":  0
+                                                                              }
+                                                                          ],
+                                                             "default":  "#b5bece"
+                                                         },
+                   "--doorpi-home-action-color":  {
+                                                      "cssProperty":  "color",
+                                                      "bindings":  [
+                                                                       {
+                                                                           "file":  "features/home/050-feature-copy.css",
+                                                                           "selector":  ".home-feature-primary",
+                                                                           "property":  "color",
+                                                                           "occurrence":  0
+                                                                       }
+                                                                   ],
+                                                      "default":  "rgba(255,255,255,.9)"
+                                                  },
+                   "--doorpi-home-action-key-background":  {
+                                                               "cssProperty":  "background",
+                                                               "bindings":  [
+                                                                                {
+                                                                                    "file":  "features/home/050-feature-copy.css",
+                                                                                    "selector":  ".home-feature-a",
+                                                                                    "property":  "background",
+                                                                                    "occurrence":  0
+                                                                                }
+                                                                            ],
+                                                               "default":  "rgba(255,255,255,.1)"
+                                                           },
+                   "--doorpi-home-action-key-color":  {
+                                                          "cssProperty":  "color",
+                                                          "bindings":  [
+                                                                           {
+                                                                               "file":  "features/home/050-feature-copy.css",
+                                                                               "selector":  ".home-feature-a",
+                                                                               "property":  "color",
+                                                                               "occurrence":  0
+                                                                           }
+                                                                       ],
+                                                          "default":  "#fff"
+                                                      },
+                   "--doorpi-home-library-label-color":  {
+                                                             "cssProperty":  "color",
+                                                             "bindings":  [
+                                                                              {
+                                                                                  "file":  "features/home/060-library.css",
+                                                                                  "selector":  ".home-library-head",
+                                                                                  "property":  "color",
+                                                                                  "occurrence":  0
+                                                                              }
+                                                                          ],
+                                                             "default":  "rgba(255,255,255,.46)"
+                                                         },
+                   "--doorpi-home-card-filter":  {
+                                                     "cssProperty":  "filter",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/home/060-library.css",
+                                                                          "selector":  ".home-library-rail .card.featured",
+                                                                          "property":  "filter",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "saturate(.9) brightness(.82)"
+                                                 },
+                   "--doorpi-home-card-shadow":  {
+                                                     "cssProperty":  "box-shadow",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "features/home/060-library.css",
+                                                                          "selector":  ".home-library-rail .card.featured",
+                                                                          "property":  "box-shadow",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "0 12px 28px rgba(0,0,0,.2)"
+                                                 },
+                   "--doorpi-home-card-focus-filter":  {
+                                                           "cssProperty":  "filter",
+                                                           "bindings":  [
+                                                                            {
+                                                                                "file":  "features/home/060-library.css",
+                                                                                "selector":  ".home-library-rail .card.featured:hover",
+                                                                                "property":  "filter",
+                                                                                "occurrence":  0
+                                                                            }
+                                                                        ],
+                                                           "default":  "saturate(1.04) brightness(1.04)"
+                                                       },
+                   "--doorpi-home-card-focus-shadow":  {
+                                                           "cssProperty":  "box-shadow",
+                                                           "bindings":  [
+                                                                            {
+                                                                                "file":  "features/home/060-library.css",
+                                                                                "selector":  ".home-library-rail .card.featured:hover",
+                                                                                "property":  "box-shadow",
+                                                                                "occurrence":  0
+                                                                            }
+                                                                        ],
+                                                           "default":  "0 20px 44px rgba(0,0,0,.34)"
+                                                       },
+                   "--doorpi-home-controls-color":  {
+                                                        "cssProperty":  "color",
+                                                        "bindings":  [
+                                                                         {
+                                                                             "file":  "features/home/080-controller-hints.css",
+                                                                             "selector":  ".home-controls-bar",
+                                                                             "property":  "color",
+                                                                             "occurrence":  0
+                                                                         }
+                                                                     ],
+                                                        "default":  "rgba(255,255,255,.52)"
+                                                    },
+                   "--doorpi-home-hint-color":  {
+                                                    "cssProperty":  "color",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "features/home/080-controller-hints.css",
+                                                                         "selector":  ".home-controls-bar .gp-hint-label",
+                                                                         "property":  "color",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "rgba(255,255,255,.58)"
+                                                },
+                   "--doorpi-home-card-width":  {
+                                                    "cssProperty":  "width",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "cascade/220-home-density.css",
+                                                                         "selector":  ".main-content-wrapper",
+                                                                         "property":  "--card-w",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "clamp(132px, min(10.2vw, 18.9vh), 268px)"
+                                                },
+                   "--doorpi-home-top-padding":  {
+                                                     "cssProperty":  "padding-top",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "cascade/220-home-density.css",
+                                                                          "selector":  ".main-content-wrapper",
+                                                                          "property":  "padding-top",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "clamp(72px, 8vh, 108px)"
+                                                 },
+                   "--doorpi-home-gap":  {
+                                             "cssProperty":  "gap",
+                                             "bindings":  [
+                                                              {
+                                                                  "file":  "cascade/220-home-density.css",
+                                                                  "selector":  ".main-content-wrapper",
+                                                                  "property":  "gap",
+                                                                  "occurrence":  0
+                                                              }
+                                                          ],
+                                             "default":  "clamp(7px, .9vh, 14px)"
+                                         },
+                   "--doorpi-home-feature-height":  {
+                                                        "cssProperty":  "height",
+                                                        "bindings":  [
+                                                                         {
+                                                                             "file":  "cascade/220-home-density.css",
+                                                                             "selector":  ".home-feature-stage",
+                                                                             "property":  "height",
+                                                                             "occurrence":  0
+                                                                         }
+                                                                     ],
+                                                        "default":  "min(38vh, 540px)"
+                                                    },
+                   "--doorpi-home-feature-gap":  {
+                                                     "cssProperty":  "gap",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "cascade/220-home-density.css",
+                                                                          "selector":  ".home-feature-stage",
+                                                                          "property":  "gap",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "clamp(30px, 4vw, 76px)"
+                                                 },
+                   "--doorpi-home-copy-width":  {
+                                                    "cssProperty":  "width",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "cascade/220-home-density.css",
+                                                                         "selector":  ".home-feature-copy",
+                                                                         "property":  "width",
+                                                                         "occurrence":  0
+                                                                     },
+                                                                     {
+                                                                         "file":  "features/home/100-default-composition.css",
+                                                                         "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy",
+                                                                         "property":  "width",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "min(50vw, 860px)"
+                                                },
+                   "--doorpi-home-copy-gap":  {
+                                                  "cssProperty":  "gap",
+                                                  "bindings":  [
+                                                                   {
+                                                                       "file":  "cascade/220-home-density.css",
+                                                                       "selector":  ".home-feature-copy",
+                                                                       "property":  "gap",
+                                                                       "occurrence":  0
+                                                                   },
+                                                                   {
+                                                                       "file":  "features/home/100-default-composition.css",
+                                                                       "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy",
+                                                                       "property":  "gap",
+                                                                       "occurrence":  0
+                                                                   }
+                                                               ],
+                                                  "default":  "calc(14 * var(--doorpi-shell-unit))"
+                                              },
+                   "--doorpi-home-logo-width":  {
+                                                    "cssProperty":  "max-width",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "cascade/220-home-density.css",
+                                                                         "selector":  "#gameLogo",
+                                                                         "property":  "max-width",
+                                                                         "occurrence":  0
+                                                                     },
+                                                                     {
+                                                                         "file":  "features/home/100-default-composition.css",
+                                                                         "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo",
+                                                                         "property":  "max-width",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "calc(440 * var(--doorpi-shell-unit))"
+                                                },
+                   "--doorpi-home-logo-height":  {
+                                                     "cssProperty":  "max-height",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "cascade/220-home-density.css",
+                                                                          "selector":  "#gameLogo",
+                                                                          "property":  "max-height",
+                                                                          "occurrence":  0
+                                                                      },
+                                                                      {
+                                                                          "file":  "features/home/100-default-composition.css",
+                                                                          "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-copy #gameLogo",
+                                                                          "property":  "max-height",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "calc(152 * var(--doorpi-shell-unit))"
+                                                 },
+                   "--doorpi-home-title-size":  {
+                                                    "cssProperty":  "font-size",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "cascade/220-home-density.css",
+                                                                         "selector":  ".home-feature-title",
+                                                                         "property":  "font-size",
+                                                                         "occurrence":  0
+                                                                     },
+                                                                     {
+                                                                         "file":  "features/home/100-default-composition.css",
+                                                                         "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-title",
+                                                                         "property":  "font-size",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "max(32px, calc(46 * var(--doorpi-shell-unit)))"
+                                                },
+                   "--doorpi-home-title-line-height":  {
+                                                           "cssProperty":  "line-height",
+                                                           "bindings":  [
+                                                                            {
+                                                                                "file":  "cascade/220-home-density.css",
+                                                                                "selector":  ".home-feature-title",
+                                                                                "property":  "line-height",
+                                                                                "occurrence":  0
+                                                                            },
+                                                                            {
+                                                                                "file":  "features/home/100-default-composition.css",
+                                                                                "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-title",
+                                                                                "property":  "line-height",
+                                                                                "occurrence":  0
+                                                                            }
+                                                                        ],
+                                                           "default":  "1.12"
+                                                       },
+                   "--doorpi-home-secondary-title-size":  {
+                                                              "cssProperty":  "font-size",
+                                                              "bindings":  [
+                                                                               {
+                                                                                   "file":  "cascade/220-home-density.css",
+                                                                                   "selector":  ".home-feature-stage.has-logo .home-feature-title",
+                                                                                   "property":  "font-size",
+                                                                                   "occurrence":  0
+                                                                               },
+                                                                               {
+                                                                                   "file":  "features/home/100-default-composition.css",
+                                                                                   "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-stage.has-logo .home-feature-title",
+                                                                                   "property":  "font-size",
+                                                                                   "occurrence":  0
+                                                                               }
+                                                                           ],
+                                                              "default":  "max(24px, calc(32 * var(--doorpi-shell-unit)))"
+                                                          },
+                   "--doorpi-home-meta-size":  {
+                                                   "cssProperty":  "font-size",
+                                                   "bindings":  [
+                                                                    {
+                                                                        "file":  "cascade/220-home-density.css",
+                                                                        "selector":  ".home-feature-description",
+                                                                        "property":  "font-size",
+                                                                        "occurrence":  0
+                                                                    },
+                                                                    {
+                                                                        "file":  "features/home/100-default-composition.css",
+                                                                        "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-meta span",
+                                                                        "property":  "font-size",
+                                                                        "occurrence":  0
+                                                                    }
+                                                                ],
+                                                   "default":  "max(15px, calc(16 * var(--doorpi-shell-unit)))"
+                                               },
+                   "--doorpi-home-playtime-size":  {
+                                                       "cssProperty":  "font-size",
+                                                       "bindings":  [
+                                                                        {
+                                                                            "file":  "cascade/220-home-density.css",
+                                                                            "selector":  ".home-feature-playtime strong",
+                                                                            "property":  "font-size",
+                                                                            "occurrence":  0
+                                                                        },
+                                                                        {
+                                                                            "file":  "features/home/100-default-composition.css",
+                                                                            "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-playtime strong",
+                                                                            "property":  "font-size",
+                                                                            "occurrence":  0
+                                                                        }
+                                                                    ],
+                                                       "default":  "max(24px, calc(30 * var(--doorpi-shell-unit)))"
+                                                   },
+                   "--doorpi-home-action-size":  {
+                                                     "cssProperty":  "font-size",
+                                                     "bindings":  [
+                                                                      {
+                                                                          "file":  "cascade/220-home-density.css",
+                                                                          "selector":  ".home-feature-primary",
+                                                                          "property":  "font-size",
+                                                                          "occurrence":  0
+                                                                      },
+                                                                      {
+                                                                          "file":  "features/home/100-default-composition.css",
+                                                                          "selector":  ":where(html:not([data-doorpi-feature-layout])) .home-feature-primary",
+                                                                          "property":  "font-size",
+                                                                          "occurrence":  0
+                                                                      }
+                                                                  ],
+                                                     "default":  "max(18px, calc(21 * var(--doorpi-shell-unit)))"
+                                                 },
+                   "--doorpi-home-toolbar-height":  {
+                                                        "cssProperty":  "min-height",
+                                                        "bindings":  [
+                                                                         {
+                                                                             "file":  "cascade/220-home-density.css",
+                                                                             "selector":  ".home-library-toolbar",
+                                                                             "property":  "min-height",
+                                                                             "occurrence":  0
+                                                                         }
+                                                                     ],
+                                                        "default":  "clamp(40px, 4.8vh, 58px)"
+                                                    },
+                   "--doorpi-home-tab-size":  {
+                                                  "cssProperty":  "font-size",
+                                                  "bindings":  [
+                                                                   {
+                                                                       "file":  "cascade/220-home-density.css",
+                                                                       "selector":  ".home-library-count",
+                                                                       "property":  "font-size",
+                                                                       "occurrence":  0
+                                                                   }
+                                                               ],
+                                                  "default":  "clamp(.82rem, .92vw, 1.08rem)"
+                                              },
+                   "--doorpi-home-card-width-compact":  {
+                                                            "cssProperty":  "width",
+                                                            "bindings":  [
+                                                                             {
+                                                                                 "file":  "cascade/220-home-density.css",
+                                                                                 "selector":  ".main-content-wrapper",
+                                                                                 "property":  "--card-w",
+                                                                                 "occurrence":  1
+                                                                             }
+                                                                         ],
+                                                            "default":  "clamp(121px, min(9.55vw, 17.65vh), 202px)"
+                                                        },
+                   "--doorpi-home-top-padding-compact":  {
+                                                             "cssProperty":  "padding-top",
+                                                             "bindings":  [
+                                                                              {
+                                                                                  "file":  "cascade/220-home-density.css",
+                                                                                  "selector":  ".main-content-wrapper",
+                                                                                  "property":  "padding-top",
+                                                                                  "occurrence":  1
+                                                                              }
+                                                                          ],
+                                                             "default":  "clamp(62px, 7.5vh, 78px)"
+                                                         },
+                   "--doorpi-home-feature-height-compact":  {
+                                                                "cssProperty":  "height",
+                                                                "bindings":  [
+                                                                                 {
+                                                                                     "file":  "cascade/220-home-density.css",
+                                                                                     "selector":  ".home-feature-stage",
+                                                                                     "property":  "height",
+                                                                                     "occurrence":  1
+                                                                                 }
+                                                                             ],
+                                                                "default":  "min(34vh, 340px)"
+                                                            },
+                   "--doorpi-home-feature-gap-compact":  {
+                                                             "cssProperty":  "gap",
+                                                             "bindings":  [
+                                                                              {
+                                                                                  "file":  "cascade/220-home-density.css",
+                                                                                  "selector":  ".home-feature-stage",
+                                                                                  "property":  "gap",
+                                                                                  "occurrence":  1
+                                                                              }
+                                                                          ],
+                                                             "default":  "clamp(22px, 3vw, 46px)"
+                                                         },
+                   "--doorpi-home-copy-width-compact":  {
+                                                            "cssProperty":  "width",
+                                                            "bindings":  [
+                                                                             {
+                                                                                 "file":  "cascade/220-home-density.css",
+                                                                                 "selector":  ".home-feature-copy",
+                                                                                 "property":  "width",
+                                                                                 "occurrence":  1
+                                                                             }
+                                                                         ],
+                                                            "default":  "min(100%, 650px)"
+                                                        },
+                   "--doorpi-home-card-width-short":  {
+                                                          "cssProperty":  "width",
+                                                          "bindings":  [
+                                                                           {
+                                                                               "file":  "cascade/220-home-density.css",
+                                                                               "selector":  ".main-content-wrapper",
+                                                                               "property":  "--card-w",
+                                                                               "occurrence":  2
+                                                                           }
+                                                                       ],
+                                                          "default":  "clamp(107px, min(8.95vw, 16.45vh), 161px)"
+                                                      },
+                   "--doorpi-home-feature-height-short":  {
+                                                              "cssProperty":  "height",
+                                                              "bindings":  [
+                                                                               {
+                                                                                   "file":  "cascade/220-home-density.css",
+                                                                                   "selector":  ".home-feature-stage",
+                                                                                   "property":  "height",
+                                                                                   "occurrence":  2
+                                                                               }
+                                                                           ],
+                                                              "default":  "min(28vh, 205px)"
+                                                          },
+                   "--doorpi-clock-color":  {
+                                                "cssProperty":  "color",
+                                                "bindings":  [
+                                                                 {
+                                                                     "file":  "cascade/170-console-legibility.css",
+                                                                     "selector":  "#clock",
+                                                                     "property":  "color",
+                                                                     "occurrence":  0
+                                                                 }
+                                                             ],
+                                                "default":  "rgba(255,255,255,0.96)"
+                                            },
+                   "--doorpi-clock-size":  {
+                                               "cssProperty":  "font-size",
+                                               "bindings":  [
+                                                                {
+                                                                    "file":  "cascade/170-console-legibility.css",
+                                                                    "selector":  "#clock",
+                                                                    "property":  "font-size",
+                                                                    "occurrence":  0
+                                                                }
+                                                            ],
+                                               "default":  "clamp(1.32rem, 1.48vw, 1.95rem)"
+                                           },
+                   "--doorpi-clock-weight":  {
+                                                 "cssProperty":  "font-weight",
+                                                 "bindings":  [
+                                                                  {
+                                                                      "file":  "cascade/170-console-legibility.css",
+                                                                      "selector":  "#clock",
+                                                                      "property":  "font-weight",
+                                                                      "occurrence":  0
+                                                                  }
+                                                              ],
+                                                 "default":  "540"
+                                             },
+                   "--doorpi-dialog-backdrop":  {
+                                                    "cssProperty":  "background",
+                                                    "bindings":  [
+                                                                     {
+                                                                         "file":  "cascade/190-dialog-and-keyboard-refinements.css",
+                                                                         "selector":  "#addGameContainer",
+                                                                         "property":  "background",
+                                                                         "occurrence":  0
+                                                                     }
+                                                                 ],
+                                                    "default":  "radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.12), transparent 44%),\r\n        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.075), transparent 48%),\r\n        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.82))"
+                                                },
+                   "--doorpi-dialog-background":  {
+                                                      "cssProperty":  "background",
+                                                      "bindings":  [
+                                                                       {
+                                                                           "file":  "cascade/190-dialog-and-keyboard-refinements.css",
+                                                                           "selector":  ".modal-layout",
+                                                                           "property":  "background",
+                                                                           "occurrence":  0
+                                                                       }
+                                                                   ],
+                                                      "default":  "radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.10), transparent 42%),\r\n        linear-gradient(112deg, rgba(34,38,58,0.90), rgba(18,22,38,0.84) 58%, rgba(14,17,30,0.88))"
+                                                  },
+                   "--doorpi-dialog-radius":  {
+                                                  "cssProperty":  "border-radius",
+                                                  "bindings":  [
+                                                                   {
+                                                                       "file":  "cascade/150-console-direction.css",
+                                                                       "selector":  ".modal-layout",
+                                                                       "property":  "border-radius",
+                                                                       "occurrence":  0
+                                                                   }
+                                                               ],
+                                                  "default":  "8px"
+                                              },
+                   "--doorpi-dialog-border-color":  {
+                                                        "cssProperty":  "border-color",
+                                                        "bindings":  [
+                                                                         {
+                                                                             "file":  "cascade/170-console-legibility.css",
+                                                                             "selector":  ".modal-layout",
+                                                                             "property":  "border-color",
+                                                                             "occurrence":  0
+                                                                         }
+                                                                     ],
+                                                        "default":  "rgba(255,255,255,0.18)"
+                                                    },
+                   "--doorpi-dialog-shadow":  {
+                                                  "cssProperty":  "box-shadow",
+                                                  "bindings":  [
+                                                                   {
+                                                                       "file":  "cascade/170-console-legibility.css",
+                                                                       "selector":  ".modal-layout",
+                                                                       "property":  "box-shadow",
+                                                                       "occurrence":  0
+                                                                   }
+                                                               ],
+                                                  "default":  "0 34px 92px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12)"
+                                              }
+               },
+    "layouts":  {
+                    "trailer":  {
+                                    "attribute":  "data-doorpi-trailer-layout",
+                                    "variants":  [
+                                                     "backdrop",
+                                                     "feature-art"
+                                                 ],
+                                    "regions":  [
+                                                    "player"
+                                                ]
+                                },
+                    "home":  {
+                                 "attribute":  "data-doorpi-home-layout",
+                                 "variants":  [
+                                                  "feature-first",
+                                                  "library-first"
+                                              ],
+                                 "regions":  [
+                                                 "feature",
+                                                 "toolbar",
+                                                 "library",
+                                                 "controls"
+                                             ],
+                                 "customGrid":  true
+                             },
+                    "feature":  {
+                                    "attribute":  "data-doorpi-feature-layout",
+                                    "variants":  [
+                                                     "art-left",
+                                                     "art-right"
+                                                 ],
+                                    "regions":  [
+                                                    "art",
+                                                    "copy"
+                                                ],
+                                    "customGrid":  true
+                                },
+                    "copy":  {
+                                 "attribute":  "data-doorpi-copy-layout",
+                                 "variants":  [
+                                                  "title-first",
+                                                  "meta-first"
+                                              ],
+                                 "regions":  [
+                                                 "eyebrow",
+                                                 "logo",
+                                                 "title",
+                                                 "meta",
+                                                 "playtime",
+                                                 "action"
+                                             ],
+                                 "customGrid":  true
+                             },
+                    "dialog":  {
+                                   "attribute":  "data-doorpi-dialog-layout",
+                                   "variants":  [
+                                                    "left",
+                                                    "right"
+                                                ],
+                                   "regions":  [
+                                                   "sidebar",
+                                                   "content"
+                                               ]
+                               }
+                }
+}

@@ -1,0 +1,134 @@
+/* ══════════════════════════════════════════════════
+   HOME TABS BAR — informação presente, não decoração
+   ══════════════════════════════════════════════════ */
+
+.home-tabs-group,
+.gp-hints-inner,
+.home-tabs-hint {
+    display: flex;
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+}
+
+/* Gaps individuais */
+.home-tabs-group {
+    gap: clamp(4px, 0.4vw, 8px);
+}
+
+.gp-hints-inner {
+    gap: clamp(10px, 1.35vw, 26px);
+}
+
+.home-tabs-hint {
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(0.68rem, 1.05vw, 1.5rem);
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.05em;
+    user-select: none;
+    /* margin-left: auto removido — .gp-hints usa flex:1 agora */
+}
+
+    .home-tabs-hint b {
+        background: rgba(255, 255, 255, 0.10);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-weight: 600;
+        font-size: 0.95em;
+        color: #fff;
+    }
+
+/* ── Gamepad Hints ── */
+.gp-hints {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    user-select: none;
+    opacity: 0.94;
+}
+
+.gp-hint-item {
+    display: flex;
+    align-items: center;
+    gap: clamp(4px, 0.35vw, 7px);
+}
+
+.gp-hint-sep {
+    width: 1px;
+    height: clamp(10px, 0.9vw, 16px);
+    background: rgba(255, 255, 255, 0.12);
+    flex-shrink: 0;
+}
+
+/* Botão redondo — base */
+.gp-face-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    width: clamp(18px, 1.35vw, 30px);
+    height: clamp(18px, 1.35vw, 30px);
+    font-size: clamp(8px, 0.72vw, 14px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    flex-shrink: 0;
+
+}
+
+/* Os botões ficam neutros para não disputar com a arte em foco. */
+.gp-a {
+    background: rgba(255,255,255,0.12) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255,255,255,0.44) !important;
+}
+
+.gp-b {
+    background: rgba(255,255,255,0.12) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255,255,255,0.44) !important;
+}
+
+.gp-x {
+    background: rgba(255,255,255,0.12) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255,255,255,0.44) !important;
+}
+
+.gp-y {
+    background: rgba(255,255,255,0.12) !important;
+    color: #fff !important;
+    border: 1px solid rgba(255,255,255,0.44) !important;
+}
+
+/* Botão Menu (≡) — retângulo arredondado */
+.gp-face-btn.gp-start {
+    border-radius: clamp(3px, 0.25vw, 5px);
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.9);
+    box-shadow: none;
+}
+
+    .gp-face-btn.gp-start svg {
+        width: clamp(13px, 0.78vw, 22px);
+        height: clamp(13px, 0.78vw, 22px);
+    }
+
+/* Rótulo ao lado do botão */
+.gp-hint-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(13px, 0.74vw, 17px);
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    letter-spacing: 0.035em;
+    white-space: nowrap;
+}
+

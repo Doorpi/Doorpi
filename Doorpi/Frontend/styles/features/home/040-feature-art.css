@@ -1,0 +1,95 @@
+.home-feature-stage.is-changing .home-feature-art-shell {
+    opacity: .7;
+}
+
+.home-feature-scene-art {
+    position: absolute;
+    z-index: -1;
+    top: 0;
+    right: 0;
+    width: 76%;
+    height: 100%;
+    object-fit: contain;
+    object-position: right center;
+    opacity: 0;
+    filter: none;
+    -webkit-mask-image:
+        linear-gradient(90deg, transparent 0%, rgba(0,0,0,.72) 18%, #000 42%, rgba(0,0,0,.7) 56%, rgba(0,0,0,.26) 74%, transparent 100%),
+        linear-gradient(180deg, transparent 0%, #000 16%, #000 70%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+        linear-gradient(90deg, transparent 0%, rgba(0,0,0,.72) 18%, #000 42%, rgba(0,0,0,.7) 56%, rgba(0,0,0,.26) 74%, transparent 100%),
+        linear-gradient(180deg, transparent 0%, #000 16%, #000 70%, transparent 100%);
+    mask-composite: intersect;
+    transition: opacity .4s ease;
+    pointer-events: none;
+    display: none;
+}
+
+.home-feature-stage.has-scene-art .home-feature-scene-art {
+    opacity: .18;
+}
+
+.home-feature-art-shell {
+    position: relative;
+    justify-self: start;
+    height: 88%;
+    max-width: 100%;
+    aspect-ratio: 920 / 430;
+    overflow: hidden;
+    border-radius: var(--doorpi-home-art-radius);
+    border: var(--doorpi-home-art-border);
+    background:
+        var(--doorpi-home-art-background);
+    box-shadow: var(--doorpi-home-art-shadow);
+    opacity: 1;
+    transition: opacity .22s ease, border-color .22s ease;
+    transform: translateY(clamp(4px, .55vh, 9px));
+}
+
+#homeFeatureArt {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+    opacity: 0;
+    transition: opacity .28s ease;
+}
+
+.home-feature-stage.has-art #homeFeatureArt {
+    opacity: 1;
+}
+
+.home-feature-stage.uses-contained-art #homeFeatureArt {
+    object-fit: contain;
+    padding: clamp(14px, 2vw, 34px);
+}
+
+.home-feature-art-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    background:
+        var(--doorpi-home-art-shade);
+}
+
+.home-feature-art-fallback {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: rgba(255,255,255,.18);
+}
+
+.home-feature-art-fallback svg {
+    width: 17%;
+    height: 17%;
+}
+
+.home-feature-stage.has-art .home-feature-art-fallback {
+    display: none;
+}
+

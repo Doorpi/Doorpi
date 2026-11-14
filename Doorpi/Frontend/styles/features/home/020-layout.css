@@ -1,0 +1,64 @@
+.main-content-wrapper {
+    --card-w: clamp(140px, min(10.7vw, 19vh), 296px);
+    --card-h: calc(var(--card-w) * var(--doorpi-home-card-ratio));
+    --card-featured-w: var(--card-w);
+    --grid-pad-top: clamp(12px, 1.35vh, 22px);
+    --grid-pad-bottom: clamp(8px, 1vh, 16px);
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: clamp(76px, 8.4vh, 118px) 0 clamp(10px, 1.4vh, 22px);
+    display: grid;
+    grid-template-rows: var(--doorpi-home-rows);
+    gap: clamp(6px, .85vh, 13px);
+    overflow: hidden;
+    min-width: 0;
+    max-width: 100vw;
+}
+
+.main-content-wrapper .home-tabs {
+    width: auto;
+    margin: 0 !important;
+    padding: 0 !important;
+    justify-content: flex-start;
+    min-height: clamp(32px, 3.7vh, 48px);
+    z-index: 4;
+}
+
+.main-content-wrapper .home-tabs-group {
+    gap: clamp(12px, 1.25vw, 26px);
+}
+
+.main-content-wrapper .home-tab {
+    padding: clamp(5px, .55vw, 9px) clamp(8px, .75vw, 14px);
+    background: transparent;
+    border-color: transparent;
+    color: rgba(255,255,255,.48);
+}
+
+.main-content-wrapper .home-tab:focus,
+.main-content-wrapper .home-tab:hover,
+.main-content-wrapper .home-tab.nav-focused-el {
+    background: rgba(255,255,255,.075);
+    border-color: rgba(255,255,255,.6);
+    box-shadow: none;
+}
+
+.home-feature-stage {
+    width: calc(100% - var(--grid-pad-side) - var(--grid-pad-side));
+    min-height: 0;
+    height: min(38vh, 540px);
+    margin: 0 auto clamp(2px, .5vh, 8px);
+    display: grid;
+    grid-template-columns: var(--doorpi-home-feature-columns);
+    align-items: center;
+    justify-content: start;
+    gap: clamp(30px, 4vw, 82px);
+    opacity: 1;
+    transition: opacity .22s ease;
+    position: relative;
+    isolation: isolate;
+    align-self: end;
+    transform: translateY(clamp(-24px, -1.7vh, -12px));
+}
+

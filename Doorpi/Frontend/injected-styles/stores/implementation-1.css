@@ -1,0 +1,9 @@
+
+    #storesGrid { display: none; }
+    #storesGrid.active { display: flex; }
+    #gameGrid.tab-hidden, #mediaGrid.tab-hidden { display: none !important; }
+
+    #storeSessionMenu.context-menu { min-width: 280px; z-index: 12000; }
+    #storeSessionMenu .ctx-game-name { font-size: 1.1rem; margin-bottom: 8px; }
+    #storeSessionMenu .ctx-item.on { color: #fff; background: rgba(255,255,255,0.08); }
+    

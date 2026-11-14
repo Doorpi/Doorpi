@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Doorpi/ControlConfigurationModels.cs" Link="ControlConfigurationModels.cs" />
+    <Compile Include="../Doorpi/ControlOutputState.cs" Link="ControlOutputState.cs" />
+    <Compile Include="../Doorpi/XInputControllerHub.cs" Link="XInputControllerHub.cs" />
+    <Compile Include="$(IntermediateOutputPath)ControlRuntime.Generated.cs" />
+  </ItemGroup>
+  <Target Name="GenerateProductionControlRuntime" BeforeTargets="CoreCompile">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\GenerateRuntime.ps1&quot; -SourcePath &quot;$(MSBuildProjectDirectory)\..\Doorpi\MainWindow.ControlConfiguration.cs&quot; -OutputPath &quot;$(MSBuildProjectDirectory)\$(IntermediateOutputPath)ControlRuntime.Generated.cs&quot;" />
+  </Target>
+</Project>

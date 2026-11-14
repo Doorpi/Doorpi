@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doorpi</title>
-    <link rel="stylesheet" href="style.css?v=20260810c">
+    <link rel="stylesheet" href="style.css?v=20261114a">
     <link rel="stylesheet" href="file-browser.css?v=20260721l">
+    <script src="themes.js?v=20261113c" defer></script>
 
    
 </head>
@@ -13,7 +14,7 @@
 <body class="doorpi-session-locked" style="background: #020309; margin: 0; overflow: hidden;">
 
     <!-- 1. A Intro assume o controle absoluto instantaneamente no frame zero -->
-    <script src="intro-system.js?v=20260717m"></script>
+    <script src="intro-system.js?v=20261114d"></script>
 
     <!-- 2. O SISTEMA INTEIRO FICA DESLIGADO (display: none) ATÉ O LOGIN -->
     <div id="doorpi-app-ui" style="display: none; opacity: 0; transition: opacity 0.8s ease;">
@@ -40,6 +41,10 @@
         <div class="capaJogo">
             <img id="heroImage" loading="eager" fetchpriority="high" decoding="async" />
             <img id="bgBlur" loading="eager" fetchpriority="high" decoding="async" />
+        </div>
+        <!-- The player has its own presentation layer from initial page creation.
+             Theme changes never reparent a live video or YouTube iframe. -->
+        <div class="home-trailer-layer">
             <div id="homeTrailerBackdrop" class="home-trailer-backdrop" aria-hidden="true">
                 <div class="home-trailer-background" id="homeTrailerBackground">
                     <video id="homeFeatureTrailerBackground" playsinline preload="auto" muted></video>
@@ -74,7 +79,6 @@
                         <div class="home-feature-playtime" id="homeFeaturePlaytime" hidden>
                             <span class="home-feature-playtime-label" data-i18n="homePlaytimeLabel"></span>
                             <strong id="homeFeaturePlaytimeValue"></strong>
-                            <small id="homeFeatureLastSession"></small>
                         </div>
                         <div class="home-feature-primary">
                             <span class="home-feature-a">A</span>
@@ -95,13 +99,9 @@
                             <button class="home-tab" data-tab="stores" tabindex="0" data-i18n="tabStores"></button>
                         </div>
                     </div>
-                    <div class="home-library-head">
-                        <span class="home-library-title" id="homeLibraryTitle" data-i18n="homeLibraryTitle"></span>
-                        <span class="home-library-position" id="homeLibraryPosition"></span>
-                    </div>
                 </div>
 
-                <div class="home-library-rail">
+                <div class="home-library-rail" data-doorpi-region="home.carousel" data-doorpi-navigation-region="0">
                     <div class="game-grid" id="gameGrid">
                         <div class="card add-card" tabindex="0" id="btnAdd">
                             <div class="plus">+</div>
@@ -443,13 +443,13 @@
     <div id="setupContainer"></div>
 
     <!-- Scripts de lógica da UI e Navegação -->
-    <script src="strings.js?v=20260806a"></script>
-    <script src="store.js?v=20260804a"></script>
-    <script src="renderer.js?v=20260804w"></script>
-    <script src="grid-controller.js?v=20260727a"></script>
+    <script src="strings.js?v=20261112c"></script>
+    <script src="store.js?v=20261112c"></script>
+    <script src="renderer.js?v=20261114a"></script>
+    <script src="grid-controller.js?v=20261112c"></script>
     <script src="file-browser.js?v=20260721o"></script>
-    <script src="navigation.js?v=20260804l"></script>
-    <script src="app.js?v=20260810p"></script>
+    <script src="navigation.js?v=20261113c"></script>
+    <script src="app.js?v=20261114d"></script>
     <script src="bluetooth-ui.js?v=20260619c"></script>
     <script src="wifi-ui.js?v=20260619a"></script>
     <script src="sound-ui.js?v=20260810g"></script>
@@ -459,7 +459,7 @@
     <script src="profile-photo-picker.js?v=20260714k"></script>
     <script src="profile-sync-ui.js?v=20260718b"></script>
     <script src="controls.js?v=20260804j"></script>
-    <script src="nav-menu.js?v=20260810z"></script>
+    <script src="nav-menu.js?v=20261114d"></script>
     <script src="setup.js?v=20260810a"></script>
 </body>
 </html>

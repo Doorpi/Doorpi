@@ -16,6 +16,12 @@ public sealed class PackageManifest
     [JsonPropertyName("entryPoint")]
     public string EntryPoint { get; set; } = "";
 
+    [JsonPropertyName("minUpdaterVersion")]
+    public string MinUpdaterVersion { get; set; } = "";
+
+    [JsonPropertyName("storageSchemaVersion")]
+    public int StorageSchemaVersion { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

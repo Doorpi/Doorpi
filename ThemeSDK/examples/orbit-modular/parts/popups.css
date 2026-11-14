@@ -1,0 +1,25 @@
+/* Dialogs share the command panel's edge and quiet accent. */
+:scope { font-family:'Segoe UI', system-ui, sans-serif; color:#f2f1eb; }
+:scope.edit-modal-overlay { background:#060b0fbb !important; }
+:scope.context-menu { background:#172328; border:1px solid #c6e9d83d; border-radius:8px; padding:10px; box-shadow:0 18px 56px #00000066; }
+.edit-modal { background:#172328 !important; border:1px solid #c6e9d83d; border-radius:10px; box-shadow:0 24px 80px #00000066; }
+.edit-modal-header { border-bottom:1px solid #d6eee226; }
+.edit-modal-title { color:#f2f1eb; font-weight:400; }
+.modal-btn { border-radius:4px; }
+.modal-btn.primary { background:#c6e9d8; color:#14211d; }
+.modal-btn:focus-visible { outline:2px solid #f2f1eb; outline-offset:4px; }
+.ctx-item:focus, .ctx-item.selected { background:#c6e9d8; color:#14211d; }
+.doorpi-update-shell { background:#172328; border:1px solid #c6e9d83d; border-radius:10px; }
+
+/* Editing becomes a right-hand sheet; its fields/actions retain the same DOM. */
+:scope.edit-modal-overlay { justify-content:flex-end; align-items:center; padding:4vw; }
+.edit-modal { width:clamp(420px, 38vw, 1080px); max-width:92vw; max-height:88vh; }
+.edit-modal-header, .edit-modal-body, .edit-modal-actions { padding:clamp(20px, 2vw, 56px); }
+.edit-modal-input { border-radius:4px; background:#0e191d; border-color:#d6eee23d; color:#f2f1eb; }
+.edit-modal-input:focus { border-color:#b7dccc; box-shadow:0 0 0 1px #b7dccc; }
+@media (max-width:1100px) { .edit-modal { width:min(640px, 92vw); } }
+
+button, input, select, textarea { font-family:inherit; }
+.edit-modal-input { font-size:clamp(16px, 1vw, 30px); min-height:48px; }
+.edit-modal-label { font-size:clamp(12px, .8vw, 24px); color:#b5c4bd; }
+.edit-modal-title { font-size:clamp(24px, 1.5vw, 48px); }

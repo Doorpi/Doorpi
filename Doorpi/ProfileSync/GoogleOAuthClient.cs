@@ -125,7 +125,7 @@ public sealed class GoogleOAuthClient
             throw new GoogleOAuthConfigurationException(
                 $"Credenciais OAuth não encontradas em '{_credentialsPath}'.");
 
-        await using FileStream stream = File.OpenRead(_credentialsPath);
+        await using Stream stream = File.OpenRead(_credentialsPath);
         using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         JsonElement root = document.RootElement;

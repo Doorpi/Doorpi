@@ -64,6 +64,11 @@ namespace Doorpi
                 {
                     var snapshot = XInputControllerHub.Read();
                     buttonTracker.Update(snapshot);
+                    if (BrowserPermissionDialog.InputCaptured)
+                    {
+                        Thread.Sleep(16);
+                        continue;
+                    }
                     // Trailer selection owns its interaction locally. Do not let
                     // task switching or configured global shortcuts treat it as a
                     // regular browser/app session.
@@ -129,6 +134,7 @@ namespace Doorpi
 
         private void VerifyGlobalDoorpiReturn(long generation, bool allowSessionAction)
         {
+            if (BrowserPermissionDialog.InputCaptured) return;
             if (generation != Interlocked.Read(ref _globalDoorpiReturnGeneration) ||
                 Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
             {

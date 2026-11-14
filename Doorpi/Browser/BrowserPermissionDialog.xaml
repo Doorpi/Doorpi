@@ -1,0 +1,43 @@
+<Window x:Class="Doorpi.BrowserPermissionDialog" x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Doorpi" Width="600" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" WindowStyle="None" ResizeMode="NoResize"
+        ShowInTaskbar="False" Background="#10172C" Foreground="#F5F7FF"
+        FontFamily="Segoe UI" FontSize="17" PreviewKeyDown="HandleKey">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#202C49"/>
+            <Setter Property="Foreground" Value="#F5F7FF"/>
+            <Setter Property="BorderBrush" Value="#566786"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="22,14"/>
+            <Setter Property="MinWidth" Value="170"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="Background" Value="#334D80"/>
+                    <Setter Property="BorderBrush" Value="#A9CCFF"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#334D80"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <Border BorderBrush="#516384" BorderThickness="1" Padding="32">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
+            <TextBlock x:Name="Heading" FontSize="27" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="ApplicationLabel" Margin="0,22,0,5" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock x:Name="OriginLabel" Foreground="#BDD2F5" TextWrapping="Wrap"/>
+            <TextBlock x:Name="Explanation" Margin="0,20,0,24" TextWrapping="Wrap" Foreground="#D0D8E8"/>
+            <WrapPanel>
+                <Button x:Name="BlockButton" Click="BlockClick"/>
+                <Button x:Name="AllowButton" Click="AllowClick" Margin="0"/>
+            </WrapPanel>
+            <TextBlock x:Name="Hints" Margin="0,22,0,0" FontSize="14" Foreground="#A6B6D0" TextWrapping="Wrap"/>
+        </StackPanel>
+        </ScrollViewer>
+    </Border>
+</Window>

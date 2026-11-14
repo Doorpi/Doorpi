@@ -1,0 +1,110 @@
+/* Home de console: mais espaço para contexto e uma prateleira mais densa. */
+.main-content-wrapper {
+    --card-w: var(--doorpi-home-card-width);
+    padding-top: var(--doorpi-home-top-padding);
+    gap: var(--doorpi-home-gap);
+}
+
+.home-feature-stage {
+    height: var(--doorpi-home-feature-height);
+    gap: var(--doorpi-home-feature-gap);
+}
+
+.home-feature-copy {
+    width: var(--doorpi-home-copy-width);
+    gap: var(--doorpi-home-copy-gap);
+}
+
+#gameLogo {
+    max-width: var(--doorpi-home-logo-width);
+    max-height: var(--doorpi-home-logo-height);
+}
+
+.home-feature-title {
+    max-width: 18ch;
+    font-size: var(--doorpi-home-title-size);
+    line-height: var(--doorpi-home-title-line-height);
+}
+
+.home-feature-stage.has-logo .home-feature-title {
+    font-size: var(--doorpi-home-secondary-title-size);
+}
+
+.home-feature-meta,
+.home-feature-description {
+    font-size: var(--doorpi-home-meta-size);
+}
+
+.home-feature-playtime strong {
+    font-size: var(--doorpi-home-playtime-size);
+}
+
+.home-feature-primary {
+    font-size: var(--doorpi-home-action-size);
+}
+
+.home-library-toolbar {
+    min-height: var(--doorpi-home-toolbar-height);
+}
+
+.main-content-wrapper .home-tab,
+.home-library-count {
+    font-size: var(--doorpi-home-tab-size);
+}
+
+body.home-trailer-cinema .home-feature-copy {
+    width: clamp(420px, 30vw, 620px);
+    max-width: min(64vw, 620px);
+    padding: clamp(18px, 1.45vw, 26px);
+    gap: clamp(8px, .8vh, 13px);
+}
+
+body.home-trailer-cinema .home-feature-copy #gameLogo {
+    max-width: min(20vw, 300px);
+    max-height: min(11vh, 110px);
+}
+
+body.home-trailer-cinema .home-feature-copy .home-feature-title,
+body.home-trailer-cinema .home-feature-stage.has-logo .home-feature-copy .home-feature-title {
+    font-size: clamp(1rem, 1.25vw, 1.48rem);
+}
+
+body.home-trailer-cinema .home-feature-copy .home-feature-meta,
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime-label,
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime small {
+    font-size: clamp(.7rem, .72vw, .86rem);
+}
+
+body.home-trailer-cinema .home-feature-copy .home-feature-playtime strong {
+    font-size: clamp(1.22rem, 1.5vw, 1.8rem);
+}
+
+body.home-trailer-cinema .home-feature-copy .home-feature-primary {
+    font-size: clamp(.82rem, .88vw, 1rem);
+}
+
+@media (max-height: 900px), (max-width: 1500px) {
+    .main-content-wrapper {
+        --card-w: var(--doorpi-home-card-width-compact);
+        padding-top: var(--doorpi-home-top-padding-compact);
+    }
+
+    .home-feature-stage {
+        height: var(--doorpi-home-feature-height-compact);
+        gap: var(--doorpi-home-feature-gap-compact);
+    }
+
+    .home-feature-copy {
+        width: var(--doorpi-home-copy-width-compact);
+    }
+}
+
+@media (max-height: 720px) {
+    .main-content-wrapper {
+        --card-w: var(--doorpi-home-card-width-short);
+    }
+
+    .home-feature-stage {
+        height: var(--doorpi-home-feature-height-short);
+    }
+}

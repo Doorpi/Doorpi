@@ -1,0 +1,45 @@
+
+        /* ABA DA ESQUERDA (Jogos) */
+        @keyframes slideInFromLeft {
+            0% {
+                opacity: 0;
+                transform: translateX(-12px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* ABA DA DIREITA (Mídia) */
+        @keyframes slideInFromRight {
+            0% {
+                opacity: 0;
+                transform: translateX(12px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        #gameGrid,
+        #view-apps.active {
+            /* 'both' é a mágica: aplica opacidade 0 antes de iniciar, matando a piscada */
+            animation: slideInFromLeft var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both !important;
+            will-change: transform, opacity;
+            backface-visibility: hidden; /* Força 2D por hardware, evita tremulação nos pixels */
+        }
+
+        #mediaGrid,
+        #storesGrid,
+        #view-media-apps.active,
+        #view-folders.active {
+            animation: slideInFromRight var(--doorpi-shell-motion-panel) cubic-bezier(.22,1,.36,1) both !important;
+            will-change: transform, opacity;
+            backface-visibility: hidden;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #gameGrid, #mediaGrid, #storesGrid, #view-apps.active,
+            #view-media-apps.active, #view-folders.active { animation:none !important; }
+        }

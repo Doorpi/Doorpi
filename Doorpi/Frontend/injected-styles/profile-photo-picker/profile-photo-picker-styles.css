@@ -1,0 +1,67 @@
+
+            .profile-photo-picker-overlay { position:fixed; inset:0; z-index:14500; display:flex; align-items:center; justify-content:center; padding:clamp(24px,4vw,64px); background:rgba(3,5,14,.86); box-sizing:border-box; }
+            .profile-photo-picker { width:min(1480px,96vw); max-height:min(920px,92vh); display:flex; flex-direction:column; overflow:hidden; border:1px solid rgba(255,255,255,.16); border-radius:8px; background:#10131d; box-shadow:0 28px 90px rgba(0,0,0,.62); color:#fff; }
+            .profile-photo-picker-overlay.profile-photo-search-vkb-open { align-items:flex-start; padding-top:var(--profile-photo-vkb-clearance,44vh); }
+            .profile-photo-picker-overlay.profile-photo-search-vkb-open .profile-photo-picker { max-height:calc(100vh - var(--profile-photo-vkb-clearance,44vh) - clamp(24px,4vw,64px)); }
+            .profile-photo-picker-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; padding:clamp(20px,2.4vw,32px); border-bottom:1px solid rgba(255,255,255,.09); }
+            .profile-photo-picker-title { margin:0; font-size:clamp(1.1rem,1.5vw,1.65rem); font-weight:700; letter-spacing:.08em; }
+            .profile-photo-picker-subtitle { margin:0; color:rgba(255,255,255,.48); font-size:clamp(.8rem,.9vw,1rem); }
+            .profile-photo-picker-close { width:42px; height:42px; display:grid; place-items:center; border:1px solid rgba(255,255,255,.14); border-radius:6px; background:rgba(255,255,255,.05); color:#fff; font:inherit; font-size:1.3rem; outline:none; }
+            .profile-photo-picker-close:focus { border-color:#72b8ff; box-shadow:0 0 0 3px rgba(75,155,255,.22); }
+            .profile-photo-picker-body { min-height:0; overflow:auto; padding:clamp(20px,2.4vw,32px); }
+            .profile-photo-sources { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+            .profile-photo-source { min-height:128px; display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-end; gap:7px; padding:20px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(255,255,255,.045); color:#fff; text-align:left; font:inherit; outline:none; }
+            .profile-photo-source strong { font-size:1rem; }
+            .profile-photo-source span { color:rgba(255,255,255,.46); font-size:.82rem; line-height:1.35; }
+            .profile-photo-source:focus { border-color:#72b8ff; background:rgba(72,145,230,.16); box-shadow:0 0 0 3px rgba(75,155,255,.18); }
+            .profile-photo-source:disabled { opacity:.38; cursor:not-allowed; }
+            .profile-photo-key-hint { grid-column:1/-1; margin:0; color:rgba(255,255,255,.46); font-size:.82rem; }
+            .profile-photo-toolbar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:10px; margin-bottom:24px; }
+            .profile-photo-search-wrap { min-width:0; display:grid; gap:8px; }
+            .profile-photo-game-suggestions { display:grid; gap:6px; }
+            .profile-photo-game-suggestion { min-height:38px; padding:0 13px; overflow:hidden; border:1px solid rgba(255,255,255,.11); border-radius:5px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.78); font:inherit; font-size:.82rem; text-align:left; text-overflow:ellipsis; white-space:nowrap; outline:none; }
+            .profile-photo-game-suggestion:focus { border-color:#72b8ff; background:rgba(70,145,230,.18); box-shadow:0 0 0 3px rgba(75,155,255,.18); }
+            .profile-photo-input { min-width:0; padding:14px 16px; border:1px solid rgba(255,255,255,.16); border-radius:6px; background:rgba(255,255,255,.07); color:#fff; font:inherit; outline:none; }
+            .profile-photo-input:focus { border-color:#72b8ff; box-shadow:0 0 0 3px rgba(75,155,255,.2); }
+            .profile-photo-command { min-height:48px; padding:0 22px; border:1px solid rgba(255,255,255,.18); border-radius:6px; background:rgba(255,255,255,.08); color:#fff; font:inherit; font-weight:650; outline:none; }
+            #profilePhotoSearchButton { height:48px; align-self:start; }
+            .profile-photo-command:focus { border-color:#72b8ff; background:rgba(70,145,230,.18); box-shadow:0 0 0 3px rgba(75,155,255,.2); }
+            .profile-photo-status { min-height:24px; margin:0 0 14px; color:rgba(255,255,255,.52); font-size:.86rem; }
+            .profile-photo-group { margin-top:18px; }
+            .profile-photo-group-head { display:flex; align-items:center; gap:14px; margin-bottom:12px; color:rgba(255,255,255,.72); font-size:.76rem; font-weight:800; text-transform:uppercase; letter-spacing:.12em; }
+            .profile-photo-group-head::after { content:''; height:1px; flex:1; background:rgba(255,255,255,.1); }
+            .profile-photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(clamp(138px,11vw,172px),1fr)); gap:12px; }
+            .profile-photo-choice { position:relative; aspect-ratio:1; padding:0; overflow:hidden; border:2px solid transparent; border-radius:6px; background:rgba(255,255,255,.04); outline:none; }
+            .profile-photo-choice.vertical { aspect-ratio:2/3; }
+            .profile-photo-choice img { width:100%; height:100%; object-fit:cover; display:block; }
+            .profile-photo-choice:focus { border-color:#fff; transform:scale(1.035); z-index:2; box-shadow:0 12px 28px rgba(0,0,0,.5); }
+            .profile-photo-choice small { position:absolute; left:6px; right:6px; bottom:6px; padding:5px 6px; overflow:hidden; border-radius:3px; background:rgba(0,0,0,.72); color:#fff; font-size:.62rem; text-overflow:ellipsis; white-space:nowrap; opacity:0; }
+            .profile-photo-choice:focus small { opacity:1; }
+            .profile-photo-empty { padding:30px 0; color:rgba(255,255,255,.34); }
+            .profile-photo-url-panel { display:grid; gap:14px; }
+            .profile-photo-url-actions { display:flex; flex-wrap:wrap; gap:10px; }
+            .profile-photo-crop-layout { display:grid; grid-template-columns:minmax(300px,1fr) minmax(220px,.62fr); align-items:center; gap:clamp(28px,5vw,72px); }
+            .profile-photo-crop-stage { position:relative; width:min(54vh,500px); max-width:100%; aspect-ratio:1; justify-self:center; overflow:hidden; border:2px solid rgba(255,255,255,.82); border-radius:50%; background:#05060b; outline:none; box-shadow:0 22px 60px rgba(0,0,0,.5),0 0 0 12px rgba(255,255,255,.035); }
+            .profile-photo-crop-stage:focus { border-color:#72b8ff; box-shadow:0 0 0 5px rgba(75,155,255,.26),0 22px 60px rgba(0,0,0,.5); }
+            .profile-photo-crop-image { position:absolute; left:50%; top:50%; max-width:none; transform-origin:center; user-select:none; pointer-events:none; }
+            .profile-photo-crop-stage.loading { display:grid; place-items:center; border-color:rgba(255,255,255,.2); cursor:default; }
+            .profile-photo-loading-preview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.2; filter:blur(5px); transform:scale(1.04); }
+            .profile-photo-loading-shade { position:absolute; inset:0; background:rgba(4,6,12,.58); }
+            .profile-photo-loading-state { position:relative; z-index:1; width:min(72%,320px); display:grid; justify-items:center; gap:14px; color:#fff; text-align:center; }
+            .profile-photo-loading-state strong { font-size:clamp(.92rem,1.1vw,1.15rem); font-weight:650; }
+            .profile-photo-progress { width:100%; height:6px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.13); }
+            .profile-photo-progress-fill { display:block; width:0; height:100%; border-radius:inherit; background:#72b8ff; transition:width .16s ease; }
+            .profile-photo-progress.indeterminate .profile-photo-progress-fill { width:38%; animation:profilePhotoProgress 1.05s ease-in-out infinite; }
+            .profile-photo-progress-value { min-height:1em; color:rgba(255,255,255,.58); font-size:.76rem; }
+            .profile-photo-crop-info { display:flex; flex-direction:column; gap:16px; }
+            .profile-photo-crop-info h4 { margin:0; font-size:clamp(1.1rem,1.6vw,1.8rem); font-weight:450; }
+            .profile-photo-crop-info p { margin:0; color:rgba(255,255,255,.5); line-height:1.55; }
+            .profile-photo-crop-actions { display:grid; gap:10px; margin-top:8px; }
+            .profile-photo-error { color:#ff9d9d; }
+            @keyframes profilePhotoProgress { from { transform:translateX(-120%); } to { transform:translateX(330%); } }
+            @media (max-width:800px) {
+                .profile-photo-sources { grid-template-columns:1fr; }
+                .profile-photo-crop-layout { grid-template-columns:1fr; }
+                .profile-photo-crop-stage { width:min(46vh,360px); }
+            }
+        

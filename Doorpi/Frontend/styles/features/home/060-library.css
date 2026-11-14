@@ -1,0 +1,89 @@
+.home-library-toolbar {
+    width: calc(100% - var(--grid-pad-side) - var(--grid-pad-side));
+    min-height: clamp(36px, 4.2vh, 54px);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: clamp(24px, 3vw, 58px);
+}
+
+.home-library-head {
+    width: auto;
+    margin: 0 0 0 auto;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: clamp(16px, 1.6vw, 30px);
+    color: var(--doorpi-home-library-label-color);
+}
+
+.home-library-title {
+    font-size: clamp(.76rem, .86vw, 1rem);
+    font-weight: 610;
+    letter-spacing: .06em;
+}
+
+.home-library-position {
+    font-size: clamp(.68rem, .76vw, .9rem);
+    font-variant-numeric: tabular-nums;
+}
+
+.home-library-rail {
+    min-height: 0;
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    max-width: 100vw;
+    overflow: hidden;
+    contain: layout paint;
+}
+
+.home-library-rail .game-grid {
+    width: 100%;
+    padding: var(--grid-pad-top) 0 var(--grid-pad-bottom);
+    align-items: center;
+    background: transparent;
+    box-shadow: none;
+    max-width: 100%;
+    overscroll-behavior-inline: contain;
+}
+
+.home-library-rail .card,
+.home-library-rail .card.featured {
+    width: var(--card-w);
+    height: var(--card-h);
+    aspect-ratio: 2 / 3;
+    opacity: .76;
+    filter: var(--doorpi-home-card-filter);
+    border-width: 2px;
+    box-shadow: var(--doorpi-home-card-shadow);
+}
+
+.home-library-rail .card:focus,
+.home-library-rail .card:hover,
+.home-library-rail .card.nav-focused-el,
+.home-library-rail .card.featured:focus,
+.home-library-rail .card.featured:hover {
+    opacity: 1;
+    filter: var(--doorpi-home-card-focus-filter);
+    transform: translateY(-5px) scale(1.035);
+    box-shadow: var(--doorpi-home-card-focus-shadow);
+}
+
+.home-library-rail .card .title {
+    padding: 0 clamp(8px, .7vw, 13px) clamp(8px, .7vw, 13px);
+    font-size: max(12px, calc(14 * var(--doorpi-shell-unit)));
+    color: var(--doorpi-text-primary);
+    text-align: center;
+    opacity: 0;
+}
+
+.home-library-rail .card:focus .title,
+.home-library-rail .card.nav-focused-el .title {
+    opacity: 1;
+}
+
+/* Componente exclusivo da Home: não reutiliza os badges do nav-menu e,
+   portanto, não herda dimensões, pseudo-elementos ou animações deles. */

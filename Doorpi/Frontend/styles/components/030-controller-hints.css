@@ -1,0 +1,87 @@
+/* ══════════════════════════════════════════════════════
+   GAMEPAD HINTS - ESTILO XBOX (PAI COLORIDO)
+   ══════════════════════════════════════════════════════ */
+
+/* 1. O PAI (Círculo/Container) */
+.gp-hint,
+.gp-face-btn {
+    display: inline-flex;
+    justify-content: center;
+    width: clamp(22px, 1.65vw, 38px);
+    height: clamp(22px, 1.65vw, 38px);
+    border-radius: 50%;
+    font-size: clamp(11px, 0.78vw, 20px);
+    font-weight: 900;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+    color: #fff;
+    border: none;
+    margin-right: 4px;
+    align-items: center;
+}
+
+    /* 2. O FILHO (Letra/Ícone) - Removemos o fundo dele */
+    .gp-btn,
+    .gp-hint .gp-btn {
+        background: none !important;
+        box-shadow: none !important;
+        border: none !important;
+        color: inherit !important;
+        filter: drop-shadow(0px 0px 1px black);
+    }
+
+    /* 3. CORES FIXAS (Para Barra Inferior e Modais) */
+
+    /* VERDE (A / Confirmar) */
+    .gp-hint:has(.gp-a), .gp-hint:has(.gp-confirm), .gp-a,
+    [data-gamepad-hint="confirm"] .gp-hint {
+        background: #107c10 !important;
+    }
+
+    /* VERMELHO (B / Cancelar) */
+    .gp-hint:has(.gp-b), .gp-hint:has(.gp-cancel), .gp-b,
+    [data-gamepad-hint="cancel"] .gp-hint {
+        background: #e81123 !important;
+    }
+
+    /* AZUL (X) */
+    .gp-hint:has(.gp-x), .gp-x {
+        background: #003e92 !important;
+    }
+
+    /* AMARELO (Y) */
+    .gp-hint:has(.gp-y), .gp-y,
+    [data-gamepad-hint="triangle"] .gp-hint {
+        background: #f3c200 !important;
+        color: #ffffff !important;
+
+    }
+
+    /* START / MENU (Pílula Branca) */
+    .gp-hint:has(.gp-start), .gp-start,
+    [data-gamepad-hint="start"] .gp-hint {
+        background: #fff !important;
+        color: #000 !important;
+
+
+    }
+
+
+
+.gp-hint:has(.gp-select), .gp-select,
+[data-gamepad-hint="select"] .gp-hint {
+    background: #fff !important;
+    color: #000 !important;
+}
+
+.gp-start svg {
+    width: clamp(13px, 0.8vw, 22px);
+    height: clamp(13px, 0.8vw, 22px);
+}
+
+.gp-select svg {
+    width: clamp(17px, 1vw, 25px);
+    height: clamp(17px, 1vw, 25px);
+}
+

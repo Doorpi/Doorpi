@@ -16,6 +16,11 @@ internal static class DurableFileStore
 
     public static void WriteAllText(string path, string content, bool keepBackup = false)
     {
+        if (Doorpi.Storage.StateStorage.HandlesPath(path))
+        {
+            Doorpi.Storage.StateStorage.WriteAllText(path, content, keepBackup);
+            return;
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         string temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
 
@@ -49,6 +54,11 @@ internal static class DurableFileStore
         bool keepBackup,
         CancellationToken cancellationToken)
     {
+        if (Doorpi.Storage.StateStorage.HandlesPath(path))
+        {
+            await Doorpi.Storage.StateStorage.WriteAllTextAsync(path, content, keepBackup, cancellationToken).ConfigureAwait(false);
+            return;
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         string temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
 

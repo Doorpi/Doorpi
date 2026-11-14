@@ -376,6 +376,15 @@ namespace Doorpi
                         int ownerPid = Volatile.Read(ref _elevatedInputBridgeOwnerPid);
                         if (ownerPid > 0 && !IsProcessStillAlive(ownerPid))
                         {
+                            // Desinstaladores podem trocar o launcher por outro
+                            // processo/janela. Preserve a ponte durante esse handoff;
+                            // o monitor de armazenamento reassociará o novo destino.
+                            if (IsStorageUninstallerSessionActive())
+                            {
+                                Volatile.Write(ref _elevatedInputBridgeOwnerPid, 0);
+                                Interlocked.Exchange(ref _elevatedInputBridgeOwnerHwnd, 0);
+                                continue;
+                            }
                             StopElevatedInputBridge();
                             return;
                         }
@@ -383,6 +392,11 @@ namespace Doorpi
                         long ownerHwndRaw = Interlocked.Read(ref _elevatedInputBridgeOwnerHwnd);
                         if (ownerPid <= 0 && ownerHwndRaw != 0 && !IsWindow(new IntPtr(ownerHwndRaw)))
                         {
+                            if (IsStorageUninstallerSessionActive())
+                            {
+                                Interlocked.Exchange(ref _elevatedInputBridgeOwnerHwnd, 0);
+                                continue;
+                            }
                             StopElevatedInputBridge();
                             return;
                         }
@@ -418,9 +432,10 @@ namespace Doorpi
                        (_mediaExeModeActive && !_mediaExeMouseInputTemporarilyDisabled) ||
                        _storeMouseModeActive ||
                        _gameLaunchStoreMouseModeActive ||
-                       _dialogModeActive ||
-                       _systemControllerActive ||
-                       IsDoorpiFileExplorerLaunchActive() ||
+                        _dialogModeActive ||
+                        _systemControllerActive ||
+                        IsStorageUninstallerSessionActive() ||
+                        IsDoorpiFileExplorerLaunchActive() ||
                        IsStoreInstallFlowActive() ||
                        IsGpuUpdaterSessionActive();
             }

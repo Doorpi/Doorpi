@@ -1,0 +1,81 @@
+/* ==========================================================================
+   HOME EDITORIAL
+   Cada arte tem uma função: hero = atmosfera, horizontal = apresentação,
+   vertical = navegação.
+   ========================================================================== */
+
+.capaJogo {
+    background: var(--doorpi-home-background);
+}
+
+#heroImage {
+    inset: -8%;
+    width: 116%;
+    height: 116%;
+    object-fit: cover;
+    object-position: center;
+    filter: blur(clamp(32px, 3vw, 66px)) brightness(.42) saturate(1.28);
+    transform: scale(1.04);
+    -webkit-mask-image: none;
+    mask-image: none;
+}
+
+#bgBlur {
+    inset: -10%;
+    width: 120%;
+    height: 120%;
+    object-fit: cover;
+    filter: blur(clamp(90px, 8vw, 170px)) brightness(.3) saturate(1.5);
+    transform: scale(1.08);
+    opacity: .72;
+}
+
+body:not(.nav-menu-active) #bgBlur,
+body:not(.nav-menu-active) [class*="crossfade-clone-bgBlur"] {
+    opacity: 0 !important;
+    visibility: hidden;
+}
+
+body:not(.nav-menu-active) #heroImage {
+    inset: 0;
+    width: 100%;
+    height: var(--doorpi-home-hero-height);
+    object-fit: cover;
+    object-position: var(--doorpi-home-hero-position);
+    opacity: var(--doorpi-home-hero-opacity) !important;
+    visibility: visible;
+    filter: var(--doorpi-home-hero-filter);
+    transform: none;
+    -webkit-mask-image: var(--doorpi-home-hero-mask);
+    mask-image: var(--doorpi-home-hero-mask);
+}
+
+body:not(.nav-menu-active) [class*="crossfade-clone-heroImage"] {
+    display: none !important;
+}
+
+body:not(.nav-menu-active) #appBlobBg {
+    opacity: 0 !important;
+}
+
+.capaJogo::after {
+    background:
+        var(--doorpi-home-shade);
+}
+
+.hero-vignette,
+#gridBgImg {
+    display: none !important;
+}
+
+.grid-bg {
+    inset: 0;
+    z-index: 7;
+}
+
+.grid-bg::before {
+    inset: 0;
+    background:
+        var(--doorpi-home-glow);
+}
+

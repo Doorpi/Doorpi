@@ -180,6 +180,7 @@ namespace Doorpi
 
         private async Task CheckForUpdatesAsync(bool userInitiated)
         {
+            if (LocalTestMode.Enabled) return;
             await _updateCheckLock.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -306,6 +307,8 @@ namespace Doorpi
 
                 if (decision.DoorpiUpdateAvailable)
                 {
+                    UpdateManifestValidator.ValidateMinimumUpdaterVersion(
+                        decision.DoorpiRelease ?? throw new InvalidDataException("A atualização não contém a versão de destino."), UpdaterVersion);
                     await LaunchUpdaterForDoorpiAsync(decision).ConfigureAwait(false);
                     return;
                 }
@@ -429,6 +432,8 @@ namespace Doorpi
             if (!File.Exists(readySignal))
                 throw new TimeoutException("O atualizador não sinalizou prontidão.");
 
+            await BootSessionClient.DetachForUpdateAsync();
+
             Dispatcher.Invoke(() =>
             {
                 CleanupAndExit();
@@ -439,6 +444,7 @@ namespace Doorpi
 
         private void CompletePendingDoorpiHealthCheck()
         {
+            if (System.Threading.Volatile.Read(ref _bootInteractiveReady) == 0) return;
             try
             {
                 var stateStore = new UpdateStateStore(UpdateStatePath);
@@ -451,7 +457,7 @@ namespace Doorpi
                     DoorpiBootDiagnostics.Log(
                         "update-health-check-pending",
                         $"target={state.TargetVersion} running={DoorpiVersion}");
-                    bool healthyVersion = !UpdateVersionComparer.IsRemoteNewer(state.TargetVersion, DoorpiVersion);
+                    bool healthyVersion = UpdateVersionComparer.Compare(state.TargetVersion, DoorpiVersion) == 0;
                     if (!healthyVersion)
                     {
                         state.Error = $"Versão iniciada ({DoorpiVersion}) não corresponde ao alvo ({state.TargetVersion}).";
@@ -462,6 +468,13 @@ namespace Doorpi
                     }
 
                     string healthSignal = Environment.GetEnvironmentVariable("DOORPI_UPDATE_HEALTH_SIGNAL") ?? "";
+                    if (state.StorageMigrationStarted && (!state.StorageMigrationCompleted ||
+                        state.StorageSchemaVersion != Doorpi.Storage.StorageDatabase.SchemaVersion))
+                        throw new InvalidDataException("A migração exigida pela atualização não foi confirmada.");
+                    if (!string.Equals(healthSignal, state.HealthSignalPath, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("A confirmação de inicialização não pertence à atualização em andamento.");
+                    if (!string.Equals(Doorpi.Storage.StateStorage.CheckIntegrity(), "ok", StringComparison.Ordinal))
+                        throw new InvalidDataException("A integridade do armazenamento não foi confirmada.");
                     if (!string.IsNullOrWhiteSpace(healthSignal))
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(healthSignal)!);

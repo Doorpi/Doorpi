@@ -75,8 +75,34 @@ BenchmarkDotNet.Artifacts/
 project.lock.json
 project.fragment.lock.json
 artifacts/
+.audit-runtime/
 .build_check/
 .manual-update-test/
+
+# Doorpi local diagnostics and reproducible inventories (not application sources)
+/.codex-video-frames/
+/.tmp-youtube-inspect/
+/docs/architecture/current-inventory.json
+/Doorpi/Frontend/style-inventory.json
+
+# Local SQLite state, journals and migration snapshots
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Release packages and private signing material; signed/public manifests stay tracked
+*.doorpiupdate.zip
+manifest.private.xml
+*.private.pem
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt

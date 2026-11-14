@@ -1192,7 +1192,7 @@ namespace Doorpi
             _interactiveUserSessionStarted = false;
 
             string homeRenderMode = "hardware";
-            string homeBrowserArgs = BuildWebViewAdditionalArguments(
+            string homeBrowserArgs = WebViewRuntimeArguments.Build(
                 "DOORPI_HOME_WEBVIEW_RENDER_MODE",
                 homeRenderMode,
                 "DOORPI_HOME_WEBVIEW_EXTRA_ARGS");
@@ -1212,6 +1212,7 @@ namespace Doorpi
             bool consoleShellIntroSkippableForUi =
                 !RequiresConsoleShellStartupGate() ||
                 Volatile.Read(ref _consoleShellIntroSkippable) == 1;
+            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BootPresentationScript());
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__doorpiBootMode = {bootMode}; window.__doorpiUseNativeIntro = false; window.__doorpiNativeIntroComplete = true; window.__doorpiConsoleShellExplorerReady = {(consoleShellExplorerReadyForUi ? "true" : "false")}; window.__doorpiConsoleShellIntroSkippable = {(consoleShellIntroSkippableForUi ? "true" : "false")};");
             bool homeTrailerExtensionReady = await InstallHomeTrailerExtensionAsync(
@@ -1220,14 +1221,13 @@ namespace Doorpi
             await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 $"window.__doorpiHomeTrailerExtensionReady = {(homeTrailerExtensionReady ? "true" : "false")};");
             ApplyProductionWebViewSettings(webView.CoreWebView2);
-            webView.CoreWebView2.PermissionRequested += OnWebViewPermissionRequested;
+            await ConfigureWebPermissionsAsync(webView.CoreWebView2);
             webView.CoreWebView2.ProcessFailed += OnMainWebViewProcessFailed;
 
             string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
             webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "app.local", folderPath, Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind.Allow);
-            webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                "data.local", dataFolder, Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind.Allow);
+            AttachStateResourceHost(webView.CoreWebView2, trustedHome: true);
             webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             webView.CoreWebView2.NavigationCompleted += (_, _) =>
             {

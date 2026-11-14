@@ -1,0 +1,95 @@
+/* Public appearance defaults. Functional state and input stay in their components. */
+:root {
+    --doorpi-font-family: 'Segoe UI', system-ui, sans-serif;
+    --doorpi-text-primary: #ddddf0;
+    --doorpi-card-radius: clamp(8px, min(0.72vw, 1.28vh), 22px);
+    --doorpi-card-gap: clamp(18px, min(2vw, 1.65vh), 36px);
+    --doorpi-library-side-padding: clamp(30px, min(3.6vw, 6.4vh), 72px);
+    --doorpi-accent: rgba(255,255,255,0.92);
+    --doorpi-card-focus-color: white;
+    --doorpi-home-background: linear-gradient(135deg, #050b19 0%, #081a36 46%, #10143a 100%);
+    --doorpi-home-hero-height: min(72vh, 37vw);
+    --doorpi-home-hero-position: center top;
+    --doorpi-home-hero-opacity: .64;
+    --doorpi-home-hero-filter: none;
+    --doorpi-home-hero-mask: linear-gradient(
+        180deg,
+        #000 0%,
+        #000 54%,
+        rgba(0,0,0,.82) 66%,
+        rgba(0,0,0,.34) 84%,
+        transparent 100%
+    );
+    --doorpi-home-shade: radial-gradient(ellipse 70% 78% at 30% 32%, transparent 0%, rgba(4,6,16,.16) 58%, rgba(4,6,16,.46) 100%),
+        linear-gradient(180deg, rgba(3,5,14,.18) 0%, rgba(3,5,14,.08) 40%, rgba(3,5,14,.68) 100%);
+    --doorpi-home-glow: radial-gradient(ellipse 48% 42% at 72% 35%, rgba(255,255,255,.045), transparent 72%),
+        linear-gradient(180deg, rgba(4,6,16,.04) 0%, rgba(4,6,16,.08) 55%, rgba(4,6,16,.34) 100%);
+    --doorpi-home-rows: minmax(0, 1fr) auto auto auto;
+    --doorpi-home-card-ratio: 1.5;
+    --doorpi-home-feature-columns: auto minmax(0, 1fr);
+    --doorpi-home-art-radius: clamp(10px, .8vw, 16px);
+    --doorpi-home-art-border: 1px solid rgba(255,255,255,.13);
+    --doorpi-home-art-background: radial-gradient(circle at 68% 28%, rgba(116,150,230,.22), transparent 48%),
+        rgba(10,13,25,.58);
+    --doorpi-home-art-shadow: 0 26px 70px rgba(0,0,0,.34);
+    --doorpi-home-art-shade: linear-gradient(90deg, rgba(5,7,16,.16), transparent 24%, transparent 78%, rgba(5,7,16,.1)),
+        linear-gradient(0deg, rgba(4,6,14,.24), transparent 34%);
+    --doorpi-home-eyebrow-color: #bbc3d1;
+    --doorpi-home-title-color: #fff;
+    --doorpi-home-title-weight: 500;
+    --doorpi-home-secondary-title-color: rgba(255,255,255,.66);
+    --doorpi-home-meta-color: #bbc3d1;
+    --doorpi-home-meta-background: transparent;
+    --doorpi-home-meta-border: 0;
+    --doorpi-home-meta-radius: 5px;
+    --doorpi-home-runtime-color: #b7dcc5;
+    --doorpi-home-runtime-background: rgba(8,11,22,.32);
+    --doorpi-home-playtime-label-color: #aeb8c9;
+    --doorpi-home-playtime-color: rgba(255,255,255,.9);
+    --doorpi-home-playtime-unit-color: #b5bece;
+    --doorpi-home-action-color: rgba(255,255,255,.9);
+    --doorpi-home-action-key-background: rgba(255,255,255,.1);
+    --doorpi-home-action-key-color: #fff;
+    --doorpi-home-library-label-color: rgba(255,255,255,.46);
+    --doorpi-home-card-filter: saturate(.9) brightness(.82);
+    --doorpi-home-card-shadow: 0 12px 28px rgba(0,0,0,.2);
+    --doorpi-home-card-focus-filter: saturate(1.04) brightness(1.04);
+    --doorpi-home-card-focus-shadow: 0 20px 44px rgba(0,0,0,.34);
+    --doorpi-home-controls-color: rgba(255,255,255,.52);
+    --doorpi-home-hint-color: rgba(255,255,255,.58);
+    --doorpi-home-card-width: clamp(132px, min(10.2vw, 18.9vh), 268px);
+    --doorpi-home-top-padding: clamp(72px, 8vh, 108px);
+    --doorpi-home-gap: clamp(7px, .9vh, 14px);
+    --doorpi-home-feature-height: min(38vh, 540px);
+    --doorpi-home-feature-gap: clamp(30px, 4vw, 76px);
+    --doorpi-home-copy-width: min(50vw, 860px);
+    --doorpi-home-copy-gap: calc(14 * var(--doorpi-shell-unit));
+    --doorpi-home-logo-width: calc(440 * var(--doorpi-shell-unit));
+    --doorpi-home-logo-height: calc(152 * var(--doorpi-shell-unit));
+    --doorpi-home-title-size: max(32px, calc(46 * var(--doorpi-shell-unit)));
+    --doorpi-home-title-line-height: 1.12;
+    --doorpi-home-secondary-title-size: max(24px, calc(32 * var(--doorpi-shell-unit)));
+    --doorpi-home-meta-size: max(15px, calc(16 * var(--doorpi-shell-unit)));
+    --doorpi-home-playtime-size: max(24px, calc(30 * var(--doorpi-shell-unit)));
+    --doorpi-home-action-size: max(18px, calc(21 * var(--doorpi-shell-unit)));
+    --doorpi-home-toolbar-height: clamp(40px, 4.8vh, 58px);
+    --doorpi-home-tab-size: clamp(.82rem, .92vw, 1.08rem);
+    --doorpi-home-card-width-compact: clamp(121px, min(9.55vw, 17.65vh), 202px);
+    --doorpi-home-top-padding-compact: clamp(62px, 7.5vh, 78px);
+    --doorpi-home-feature-height-compact: min(34vh, 340px);
+    --doorpi-home-feature-gap-compact: clamp(22px, 3vw, 46px);
+    --doorpi-home-copy-width-compact: min(100%, 650px);
+    --doorpi-home-card-width-short: clamp(107px, min(8.95vw, 16.45vh), 161px);
+    --doorpi-home-feature-height-short: min(28vh, 205px);
+    --doorpi-clock-color: rgba(255,255,255,0.96);
+    --doorpi-clock-size: clamp(1.32rem, 1.48vw, 1.95rem);
+    --doorpi-clock-weight: 540;
+    --doorpi-dialog-backdrop: radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.12), transparent 44%),
+        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.075), transparent 48%),
+        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.82));
+    --doorpi-dialog-background: radial-gradient(ellipse at 78% 8%, rgba(92,118,205,0.10), transparent 42%),
+        linear-gradient(112deg, rgba(34,38,58,0.90), rgba(18,22,38,0.84) 58%, rgba(14,17,30,0.88));
+    --doorpi-dialog-radius: 8px;
+    --doorpi-dialog-border-color: rgba(255,255,255,0.18);
+    --doorpi-dialog-shadow: 0 34px 92px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.12);
+}

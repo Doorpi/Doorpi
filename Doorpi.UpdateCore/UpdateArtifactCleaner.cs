@@ -6,8 +6,13 @@ public static class UpdateArtifactCleaner
     {
         "downloading",
         "extracting",
+        "storage-migrating",
+        "storage-migrated",
         "applying",
-        "doorpi-applied-pending-health-check"
+        "doorpi-applied-pending-health-check",
+        "rollback",
+        "rollback-failed",
+        "doorpi-health-check-failed"
     };
 
     public static void CleanupInactiveArtifacts(UpdateOperationState? state = null)

@@ -1,0 +1,78 @@
+/* Region adapters. The neutral player layer also preserves default stacking. */
+/* The neutral player layer preserves the old atmospheric stacking context. */
+.home-trailer-layer { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+body.doorpi-session-locked .home-trailer-layer { opacity: 0 !important; visibility: hidden !important; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-layer { z-index: 8; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-backdrop {
+    inset: auto; left: var(--doorpi-trailer-x, 0px); top: var(--doorpi-trailer-y, 0px);
+    width: var(--doorpi-trailer-width, 0px); height: var(--doorpi-trailer-height, 0px);
+    border-radius: var(--doorpi-home-art-radius); -webkit-mask-image: none; mask-image: none;
+    background: #050814;
+    transition: opacity .3s ease;
+}
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) video.home-trailer-media { object-fit: contain; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-backdrop.is-narrow-video .home-trailer-embed iframe,
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-backdrop.is-narrow-video > iframe.home-trailer-embed {
+    left:50%;width:auto;max-width:100%;height:100%;aspect-ratio:var(--home-trailer-aspect,4/3);transform:translateX(-50%);
+}
+[data-doorpi-trailer-layout="feature-art"] body.home-trailer-playing:not(.home-trailer-cinema) #heroImage { opacity:var(--doorpi-home-hero-opacity)!important; }
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) .home-trailer-embed iframe,
+[data-doorpi-trailer-layout="feature-art"] body:not(.home-trailer-cinema) iframe.home-trailer-embed {
+    left: 0; top: 0; right: auto; bottom: auto; width: 100%; height: 100%; transform: none;
+}
+
+[data-doorpi-home-layout] .main-content-wrapper {
+    grid-template-areas: "feature" "toolbar" "library" "controls";
+}
+[data-doorpi-home-layout="library-first"] .main-content-wrapper {
+    grid-template-areas: "library" "toolbar" "feature" "controls";
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+[data-doorpi-home-layout="custom"] .main-content-wrapper {
+    grid-template-areas: var(--doorpi-region-home-areas);
+    grid-template-rows: var(--doorpi-region-home-rows);
+    grid-template-columns: var(--doorpi-region-home-columns);
+}
+[data-doorpi-home-layout] .home-feature-stage { grid-area: feature; }
+[data-doorpi-home-layout] .home-library-toolbar { grid-area: toolbar; }
+[data-doorpi-home-layout] .home-library-rail { grid-area: library; }
+[data-doorpi-home-layout] .home-controls-bar { grid-area: controls; }
+
+[data-doorpi-feature-layout] .home-feature-stage { grid-template-areas: "art copy"; }
+[data-doorpi-feature-layout="art-right"] .home-feature-stage {
+    grid-template-areas: "copy art";
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+[data-doorpi-feature-layout="custom"] .home-feature-stage {
+    grid-template-areas: var(--doorpi-region-feature-areas);
+    grid-template-rows: var(--doorpi-region-feature-rows);
+    grid-template-columns: var(--doorpi-region-feature-columns);
+}
+[data-doorpi-feature-layout] .home-feature-art-shell { grid-area: art; }
+[data-doorpi-feature-layout] .home-feature-copy { grid-area: copy; }
+
+[data-doorpi-copy-layout] .home-feature-copy {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "eyebrow" "logo" "title" "meta" "playtime" "action";
+}
+[data-doorpi-copy-layout="meta-first"] .home-feature-copy {
+    grid-template-areas: "eyebrow" "meta" "logo" "title" "playtime" "action";
+}
+[data-doorpi-copy-layout="custom"] .home-feature-copy {
+    grid-template-areas: var(--doorpi-region-copy-areas);
+    grid-template-rows: var(--doorpi-region-copy-rows);
+    grid-template-columns: var(--doorpi-region-copy-columns);
+}
+[data-doorpi-copy-layout] .home-feature-eyebrow { grid-area: eyebrow; }
+[data-doorpi-copy-layout] .home-feature-copy #gameLogo { grid-area: logo; }
+[data-doorpi-copy-layout] .home-feature-title { grid-area: title; }
+[data-doorpi-copy-layout] .home-feature-meta { grid-area: meta; }
+[data-doorpi-copy-layout] .home-feature-playtime { grid-area: playtime; }
+[data-doorpi-copy-layout] .home-feature-primary { grid-area: action; }
+
+[data-doorpi-dialog-layout="right"] #addGameContainer .modal-layout { flex-direction: row-reverse; }
+[data-doorpi-dialog-layout="right"] #addGameContainer .modal-sidebar {
+    border-right: 0;
+    border-left: 1px solid var(--doorpi-dialog-border-color);
+}

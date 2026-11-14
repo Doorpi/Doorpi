@@ -184,7 +184,7 @@ namespace Doorpi
                 string extraArgsVariable = isYouTube
                     ? "DOORPI_YOUTUBE_WEBVIEW_EXTRA_ARGS"
                     : "DOORPI_MEDIA_WEBVIEW_EXTRA_ARGS";
-                string browserArgs = BuildWebViewAdditionalArguments(
+                string browserArgs = WebViewRuntimeArguments.Build(
                     renderModeVariable,
                     defaultRenderMode: "hardware",
                     extraArgsVariable);

@@ -1,0 +1,201 @@
+/* TV readability pass: keep the console restraint, but restore distance legibility. */
+.top-bar {
+    padding: clamp(18px, 2.25vh, 40px) clamp(32px, 3vw, 76px);
+}
+
+#clock {
+    font-size: clamp(1rem, 1.12vw, 1.42rem);
+    font-weight: 460;
+    letter-spacing: 0.075em;
+    color: rgba(255,255,255,0.90);
+    text-shadow: 0 2px 14px rgba(0,0,0,0.78);
+}
+
+#addGameContainer {
+    background:
+        radial-gradient(ellipse at 76% 0%, rgba(96,132,220,0.18), transparent 45%),
+        linear-gradient(180deg, rgba(9,11,22,0.66), rgba(8,10,20,0.82)) !important;
+    backdrop-filter: blur(18px) brightness(1.02) saturate(1.18);
+    -webkit-backdrop-filter: blur(18px) brightness(1.02) saturate(1.18);
+}
+
+.modal-layout {
+    width: min(96vw, 1840px);
+    height: min(90vh, 1040px);
+    background:
+        linear-gradient(110deg, rgba(30,34,54,0.88), rgba(18,21,35,0.76)) !important;
+    border-color: rgba(255,255,255,0.15);
+    box-shadow: 0 30px 90px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+
+.modal-sidebar {
+    background: rgba(255,255,255,0.045) !important;
+    border-right-color: rgba(255,255,255,0.12);
+}
+
+.sidebar-title {
+    color: rgba(255,255,255,0.66);
+    font-size: clamp(0.82rem, 0.98vw, 1.18rem);
+}
+
+.menu-tab {
+    min-height: clamp(54px, 5.4vh, 76px);
+    color: rgba(255,255,255,0.62);
+    font-size: clamp(0.9rem, 1.02vw, 1.18rem);
+}
+
+.menu-tab.active {
+    background: linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.045) 84%);
+}
+
+.view-section {
+    padding-top: clamp(30px, 3.4vh, 54px);
+}
+
+.view-header h2 {
+    font-size: clamp(1.32rem, 1.55vw, 2.15rem);
+    font-weight: 440;
+    color: rgba(255,255,255,0.96);
+}
+
+.subtitle {
+    color: rgba(255,255,255,0.58);
+    font-size: clamp(0.92rem, 0.94vw, 1.12rem);
+}
+
+.filter-bar {
+    gap: clamp(14px, 1.15vw, 28px);
+}
+
+.filter-btn {
+    color: rgba(255,255,255,0.58);
+    font-size: clamp(0.86rem, 0.9vw, 1.08rem);
+}
+
+.filter-btn.active {
+    color: rgba(255,255,255,0.88);
+}
+
+.filter-btn.active::after {
+    right: 54%;
+    opacity: 0.78;
+}
+
+.filter-btn:focus,
+.filter-btn:hover {
+    color: #fff;
+    text-shadow: 0 0 18px rgba(255,255,255,0.22);
+}
+
+.filter-btn:focus::before,
+.filter-btn:hover::before {
+    content: '';
+    position: absolute;
+    left: -10px;
+    right: -10px;
+    top: -8px;
+    bottom: 2px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.085);
+    z-index: -1;
+}
+
+.filter-btn:focus::after,
+.filter-btn:hover::after,
+.filter-btn.active:focus::after,
+.filter-btn.active:hover::after {
+    right: 0;
+    opacity: 1;
+}
+
+.filter-count {
+    color: rgba(255,255,255,0.50);
+}
+
+#appList {
+    grid-template-columns: repeat(auto-fill, minmax(clamp(240px, 17vw, 340px), 1fr));
+    gap: clamp(12px, 1vw, 20px);
+}
+
+.app-item {
+    min-height: clamp(82px, 6vw, 116px);
+    background: rgba(255,255,255,0.075);
+    border-color: rgba(255,255,255,0.14);
+}
+
+.app-name {
+    font-size: clamp(0.96rem, 0.98vw, 1.18rem);
+    color: rgba(255,255,255,0.96);
+}
+
+.app-item span.size,
+.app-item .app-state {
+    color: rgba(255,255,255,0.52);
+}
+
+.app-item:focus,
+.app-item:hover {
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.74);
+}
+
+.action-bar {
+    padding-top: clamp(16px, 1.35vw, 28px);
+    background: linear-gradient(90deg, rgba(255,255,255,0.025), rgba(255,255,255,0.06));
+}
+
+.modal-btn {
+    min-height: 44px;
+    font-size: clamp(0.88rem, 0.9vw, 1.08rem);
+    color: rgba(255,255,255,0.68);
+}
+
+.modal-btn.primary {
+    color: rgba(255,255,255,0.98);
+}
+
+#folderList,
+#storeInstallList {
+    padding-bottom: 124px;
+}
+
+.store-install-card,
+.folder-item {
+    background: rgba(255,255,255,0.035);
+}
+
+.store-install-card:focus,
+.store-install-card:hover,
+.folder-item:focus,
+.folder-item:hover {
+    background: rgba(255,255,255,0.13);
+}
+
+.context-menu {
+    background: linear-gradient(135deg, rgba(34,38,58,.96), rgba(17,20,34,.94)) !important;
+    border-color: rgba(255,255,255,0.18) !important;
+    box-shadow: 0 22px 64px rgba(0,0,0,0.54), inset 0 1px 0 rgba(255,255,255,.10) !important;
+}
+
+.ctx-game-name {
+    color: rgba(255,255,255,0.52) !important;
+}
+
+.ctx-item {
+    color: rgba(255,255,255,0.90) !important;
+}
+
+.ctx-item:hover,
+.ctx-item:focus {
+    background: linear-gradient(90deg, rgba(255,255,255,.18), rgba(255,255,255,.07)) !important;
+}
+
+.edit-modal-overlay {
+    background: radial-gradient(ellipse at 68% 15%, rgba(110,145,230,0.20), transparent 46%), rgba(8,10,20,0.66) !important;
+}
+
+.edit-modal {
+    background: linear-gradient(135deg, rgba(34,38,58,0.96), rgba(17,20,34,0.92)) !important;
+    border-color: rgba(255,255,255,0.17) !important;
+}
+

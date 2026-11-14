@@ -1,0 +1,12 @@
+/* A Home somente existe visualmente depois que um perfil foi escolhido.
+   O seletor e o setup ficam fora destes elementos e continuam interativos. */
+body.doorpi-session-locked .top-bar,
+body.doorpi-session-locked .home-top-shade,
+body.doorpi-session-locked .capaJogo,
+body.doorpi-session-locked .grid-bg {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: none !important;
+}
+

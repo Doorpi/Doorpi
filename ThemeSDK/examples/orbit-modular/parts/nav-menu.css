@@ -1,0 +1,71 @@
+/* Main menu: architectural frame, quiet categories, generous content canvas. */
+:scope { background:#0c1215; color:#f2f1eb; font-family:'Segoe UI', system-ui, sans-serif; }
+#navMenuBg { opacity:.06; }
+.nav-layout { padding:clamp(28px, 4vw, 140px); gap:clamp(22px, 3vh, 60px); }
+.nav-topbar { padding-top:0; border-bottom:1px solid #d6eee226; padding-bottom:clamp(14px, 2vh, 40px); }
+.nav-cat-list { gap:clamp(12px, 1.5vw, 48px); }
+.nav-cat-item { background:transparent; border-radius:3px; color:#a5b2ae; }
+.nav-cat-item.active { color:#f2f1eb; border-color:transparent; box-shadow:inset 0 -2px 0 #b7dccc; }
+.nav-cat-item.nav-focused { background:#e7eee7; color:#14211d; outline:2px solid #e7eee7; outline-offset:3px; }
+.nav-content { border:1px solid #d6eee21a; border-radius:10px; background:#141d20; padding:clamp(20px, 2.5vw, 80px); }
+.nav-content-title { color:#f2f1eb; font-weight:400; letter-spacing:-.03em; }
+.nav-content-subtitle { color:#a5b2ae; }
+.nav-settings-home-item { border-radius:5px; background:#1b2629; border:1px solid #d6eee21f; box-shadow:none; }
+.nav-settings-home-item.nav-focused-el { background:#243731; border-color:#c6e9d8; box-shadow:inset 3px 0 0 #c6e9d8; }
+.nav-settings-home-icon { background:transparent; color:#c6e9d8; }
+
+/* Library: permanent, labelled tools beside a fluid catalogue wall.
+   Keep the vertical tools at the left: core navigation traverses this boundary. */
+:scope { --orbit-library-tools:clamp(150px, 13vw, 420px); }
+.nav-library-pane { padding-left:calc(var(--orbit-library-tools) + 28px) !important; }
+.nav-library-actions { left:clamp(24px, 4vw, 140px); top:clamp(180px, 24vh, 500px); width:var(--orbit-library-tools); gap:12px; }
+.nav-library-action {
+ width:100%; height:clamp(54px, 5vh, 108px); display:flex; align-items:center; justify-content:flex-start;
+ gap:clamp(10px, 1vw, 32px); padding:12px; border:1px solid #d6eee226; border-left:0; border-radius:0 5px 5px 0;
+ background:#1d2a2d; color:#c9d8d0; box-shadow:none;
+}
+.nav-library-action svg { width:clamp(22px, 1.7vw, 50px); height:clamp(22px, 1.7vw, 50px); flex-shrink:0; }
+.nav-library-action > span, .nav-library-action.nav-focused-el > span {
+ position:static; padding:0; opacity:1; transform:none; background:none; color:inherit;
+ font-size:clamp(13px, 1vw, 30px); font-weight:500;
+}
+.nav-library-action.nav-focused-el { transform:none; background:#e7eee7; color:#14211d; border-color:#e7eee7; box-shadow:none; }
+.nav-library-action.has-value::after { background:#b7dccc; }
+.nav-big-grid { grid-template-columns:repeat(auto-fill,minmax(clamp(145px, 11.5vw, 360px),1fr)); gap:clamp(18px, 2vw, 60px); align-content:start; }
+.nav-vertical-card { border-radius:6px; background:#223034; border:2px solid #d6eee21f; }
+.nav-vertical-card.nav-focused { transform:translateY(-3px); border-color:#d7eee1; box-shadow:0 10px 28px #00000044; }
+.nav-card-gradient { opacity:1; height:32%; background:linear-gradient(0deg,#081015f5,transparent); }
+.nav-vertical-card-title { opacity:1; transform:none; text-align:left; font-size:clamp(13px, .9vw, 28px); padding:12px; }
+.nav-library-search-sheet { background:#1c2b2d; border:1px solid #b7dccc; border-radius:6px; box-shadow:0 18px 56px #00000055; }
+.nav-library-expanded-search input { color:#f2f1eb; font-weight:400; }
+.nav-library-search-cancel { color:#c6e9d8; }
+.nav-library-filter-panel { background:#172628; border:1px solid #b7dccc66; border-radius:8px; box-shadow:0 18px 56px #00000066; }
+.nav-library-filter-option { border-radius:4px; color:#f2f1eb; }
+.nav-library-filter-option.nav-focused-el { background:#293f36; border-color:#c6e9d8; box-shadow:none; }
+.nav-library-filter-option.selected .nav-library-switch { background:#b7dccc; }
+.nav-library-filter-option.selected .nav-library-switch i { background:#14211d; }
+.nav-library-filter-footer button { border-radius:4px; }
+.nav-library-filter-footer button.nav-focused-el { background:#e7eee7; color:#14211d; box-shadow:none; }
+/* Profile and system settings keep their native controls inside the same frame. */
+.nav-profile-cover, .nav-profile-recent-card { border-radius:6px; border-color:#d6eee226; box-shadow:none; }
+.nav-profile-avatar-large { border-radius:10px; border-color:#b7dccc; }
+.nav-settings-section-title { color:#b7dccc; letter-spacing:.06em; }
+@media (max-height:800px) {
+ .nav-layout { padding:22px; gap:14px; }
+ .nav-topbar { padding-top:0; padding-bottom:12px; }
+ .nav-content { padding:18px; }
+ .nav-library-actions { left:30px; top:180px; }
+ .nav-library-filter-panel { top:140px; max-height:calc(100vh - 180px); }
+}
+
+/* The header aligns with the cards, leaving a separate lane for the tools. */
+.nav-content:has(.dual-pane-active) .nav-content-header { margin-left:calc(var(--orbit-library-tools) + 28px); }
+
+/* Explicit readable floors also apply when the core uses a compact rem scale. */
+.nav-cat-label { font-size:clamp(16px, 1vw, 36px); }
+.nav-cat-item { padding:10px 16px; }
+.nav-content-title { font-size:clamp(28px, 2vw, 64px); }
+.nav-content-subtitle { font-size:clamp(14px, .95vw, 30px); }
+.nav-library-action > span { font-size:clamp(15px, 1vw, 30px); }
+
+button, input, select, textarea { font-family:inherit; }

@@ -193,7 +193,7 @@ window.AppStore = (() => {
             _state[channel] = items;
             _state.featuredId[channel] = items[0]?.id ?? null;
 
-            _notify(channel, { type: 'reset', items, silent: !!opts.silent });
+            _notify(channel, { type: 'reset', items, silent: !!opts.silent, onRendered: opts.onRendered });
             _notify('featured', { channel, id: _state.featuredId[channel], silent: !!opts.silent });
         },
 

@@ -435,8 +435,6 @@
                 clearInterval(sparkInterval);
 
                 body.classList.add('boot-step-detonate');
-                blobWrap.classList.add('bang-active');
-                createBigBang();
                 spawnSparks(true);
 
                 post('doorpi:intro:handoff', {
@@ -446,7 +444,9 @@
                         colors
                     }
                 });
-                await wait(2000);
+                // The host now reveals the prepared profile screen directly.
+                // Keep the logo's final accent, without a second moving backdrop.
+                await wait(180);
                 post('doorpi:intro:complete');
             }
 

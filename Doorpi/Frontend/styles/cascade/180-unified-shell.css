@@ -1,0 +1,215 @@
+/* Unified console shell pass: atmosphere, controls and modal feet. */
+.gp-hint,
+.gp-face-btn,
+.gp-a,
+.gp-b,
+.gp-x,
+.gp-y,
+[data-gamepad-hint="confirm"] .gp-hint,
+[data-gamepad-hint="cancel"] .gp-hint,
+[data-gamepad-hint="triangle"] .gp-hint,
+[data-gamepad-hint="square"] .gp-hint {
+    background: rgba(255,255,255,0.105) !important;
+    border: 1px solid rgba(255,255,255,0.34) !important;
+    color: rgba(255,255,255,0.90) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 18px rgba(0,0,0,0.18) !important;
+}
+
+.gp-hint,
+.gp-face-btn {
+    width: clamp(22px, 1.35vw, 31px);
+    height: clamp(22px, 1.35vw, 31px);
+    font-size: clamp(10px, 0.68vw, 15px);
+    font-weight: 720;
+}
+
+.gp-hint .gp-btn,
+.gp-btn {
+    filter: none !important;
+    color: inherit !important;
+}
+
+.gp-start,
+.gp-menu,
+[data-gamepad-hint="start"] .gp-hint,
+.gp-hint:has(.gp-menu),
+.gp-hint:has(.gp-start) {
+    width: clamp(24px, 1.45vw, 34px) !important;
+    border-radius: clamp(4px, .28vw, 6px) !important;
+    background: rgba(255,255,255,0.90) !important;
+    border-color: rgba(255,255,255,0.95) !important;
+    color: #080a14 !important;
+}
+
+#addGameContainer {
+    background:
+        radial-gradient(ellipse at 74% 0%, rgba(112,146,235,0.16), transparent 44%),
+        radial-gradient(ellipse at 24% 100%, rgba(72,95,210,0.10), transparent 48%),
+        linear-gradient(180deg, rgba(12,15,30,0.66), rgba(10,12,24,0.80)) !important;
+}
+
+#addGameContainer .view-section {
+    padding-bottom: 0;
+}
+
+#addGameContainer .applist-wrapper {
+    min-height: 0;
+}
+
+#addGameContainer .action-bar {
+    width: auto;
+    margin: auto calc(-1 * var(--modal-pad-h)) 0;
+    padding: clamp(18px, 1.25vw, 28px) var(--modal-pad-h) clamp(20px, 1.5vw, 32px);
+    box-sizing: border-box;
+    min-height: clamp(76px, 6.2vh, 108px);
+    background: linear-gradient(90deg, rgba(35,39,58,0.84), rgba(24,28,46,0.70), rgba(24,28,46,0.86));
+    border-top: 1px solid rgba(255,255,255,0.12);
+    backdrop-filter: blur(18px) saturate(1.08);
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+}
+
+#addGameContainer .action-buttons {
+    width: 100%;
+    justify-content: flex-end;
+    gap: clamp(20px, 1.6vw, 38px);
+}
+
+#addGameContainer .selection-counter {
+    min-width: clamp(170px, 14vw, 260px);
+}
+
+#addGameContainer .modal-btn {
+    min-height: 48px;
+    border-radius: 0;
+    padding: 0 clamp(10px, .8vw, 16px);
+    background: transparent !important;
+    border: 0 !important;
+    color: rgba(255,255,255,0.78);
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,0.20);
+}
+
+#addGameContainer .modal-btn.primary {
+    color: rgba(255,255,255,0.96);
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.82);
+}
+
+#addGameContainer .modal-btn:focus,
+#addGameContainer .modal-btn:hover {
+    color: #fff;
+    transform: none;
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.96), 0 14px 30px rgba(0,0,0,0.20);
+}
+
+.media-subtab-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: clamp(20px, 2vw, 40px);
+}
+
+.modal-tab-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.52);
+    font-size: clamp(.78rem, .78vw, .98rem);
+    font-weight: 650;
+}
+
+.shoulder-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 5px;
+    border: 1px solid rgba(255,255,255,0.24);
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.88);
+    font-size: .78em;
+}
+
+.media-app-subtabs {
+    min-height: 42px;
+    gap: clamp(18px, 1.3vw, 30px);
+}
+
+.subtab {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0 0 10px;
+    color: rgba(255,255,255,0.52);
+    box-shadow: none;
+}
+
+.subtab.active {
+    background: transparent;
+    border-color: transparent;
+    color: rgba(255,255,255,0.96);
+    box-shadow: inset 0 -2px 0 rgba(255,255,255,0.82);
+}
+
+.subtab:focus,
+.subtab:hover {
+    background: transparent;
+    box-shadow: inset 0 -3px 0 rgba(255,255,255,0.96), 0 10px 24px rgba(0,0,0,0.16);
+}
+
+.web-app-form {
+    width: min(100%, 1120px);
+    margin-top: clamp(22px, 2vw, 42px);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    gap: clamp(18px, 1.4vw, 28px);
+}
+
+.web-app-label {
+    color: rgba(255,255,255,0.58);
+}
+
+.web-app-input,
+#subview-web .setup-input {
+    min-height: clamp(52px, 3.7vw, 72px);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.095);
+    border-color: rgba(255,255,255,0.18);
+    font-size: clamp(1rem, 1vw, 1.22rem);
+}
+
+#subview-web .setup-api-row {
+    grid-template-columns: minmax(0, 1fr) clamp(120px, 8vw, 156px) clamp(142px, 9.5vw, 184px);
+}
+
+#subview-web .setup-icon-btn {
+    min-height: clamp(52px, 3.7vw, 72px);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.10);
+    border-color: rgba(255,255,255,0.18);
+}
+
+.store-install-action {
+    min-height: 38px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.10);
+}
+
+.store-install-card.installed .store-install-action {
+    color: rgba(255,255,255,0.68);
+    background: rgba(255,255,255,0.075);
+}
+
+.artwork-wizard-overlay {
+    background: radial-gradient(ellipse at 66% 18%, rgba(112,146,235,0.12), transparent 42%), rgba(7,9,18,0.68) !important;
+}
+
+.artwork-wizard {
+    background: linear-gradient(135deg, rgba(32,36,54,0.96), rgba(14,16,28,0.94)) !important;
+    border-color: rgba(255,255,255,0.16) !important;
+}
+
