@@ -99,7 +99,7 @@
         }
         const scope=':is('+definition.roots.join(',')+')';
         // The settings/recovery screen remains core-owned even under a nav-menu theme.
-        const ends=['#themeSettingsRoot',...Object.entries(surfaceRoots).filter(([id])=>id!==part).flatMap(([,roots])=>roots)];
+        const ends=['#themeSettingsRoot',...Object.entries(surfaceRoots).filter(([id])=>id!==part && !(part==='nav-menu' && id==='profile')).flatMap(([,roots])=>roots)];
         const scoped='@scope ('+scope+') to (:is('+ends.join(',')+')) {'+rules(parsed.cssRules)+'}';
         const check=new CSSStyleSheet();check.replaceSync(scoped);
         if (!check.cssRules.length || !('start' in check.cssRules[0])) throw Error('Este WebView2 precisa ser atualizado para usar pacotes visuais.');

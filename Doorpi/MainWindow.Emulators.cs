@@ -60,6 +60,7 @@ namespace Doorpi
         public bool IsFromConfiguredRomFolder { get; init; }
         public bool HasResolvedMetadataName { get; init; }
         public int RelativeDepth { get; init; }
+        public List<string> DuplicateEmulatorNames { get; set; } = new();
     }
 
     public partial class MainWindow
@@ -74,7 +75,7 @@ namespace Doorpi
         private static readonly IReadOnlyList<EmulatorCatalogEntry> EmulatorCatalog = new[]
         {
             new EmulatorCatalogEntry { Id = "eden", Name = "Eden", ExecutableNames = new[] { "eden.exe", "eden-qt.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".xci", ".nsp", ".nca" } },
-            new EmulatorCatalogEntry { Id = "lichii", Name = "Lichii", ExecutableNames = new[] { "lichii.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".xci", ".nsp", ".nca" } },
+            new EmulatorCatalogEntry { Id = "lichii", Name = "Lichii", ExecutableNames = new[] { "lichii.exe", "fritchii.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".nup", ".xci", ".nsp", ".nca" } },
             new EmulatorCatalogEntry { Id = "azahar", Name = "Azahar", ExecutableNames = new[] { "azahar.exe", "azahar-qt.exe" }, LaunchTemplate = "{emulator} -f {rom}", Extensions = new[] { ".3ds", ".cci", ".cxi", ".app" }, ScanMode = "azahar", SupportsInternalLibrary = true },
             new EmulatorCatalogEntry { Id = "ppsspp", Name = "PPSSPP", ExecutableNames = new[] { "ppssppwindows64.exe", "ppssppwindows.exe", "ppsspp.exe" }, LaunchTemplate = "{emulator} --fullscreen --pause-menu-exit {rom}", Extensions = new[] { ".iso", ".cso", ".pbp", ".elf" } },
             new EmulatorCatalogEntry { Id = "rpcs3", Name = "RPCS3", ExecutableNames = new[] { "rpcs3.exe" }, LaunchTemplate = "{emulator} --no-gui --fullscreen {rom}", Extensions = new[] { ".iso", ".elf", ".self" }, ScanMode = "rpcs3", SupportsInternalLibrary = true },
@@ -1247,6 +1248,8 @@ namespace Doorpi
                     : "path:" + NormalizeEmulatorRomPath(item.RomPath), StringComparer.OrdinalIgnoreCase)
                 .Select(group => group
                     .OrderByDescending(item => item.IsFromConfiguredRomFolder)
+                    .ThenBy(item => catalog?.Id.Equals("lichii", StringComparison.OrdinalIgnoreCase) == true &&
+                                    Path.GetExtension(item.RomPath).Equals(".nup", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ThenByDescending(item => item.HasResolvedMetadataName)
                     .ThenBy(item => item.RelativeDepth)
                     .ThenBy(item => item.RomPath, StringComparer.OrdinalIgnoreCase)
@@ -1324,6 +1327,7 @@ namespace Doorpi
 
         private async Task PreviewEmulatorLibraryAsync(
             string requestId,
+            string emulatorId,
             string executablePath,
             string catalogId,
             List<string> romFolders,
@@ -1334,6 +1338,24 @@ namespace Doorpi
             {
                 var games = await Task.Run(() => ScanEmulatorRoms(executablePath, catalogId, romFolders, extensions), token)
                     .ConfigureAwait(false);
+                var configsById = LoadEmulatorConfigs()
+                    .GroupBy(config => config.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+                var existingByPath = LoadGames()
+                    .Where(game => !string.IsNullOrWhiteSpace(game.EmulatorId) && !string.IsNullOrWhiteSpace(game.RomPath))
+                    .GroupBy(game => NormalizeEmulatorRomPath(game.RomPath), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.Select(game => game.EmulatorId).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+                foreach (var game in games)
+                {
+                    if (!existingByPath.TryGetValue(NormalizeEmulatorRomPath(game.RomPath), out var emulatorIds)) continue;
+                    game.DuplicateEmulatorNames = emulatorIds
+                        .Where(id => !id.Equals(emulatorId, StringComparison.OrdinalIgnoreCase))
+                        .Where(id => configsById.ContainsKey(id))
+                        .Select(id => configsById[id].Name)
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                }
                 Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
                 {
                     type = "emulatorLibraryDiscovered",
@@ -1521,6 +1543,7 @@ namespace Doorpi
             else configs.Add(config);
 
             var games = LoadGames();
+            string duplicatePolicy = GetStr(root, "duplicatePolicy", "keepExisting");
             var obsoleteArtwork = new List<GameModel>();
             var retainedPaths = previewGames.Select(item => item.RomPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var stale in games.Where(game =>
@@ -1537,6 +1560,18 @@ namespace Doorpi
                 var existing = games.FirstOrDefault(game =>
                     string.Equals(game.EmulatorId, configId, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(game.RomPath, preview.RomPath, StringComparison.OrdinalIgnoreCase));
+                var duplicate = existing ?? games.FirstOrDefault(game =>
+                    !string.Equals(game.EmulatorId, configId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(NormalizeEmulatorRomPath(game.RomPath), NormalizeEmulatorRomPath(preview.RomPath), StringComparison.OrdinalIgnoreCase));
+                if (existing == null && duplicate != null && !duplicatePolicy.Equals("useCurrent", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (existing == null && duplicate != null)
+                {
+                    games.RemoveAll(game => !ReferenceEquals(game, duplicate) &&
+                        string.Equals(NormalizeEmulatorRomPath(game.RomPath), NormalizeEmulatorRomPath(preview.RomPath), StringComparison.OrdinalIgnoreCase));
+                    existing = duplicate;
+                    existing.EmulatorId = configId;
+                }
                 if (existing == null && previousConfig != null &&
                     (preview.DiscPaths.Count > 0 ? preview.DiscPaths : new List<string> { preview.RomPath })
                         .Any(path => IsEmulatorGameSuppressed(configId, path)))
@@ -1891,6 +1926,10 @@ namespace Doorpi
                                 !oldDiscPaths.Equals(string.Join("|", existing.EmulatorDiscPaths), StringComparison.OrdinalIgnoreCase)) updated++;
                             continue;
                         }
+                        if (games.Any(game =>
+                            !string.Equals(game.EmulatorId, config.Id, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(NormalizeEmulatorRomPath(game.RomPath), NormalizeEmulatorRomPath(preview.RomPath), StringComparison.OrdinalIgnoreCase)))
+                            continue;
                         if ((preview.DiscPaths.Count > 0 ? preview.DiscPaths : new List<string> { preview.RomPath })
                             .Any(path => IsEmulatorGameSuppressed(config.Id, path))) continue;
                         games.Add(new GameModel
@@ -2007,6 +2046,7 @@ namespace Doorpi
             if (action == "previewEmulatorLibrary")
             {
                 string requestId = GetStr(root, "requestId", Guid.NewGuid().ToString("N"));
+                string emulatorId = GetStr(root, "emulatorId");
                 string executablePath = GetStr(root, "executablePath");
                 string catalogId = GetStr(root, "catalogId", "custom");
                 var romFolders = ReadStringArray(root, "romFolders");
@@ -2014,7 +2054,7 @@ namespace Doorpi
                 foreach (var existing in _emulatorPreviewRequests.Values) existing.Cancel();
                 var source = new CancellationTokenSource();
                 _emulatorPreviewRequests[requestId] = source;
-                _ = PreviewEmulatorLibraryAsync(requestId, executablePath, catalogId, romFolders, extensions, source.Token);
+                _ = PreviewEmulatorLibraryAsync(requestId, emulatorId, executablePath, catalogId, romFolders, extensions, source.Token);
                 return true;
             }
             if (action == "searchEmulatorArtwork")

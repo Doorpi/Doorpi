@@ -115,6 +115,10 @@
           ]
         },
         {
+          "path": "scripts/app/151-quick-panel-updates.js",
+          "styles": []
+        },
+        {
           "path": "scripts/app/151-quick-panel-storage.js",
           "originalStartLine": 7274,
           "originalEndLine": 7576,
@@ -590,6 +594,15 @@
           "originalStartLine": 4814,
           "originalEndLine": 5014,
           "styles": []
+        },
+        {
+          "path": "scripts/nav-menu/144-trophy-icons.js"
+        },
+        {
+          "path": "scripts/nav-menu/145-steam-profile-presentation.js"
+        },
+        {
+          "path": "scripts/nav-menu/147-profile-cards.js"
         },
         {
           "path": "scripts/nav-menu/150-content-routing-and-profile.js",

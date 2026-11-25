@@ -4,7 +4,7 @@
                 ? initialSection
                 : null;
             section = requestedSection;
-            updateView = 'doorpi';
+            updateView = 'hub';
             connectivityView = 'hub';
             depth = requestedSection ? 'content' : 'menu';
             const overlay = ensure();
@@ -24,7 +24,7 @@
         function openMenu() {
             if (!canOpen()) return;
             section = null;
-            updateView = 'doorpi';
+            updateView = 'hub';
             connectivityView = 'hub';
             depth = 'menu';
             const overlay = ensure();
@@ -60,6 +60,12 @@
         }
 
         function back() {
+            if (section === 'updates' && updateView !== 'hub') {
+                const previous = updateView;
+                updateView = 'hub';
+                render(`[data-update-view="${previous}"]`);
+                return true;
+            }
             if (section === 'storage' && storageView === 'program-detail') {
                 storageView = 'programs';
                 render(`[data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`);
@@ -112,7 +118,7 @@
                 const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
                 if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
                 section = null;
-                updateView = 'doorpi';
+                updateView = 'hub';
                 render(focusSelector);
                 return true;
             }
@@ -124,9 +130,30 @@
             if (!api.isOpen()) return false;
             if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
+            if (section === 'updates' && active?.matches('.dq-release-notes') && (direction === 'DOWN' || direction === 'UP')) {
+                const down = direction === 'DOWN';
+                if (down ? active.scrollTop + active.clientHeight < active.scrollHeight - 1 : active.scrollTop > 1) {
+                    active.scrollTop += (down ? 1 : -1) * Math.max(64, active.clientHeight * .55);
+                    return true;
+                }
+            }
             if (section === 'storage' && direction === 'UP' && active?.matches?.('[data-confirm-uninstall]')) {
                 document.querySelector(`#doorpiQuickPanel [data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`)?.focus();
                 return true;
+            }
+            if (section === 'storage' && storageView === 'programs') {
+                const panel = document.querySelector('#doorpiQuickPanel .dq-storage-programs-page');
+                const search = panel?.querySelector('[data-storage-program-search]');
+                if (search && active === search) {
+                    if (direction === 'DOWN') panel.querySelector('.dq-program-main')?.focus();
+                    else if (direction === 'UP') (panel.querySelector('.dq-drive-tab.active') || panel.querySelector('.dq-storage-back'))?.focus();
+                    else return false;
+                    return true;
+                }
+                if (direction === 'DOWN' && active?.closest('.dq-storage-level-toolbar')) {
+                    search?.focus();
+                    return true;
+                }
             }
             if (section === 'storage' && storageView === 'category') {
                 const panel = document.getElementById('doorpiQuickPanel');
@@ -152,7 +179,10 @@
                 if (index >= 0 && (direction === 'UP' || direction === 'DOWN')) {
                     const target = items[index + (direction === 'DOWN' ? 1 : -1)];
                     if (target) target.focus();
-                    else if (direction === 'UP') list.closest('.dq-content')?.querySelector('.dq-storage-back')?.focus();
+                    else if (direction === 'UP') {
+                        const content = list.closest('.dq-content');
+                        (content?.querySelector('[data-storage-program-search]') || content?.querySelector('.dq-storage-back'))?.focus();
+                    }
                     return true;
                 }
             }

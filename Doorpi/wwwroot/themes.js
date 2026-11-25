@@ -169,8 +169,8 @@
 // Profile/device selection; package payloads are visual contracts, never executable scripts.
 (() => {
     'use strict';
-    const areas=['home','nav-menu','side-panels','popups','login'];
-    const systemAreas=areas.filter(part=>part!=='login');
+    const areas=['home','nav-menu','side-panels','popups','profile','login'];
+    const systemAreas=areas.filter(part=>part!=='login' && part!=='profile');
     const supports=(theme,part)=>part==='system'
         ? systemAreas.every(area=>(theme.parts||['home','side-panels']).includes(area))
         : (theme.parts||['home','side-panels']).includes(part);
@@ -285,7 +285,7 @@
             const started=Date.now();
             for(const part of areas){
                 if(!current(version,profile))return;
-                if(desired.has(part)||desired.has('__all__')||(part!=='login'&&desired.has('system')))continue;
+                if(desired.has(part)||desired.has('__all__')||(systemAreas.includes(part)&&desired.has('system')))continue;
                 if(part==='login'&&state.activeParts.login===state.savedParts.login)continue;
                 let cancelled=false,timer;
                 try{
@@ -519,7 +519,7 @@
         }
         const scope=':is('+definition.roots.join(',')+')';
         // The settings/recovery screen remains core-owned even under a nav-menu theme.
-        const ends=['#themeSettingsRoot',...Object.entries(surfaceRoots).filter(([id])=>id!==part).flatMap(([,roots])=>roots)];
+        const ends=['#themeSettingsRoot',...Object.entries(surfaceRoots).filter(([id])=>id!==part && !(part==='nav-menu' && id==='profile')).flatMap(([,roots])=>roots)];
         const scoped='@scope ('+scope+') to (:is('+ends.join(',')+')) {'+rules(parsed.cssRules)+'}';
         const check=new CSSStyleSheet();check.replaceSync(scoped);
         if (!check.cssRules.length || !('start' in check.cssRules[0])) throw Error('Este WebView2 precisa ser atualizado para usar pacotes visuais.');

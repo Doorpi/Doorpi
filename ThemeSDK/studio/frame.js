@@ -16,7 +16,7 @@ window.addEventListener('message',async event=>{
    DoorpiThemes.reset();part=data.part;document.body.dataset.base=data.base;
    document.querySelectorAll('link[data-base]').forEach(link=>link.remove());
    const styles=[];
-   if(data.base==='default')for(const file of ['/runtime/style.css',...(part==='nav-menu'?['/runtime/nav-menu.css']:part==='login'?['/runtime/login.css']:part==='popups'?['/runtime/popups.css']:[])]){
+   if(data.base==='default')for(const file of ['/runtime/style.css',...(part==='profile'?['/runtime/nav-menu.css','/runtime/profile.css']:part==='nav-menu'?['/runtime/nav-menu.css']:part==='login'?['/runtime/login.css']:part==='popups'?['/runtime/popups.css']:[])]){
     const link=document.createElement('link');link.rel='stylesheet';link.href=file;link.dataset.base='true';
     styles.push(new Promise((resolve,reject)=>{link.onload=resolve;link.onerror=()=>reject(Error('Não foi possível carregar o CSS de referência.'));}));document.head.appendChild(link);
    }

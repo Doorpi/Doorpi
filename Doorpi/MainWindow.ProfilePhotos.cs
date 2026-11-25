@@ -154,7 +154,9 @@ namespace Doorpi
                 ? "512x512,1024x1024"
                 : "600x900,342x482,660x930";
             int requestLimit = take > 0 ? Math.Clamp(take, 1, 50) : 50;
-            string endpoint = $"grids/game/{gameId}?styles=no_logo&dimensions={dimensions}&types=static&sort=score&limit={requestLimit}&nsfw=false";
+            string endpoint = shape == "hero"
+                ? $"heroes/game/{gameId}?types=static&sort=score&limit={requestLimit}&nsfw=false"
+                : $"grids/game/{gameId}?styles=no_logo&dimensions={dimensions}&types=static&sort=score&limit={requestLimit}&nsfw=false";
             string json = await SgdbGetStringWithKeyAsync(
                 $"https://www.steamgriddb.com/api/v2/{endpoint}",
                 apiKey,
@@ -177,7 +179,7 @@ namespace Doorpi
                     Shape = shape,
                     GameName = gameName
                 })
-                .Where(item => !string.IsNullOrWhiteSpace(item.Url))
+                .Where(item => !string.IsNullOrWhiteSpace(item.Url) && (shape != "hero" || item.Width > item.Height))
                 .OrderByDescending(item => item.Score)
                 .ThenByDescending(item => item.Id);
             return take > 0 ? results.Take(take).ToList() : results.ToList();
@@ -192,14 +194,14 @@ namespace Doorpi
             }
         }
 
-        private async Task<(List<ProfilePhotoArtworkResult> Squares, List<ProfilePhotoArtworkResult> Verticals)>
-            SearchProfilePhotoArtworkAsync(string query, string apiKey, bool suggestions, CancellationToken token)
+        private async Task<List<ProfilePhotoArtworkResult>>
+            SearchProfilePhotoArtworkAsync(string query, string apiKey, bool suggestions, bool cover, string[] favorites, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(apiKey))
-                return (new(), new());
+                return new();
 
             string[] titles = suggestions
-                ? ProfilePhotoSuggestionTitles
+                ? favorites.Concat(ProfilePhotoSuggestionTitles).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
                 : new[] { query.Trim() };
             int squareTake = suggestions ? 0 : 36;
             int verticalTake = suggestions ? 1 : 36;
@@ -212,17 +214,20 @@ namespace Doorpi
                 {
                     var game = await ResolveProfilePhotoGameAsync(title, apiKey, token).ConfigureAwait(false);
                     if (game.Id == 0)
-                        return (Squares: new List<ProfilePhotoArtworkResult>(), Verticals: new List<ProfilePhotoArtworkResult>());
+                        return new List<ProfilePhotoArtworkResult>();
+
+                    if (cover)
+                        return await FetchProfilePhotoShapeAsync(game.Id, game.Name, "hero", apiKey, suggestions ? 3 : 36, token).ConfigureAwait(false);
 
                     var squaresTask = FetchProfilePhotoShapeAsync(game.Id, game.Name, "square", apiKey, squareTake, token);
                     var verticalsTask = FetchProfilePhotoShapeAsync(game.Id, game.Name, "vertical", apiKey, verticalTake, token);
                     await Task.WhenAll(squaresTask, verticalsTask).ConfigureAwait(false);
-                    return (Squares: squaresTask.Result, Verticals: verticalsTask.Result);
+                    return squaresTask.Result.Concat(verticalsTask.Result).ToList();
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"[ProfilePhoto] Busca falhou para {title}: {ex.Message}");
-                    return (Squares: new List<ProfilePhotoArtworkResult>(), Verticals: new List<ProfilePhotoArtworkResult>());
+                    return new List<ProfilePhotoArtworkResult>();
                 }
                 finally
                 {
@@ -231,27 +236,13 @@ namespace Doorpi
             }).ToList();
 
             var groups = await Task.WhenAll(tasks).ConfigureAwait(false);
-            var squares = groups.SelectMany(group => group.Squares)
+            var results = groups.SelectMany(group => group)
                 .GroupBy(item => item.Id != 0 ? $"id:{item.Id}" : item.Url, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
+                .OrderByDescending(item => item.Score)
                 .ToList();
-            var verticals = groups.SelectMany(group => group.Verticals)
-                .GroupBy(item => item.Id != 0 ? $"id:{item.Id}" : item.Url, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.First())
-                .ToList();
-
-            if (suggestions)
-            {
-                ShuffleProfilePhotoResults(squares);
-                ShuffleProfilePhotoResults(verticals);
-            }
-            else
-            {
-                squares = squares.OrderByDescending(item => item.Score).ToList();
-                verticals = verticals.OrderByDescending(item => item.Score).ToList();
-            }
-
-            return (squares, verticals);
+            if (suggestions) ShuffleProfilePhotoResults(results);
+            return results;
         }
 
         private static bool ContainsAsciiSequence(byte[] bytes, string value)

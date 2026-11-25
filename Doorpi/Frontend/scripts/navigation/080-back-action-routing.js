@@ -1,4 +1,9 @@
 window.requestDoorpiBackAction = function () {
+    if (window._doorpiMediaPermanentDialogBack?.()) {
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (window.isEmulatorDiscSelectorOpen?.()) {
         window.closeEmulatorDiscSelector?.(true);
         window.DoorpiUiSound?.play('back');

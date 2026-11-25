@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Doorpi.Storage/Doorpi.Storage.csproj" />
+    <Compile Include="../Doorpi/StorageUninstallEvidence.cs" Link="StorageUninstallEvidence.cs" />
   </ItemGroup>
 </Project>

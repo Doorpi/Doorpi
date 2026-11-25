@@ -1,0 +1,14 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../Doorpi/Frontend/scripts/nav-menu/150-content-routing-and-profile.js'), 'utf8');
+const start = source.indexOf('    function _profileLibraryRanking(');
+const end = source.indexOf('    function _renderProfile(', start);
+assert.ok(start > 0 && end > start);
+const context = vm.createContext({ games: [{Name:'Black Desert',LaunchUrl:'steam://run/582660',TotalPlaytimeMinutes:7200},{Name:'Other Game',TotalPlaytimeMinutes:60}], _menuData:{history:[{Name:'Black Desert',TotalPlaytimeMinutes:1200},{Name:'Black Desert',SteamAppId:582660,TotalPlaytimeMinutes:7200},{Name:'Other Game',TotalPlaytimeMinutes:120}]} });
+vm.runInContext(source.slice(start,end)+'\nglobalThis.result=[..._profileLibraryRanking(games).gameTotals.values()];',context);
+assert.equal(context.result.length, 2);
+assert.equal(context.result.reduce((sum, game)=>sum+game.TotalPlaytimeMinutes,0),7320);
+const presentation = fs.readFileSync(require('node:path').join(__dirname,'../Doorpi/Frontend/scripts/nav-menu/145-steam-profile-presentation.js'),'utf8');
+assert.ok(presentation.includes('if (data.busy || !Array.isArray(data.achievementIndex)) return;'), 'Progress redraws achievement detail');
+console.log('PASS: reconcile maximum per game before summing totals; progress does not redraw achievement details.');

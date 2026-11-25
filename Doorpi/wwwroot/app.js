@@ -2835,12 +2835,13 @@
             const u = user || window._doorpiProfile || {};
             const avatar = btn.querySelector('.doorpi-avatar');
             const name = btn.querySelector('.top-profile-name');
+            const photo = u.AvatarFromGame && u.GameAvatarUrl || u.PhotoBase64;
             if (avatar) {
-                avatar.innerHTML = u?.PhotoBase64
-                    ? `<img src="${_normalizeUserPhotoSrc(u.PhotoBase64)}" />`
+                avatar.innerHTML = photo
+                    ? `<img src="${_normalizeUserPhotoSrc(photo)}" />`
                     : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
             }
-            if (avatar && !u?.PhotoBase64) avatar.innerHTML = fallbackUserIcon;
+            if (avatar && !photo) avatar.innerHTML = fallbackUserIcon;
             if (name) {
                 const fullName = u?.Name ?? '';
                 name.textContent = truncateTopProfileName(fullName);
@@ -4880,6 +4881,7 @@
             else if (data.type === 'storageUninstallStatus') {
                 window.DoorpiQuickPanel?.setStorageUninstallStatus?.(data);
                 window._navMenuSetStorageUninstallStatus?.(data);
+                if (data.status === 'completed') window.showDoorpiToast?.('Armazenamento', data.message);
             }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente
@@ -6900,6 +6902,12 @@ function showUserPicker(users, requireSelection = false) {
         }
     }
 
+    function filterStorageProgramsByName(programs, query) {
+        const normalize = value => String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').trim().toLowerCase();
+        const term = normalize(query);
+        return term ? programs.filter(program => normalize(program.name).includes(term)) : programs;
+    }
+
     window.DoorpiQuickPanel = (() => {
         let doorpiStatus = null;
         let windowsStatus = null;
@@ -6909,6 +6917,7 @@ function showUserPicker(users, requireSelection = false) {
         let soundStatus = null;
         let storageStatus = null;
         let storagePrograms = null;
+        let storageProgramQuery = '';
         let storageView = 'overview';
         let selectedStorageRoot = '';
         let selectedStorageCategoryKey = 'applications';
@@ -6917,7 +6926,7 @@ function showUserPicker(users, requireSelection = false) {
         let uninstallStatus = null;
         const expandedStorageCategories = new Set(['games', 'applications', 'doorpi']);
         let section = null;
-        let updateView = 'doorpi';
+        let updateView = 'hub';
         let connectivityView = 'hub';
         let depth = 'menu';
         let bluetoothPatchTimer = 0;
@@ -7358,6 +7367,8 @@ function showUserPicker(users, requireSelection = false) {
                 .dq-storage-vertical-list[data-storage-detail-scroll]:focus { outline:none; }
                 .dq-storage-programs-page .dq-storage-category-detail-panel { padding-right:clamp(18px,2vw,28px); }
                 .dq-storage-programs-page .dq-program-list { width:100%; }
+                .dq-storage-program-search { width:min(100%,420px); min-height:46px; flex:0 0 auto; box-sizing:border-box; padding:0 14px; border:1px solid rgba(255,255,255,.16); border-radius:7px; background:rgba(255,255,255,.05); color:#fff; color-scheme:dark; font:inherit; }
+                .dq-storage-program-search:focus { outline:2px solid #fff; outline-offset:2px; }
                 .dq-program-inline-detail { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px 22px; padding:13px 14px 14px 64px; border-top:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.025); }
                 .dq-program-inline-copy { min-width:0; display:grid; gap:7px; align-content:start; }
                 .dq-program-inline-facts { display:flex; flex-wrap:wrap; gap:7px 18px; color:rgba(255,255,255,.55); font-size:.72rem; }
@@ -7445,6 +7456,70 @@ function showUserPicker(users, requireSelection = false) {
                     .dq-sidebar, .dq-content { animation:none; }
                     .dq-menu-btn, .dq-card, .dq-action { transition:none; }
                 }
+
+/* Use the same quiet surfaces for system tasks; reserve contrast for navigation. */
+.doorpi-quick-panel .dq-sidebar { gap:clamp(10px,1.2vh,22px); }
+.doorpi-quick-panel .dq-brand { padding-inline:1rem; margin-bottom:.5rem; }
+.doorpi-quick-panel .dq-menu { gap:2px; }
+.doorpi-quick-panel .dq-menu-btn { padding-inline:1rem; border-radius:3px; }
+.doorpi-quick-panel .dq-menu-label { font-weight:500; }
+.doorpi-quick-panel .dq-sidebar-bottom .dq-menu-next { display:none; }
+.doorpi-quick-panel .dq-power-list { gap:0; max-width:min(36rem,100%); }
+.doorpi-quick-panel .dq-power-list .dq-action {
+    justify-content:flex-start; min-height:clamp(44px,5.4vh,78px); border:0; border-radius:2px;
+    background:transparent; color:var(--doorpi-shell-ink); box-shadow:none;
+}
+.doorpi-quick-panel .dq-power-list .dq-action:nth-child(4) { margin-top:1rem; border-top:1px solid var(--doorpi-shell-edge); }
+.doorpi-quick-panel .dq-power-list .dq-action-ico { color:var(--doorpi-shell-muted); background:transparent; }
+.doorpi-quick-panel :is(.dq-storage-capacity-panel,.dq-storage-category-panel,.dq-storage-category-detail-panel,.sound-panel,.bt-detail-hero) {
+    border:0; border-radius:4px; background:rgba(255,255,255,.035); box-shadow:none; backdrop-filter:none;
+}
+.doorpi-quick-panel .dq-storage-overview-console .dq-storage-capacity-main strong { font-size:clamp(2.1rem,3.3vw,4rem); font-weight:450; }
+.doorpi-quick-panel .dq-storage-console-list,.doorpi-quick-panel .bt-device-list { gap:2px; }
+.doorpi-quick-panel :is(.dq-storage-console-row,.bt-device-card,.sound-system-item) {
+    border:0; border-bottom:1px solid var(--doorpi-shell-edge); border-radius:2px;
+    background:transparent; box-shadow:none;
+}
+.doorpi-quick-panel :is(.bt-device-icon,.sound-device-icon) { background:transparent; color:var(--doorpi-shell-muted); }
+.doorpi-quick-panel :is(.dq-power-list .dq-action,.dq-storage-console-row,.bt-device-card):is(:focus-visible,.nav-focused-el) {
+    background:var(--doorpi-shell-ink); color:#171b25; outline:2px solid var(--doorpi-shell-focus); outline-offset:-2px;
+}
+.doorpi-quick-panel :is(.dq-power-list .dq-action,.dq-storage-console-row,.bt-device-card):is(:focus-visible,.nav-focused-el) :is(span,strong,small,svg) { color:inherit; }
+
+/* Update sources share one navigation strip; the current task precedes its details. */
+.dq-updates-page .dq-heading { font-size:clamp(1.65rem,2.4vw,3rem); }
+.dq-updates-page > :is(.dq-update-tabs,.dq-panel,.dq-list,.dq-actions,.dq-release-notes,.dq-app-grid) { width:min(100%,64rem); }
+.dq-updates-page .dq-update-tabs { gap:clamp(14px,2vw,36px); margin:0; }
+.dq-updates-page .dq-tab { padding-inline:.4rem; }
+.dq-updates-page .dq-panel { border:0; background:none; padding:0; }
+.dq-updates-page .dq-meta { padding:0; margin:0; gap:1em; }
+.dq-updates-page .dq-sub { margin:0; color:var(--doorpi-shell-ink); }
+.dq-updates-page .dq-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.dq-updates-page .dq-action { min-height:2.9em; min-width:0; width:auto; border-radius:3px; }
+.dq-updates-page [hidden] { display:none !important; }
+.dq-updates-page .dq-release-notes { max-height:36vh; min-height:5rem; flex-shrink:0; overflow:auto; margin:0; padding:0 1.2rem 1rem; border:0; border-radius:3px; background:rgba(255,255,255,.04); }
+.dq-updates-page .dq-release-notes:focus { outline:2px solid var(--doorpi-shell-focus); outline-offset:-2px; }
+.dq-updates-page .dq-release-head { background:none; color:var(--doorpi-shell-muted); }
+.dq-updates-page .dq-release-entry ul { max-width:74ch; color:var(--doorpi-shell-ink); }
+.dq-update-section-title { font-size:1.1rem; margin:0; font-weight:600; }
+
+/* The update directory is a single controller lane; each source opens its own page. */
+.dq-update-index .dq-update-directory { width:min(100%,76rem); gap:0; }
+.dq-update-index .dq-update-entry { grid-template-columns:minmax(0,1fr) auto 1rem; align-items:center; justify-items:start; width:100%; padding:1.15rem 1rem; border:0; border-bottom:1px solid var(--doorpi-shell-edge); border-radius:2px; text-align:left; box-shadow:none; background:transparent; }
+.dq-update-index .dq-update-entry:is(:focus,.nav-focused-el) { transform:none; outline:2px solid var(--doorpi-shell-focus); outline-offset:-2px; background:var(--doorpi-shell-focus-fill); }
+.dq-update-heading { display:grid; justify-items:start; gap:.8rem; }
+.dq-update-back { font:inherit; color:var(--doorpi-shell-muted); background:none; border:0; padding:.35rem .5rem; }
+.dq-update-back:focus { outline:2px solid var(--doorpi-shell-focus); }
+.dq-updates-page > :is(.dq-release-notes,.dq-list,.dq-panel,.dq-actions) { width:min(100%,76rem); }
+.dq-updates-page .dq-app-grid { display:grid; width:min(100%,76rem); grid-template-columns:repeat(auto-fit,minmax(min(100%,28rem),1fr)); gap:clamp(14px,1.4vw,22px); }
+.dq-updates-page .dq-app-card { display:grid; grid-template-rows:auto 1fr; padding:0; gap:0; min-height:0; border-radius:7px; overflow:hidden; }
+.dq-updates-page .dq-app-art { width:100%; height:auto; min-height:0; aspect-ratio:16/9; border-radius:0; box-shadow:none; }
+.dq-updates-page .dq-app-art img { width:min(46%,220px); height:min(64%,220px); object-fit:contain; }
+.dq-updates-page .dq-app-cover { transform:none; filter:none; background-size:contain; }
+.dq-updates-page .dq-app-copy { padding:1rem clamp(16px,1.4vw,24px) 1.1rem; }
+.dq-updates-page .dq-app-add { grid-column:1 / -1; grid-template-columns:88px minmax(0,1fr); grid-template-rows:1fr; align-items:center; min-height:0; padding:12px 16px; }
+.dq-updates-page .dq-app-add .dq-app-art { width:88px; aspect-ratio:1; min-height:0; border-radius:6px; }
+.dq-updates-page .dq-app-add .dq-app-copy { padding:0 clamp(8px,1vw,16px); }
 `;
             document.head.appendChild(s);
         }
@@ -7483,27 +7558,33 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function statusPill(kind, status) {
+            if (['error','access-denied'].includes(status?.status)) return `<span class="dq-pill err">${t('quickError')}</span>`;
+            const phase = { checking:'quickChecking', downloading:'windowsUpdateDownloading', installing:'windowsUpdateInstalling' }[status?.status];
+            if (phase) return `<span class="dq-pill">${t(phase)}</span>`;
             if (kind === 'gpu') {
                 const adapters = Array.isArray(status?.adapters) ? status.adapters : [];
                 const updaters = Array.isArray(status?.updaters) ? status.updaters : [];
                 if (status?.status === 'error') return `<span class="dq-pill err">${t('quickError')}</span>`;
+                if (!status?.lastCheckedAt && !adapters.length) return `<span class="dq-pill">${t('updateUnchecked')}</span>`;
                 if (!adapters.length) return `<span class="dq-pill warn">${t('quickNoGpu')}</span>`;
                 if (!updaters.length) return `<span class="dq-pill warn">${t('quickNoApp')}</span>`;
                 return `<span class="dq-pill">${t('quickDetected')}</span>`;
             }
             if (kind === 'doorpi') {
                 const available = !!(status?.doorpiUpdateAvailable || status?.updaterUpdateAvailable);
+                if (status?.forceUpdate) return `<span class="dq-pill warn">${t('updateRequired')}</span>`;
+                if (status?.status === 'not-configured') return `<span class="dq-pill warn">${t('updateSetupNeeded')}</span>`;
                 if (available) return `<span class="dq-pill warn">${t('quickAvailable')}</span>`;
                 if (status?.status === 'error') return `<span class="dq-pill err">${t('quickError')}</span>`;
                 if (status?.status === 'checking') return `<span class="dq-pill">${t('quickChecking')}</span>`;
-                return `<span class="dq-pill">${t('quickUpdated')}</span>`;
+                return `<span class="dq-pill">${t(status?.lastCheckedAt ? 'quickUpdated' : 'updateUnchecked')}</span>`;
             }
             const updates = Array.isArray(status?.updates) ? status.updates : [];
             if (status?.rebootRequired) return `<span class="dq-pill warn">${t('quickRestart')}</span>`;
             if (status?.status === 'error') return `<span class="dq-pill err">${t('quickError')}</span>`;
             if (status?.status === 'checking' || status?.status === 'downloading' || status?.status === 'installing') return `<span class="dq-pill">${t('quickProcessing')}</span>`;
             if (updates.length) return `<span class="dq-pill warn">${t('quickAvailable')}</span>`;
-            return `<span class="dq-pill">${t('quickUpdated')}</span>`;
+            return `<span class="dq-pill">${t(status?.lastCheckedAt ? 'quickUpdated' : 'updateUnchecked')}</span>`;
         }
 
         function dateText(value) {
@@ -7591,7 +7672,7 @@ function showUserPicker(users, requireSelection = false) {
             const updateDot = hasDoorpiUpdate || hasWindowsUpdate ? '<span class="dq-dot"></span>' : '';
             const items = [
                 ['updates', t('updatesTitle'), updateDot],
-                ['storage', 'Armazenamento', ''],
+                ['storage', t('quickStorageLabel'), ''],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
                 ['files', t('fileExplorerTitle'), ''],
@@ -7599,15 +7680,15 @@ function showUserPicker(users, requireSelection = false) {
             ];
             return `
                 <aside class="dq-sidebar">
-                    <header class="dq-brand"><span class="dq-brand-name">DOORPI</span><h2 class="dq-title">${t('quickPanel')}</h2></header>
+                    <header class="dq-brand"><h2 class="dq-title">${t('quickPanel')}</h2></header>
                     <div class="dq-menu">
                         ${items.map(([id, label, badge]) => `
                             <button class="dq-menu-btn ${section === id ? 'active' : ''}" data-section="${id}" tabindex="0">
                                 <span class="dq-menu-label">
-                                    <span class="dq-menu-ico">${iconSvg(id)}</span>
+
                                     <span class="dq-menu-copy"><strong>${label}</strong></span>
                                 </span>
-                                ${badge}<span class="dq-menu-next" aria-hidden="true">${iconSvg('arrowRight')}</span>
+                                ${badge}
                             </button>
                         `).join('')}
                     </div>
@@ -7623,210 +7704,10 @@ function showUserPicker(users, requireSelection = false) {
             `;
         }
 
-        function updatesHub() {
-            return `
-                <section class="dq-content">
-                    <div class="dq-kicker">${t('quickPanel')}</div>
-                    <h1 class="dq-heading">${t('updatesTitle')}</h1>
-                    <p class="dq-sub">${t('quickUpdatesDesc')}</p>
-                    <div class="dq-update-directory">
-                        <button class="dq-card dq-update-entry" data-update-view="doorpi" tabindex="0">
-                            <div><h3>Doorpi</h3><p>${t('quickDoorpiDesc')}</p></div>
-                            ${statusPill('doorpi', doorpiStatus)}
-                        </button>
-                        <button class="dq-card dq-update-entry" data-update-view="windows" tabindex="0">
-                            <div><h3>Windows</h3><p>${t('quickWindowsDesc')}</p></div>
-                            ${statusPill('windows', windowsStatus)}
-                        </button>
-                        <button class="dq-card dq-update-entry" data-update-view="gpu" tabindex="0">
-                            <div><h3>${t('videoCardTitle')}</h3><p>${t('quickGpuDesc')}</p></div>
-                            ${statusPill('gpu', gpuStatus)}
-                        </button>
-                    </div>
-                </section>
-            `;
-        }
-
-        function updateTabsMarkup(activeView) {
-            const tabs = [
-                ['doorpi', 'Doorpi', doorpiStatus],
-                ['windows', 'Windows', windowsStatus],
-                ['gpu', t('videoCardTitle'), gpuStatus]
-            ];
-            return `<div class="dq-tabs dq-update-tabs" role="tablist" aria-label="${t('updatesTitle')}">
-                ${tabs.map(([id, label, status]) => `
-                    <button class="dq-tab ${activeView === id ? 'active' : ''}" data-update-view="${id}" tabindex="0" role="tab" aria-selected="${activeView === id}">
-                        <strong>${esc(label)}</strong>${statusPill(id, status)}
-                    </button>`).join('')}
-            </div>`;
-        }
-
-        function doorpiReleaseNotes(status) {
-            const entries = Array.isArray(status?.changelog) ? status.changelog : [];
-            const markup = entries
-                .filter(entry => entry && (entry.title || entry.version || (entry.items || []).length))
-                .slice(0, 2)
-                .map(entry => {
-                    const items = Array.isArray(entry.items) ? entry.items.slice(0, 6) : [];
-                    return `<article class="dq-release-entry">
-                        <div class="dq-release-title"><span>${esc(entry.title || 'Doorpi')}</span>${entry.version ? `<span class="dq-release-version">${esc(entry.version)}</span>` : ''}</div>
-                        ${items.length ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
-                    </article>`;
-                }).join('');
-            return `<div class="dq-release-notes">
-                <div class="dq-release-head">${t('sysUpdateReleaseNotes')}</div>
-                ${markup || `<div class="dq-release-entry"><span>${t('quickNoReleaseNotes')}</span></div>`}
-            </div>`;
-        }
-
-        function doorpiDetail() {
-            const s = doorpiStatus || {};
-            const hasUpdate = !!(s.doorpiUpdateAvailable || s.updaterUpdateAvailable);
-            const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
-            return `
-                <section class="dq-content">
-                    <div class="dq-kicker">${t('updatesTitle')}</div>
-                    <h1 class="dq-heading">Doorpi</h1>
-                    <p class="dq-sub">${esc(s.message || t('sysUpdateIdle'))}</p>
-                    ${updateTabsMarkup('doorpi')}
-                    <div class="dq-panel">
-                        ${statusPill('doorpi', s)}
-                        <div class="dq-meta">
-                            <span>Doorpi ${esc(s.localDoorpiVersion || '--')}${s.remoteDoorpiVersion ? ' -> ' + esc(s.remoteDoorpiVersion) : ''}</span>
-                            <span>Updater ${esc(s.localUpdaterVersion || '--')}${s.remoteUpdaterVersion ? ' -> ' + esc(s.remoteUpdaterVersion) : ''}</span>
-                            <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
-                        </div>
-                        ${doorpiReleaseNotes(s)}
-                    </div>
-                    <div class="dq-actions">
-                        <button class="dq-action" data-action="check-doorpi" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? t('quickChecking') : t('checkDoorpi')}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
-                        <button class="dq-action primary" data-action="install-doorpi" tabindex="0" ${(hasUpdate && !active) ? '' : 'disabled'}><span class="dq-action-label">${t('updateDoorpi')}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
-                    </div>
-                </section>
-            `;
-        }
-
-        function windowsDetail() {
-            const s = windowsStatus || {};
-            const updates = Array.isArray(s.updates) ? s.updates : [];
-            const packageProgress = Array.isArray(s.packageProgress) ? s.packageProgress : [];
-            const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
-            return `
-                <section class="dq-content">
-                    <div class="dq-kicker">${t('updatesTitle')}</div>
-                    <h1 class="dq-heading">Windows</h1>
-                    <p class="dq-sub">${esc(s.message || t('windowsUpdateIdle'))}</p>
-                    ${updateTabsMarkup('windows')}
-                    <div class="dq-panel">
-                        ${statusPill('windows', s)}
-                        <div class="dq-meta">
-                            <span>${t('windowsUpdatePackages', packageProgress.length || updates.length)}</span>
-                            ${active ? `<span>${t('windowsUpdateOverall', Math.max(0, Math.min(100, Number(s.overallPercent) || 0)))}</span>` : ''}
-                            <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
-                        </div>
-                        <div class="dq-list">
-                            ${windowsUpdateRows(s, updates)}
-                        </div>
-                    </div>
-                    <div class="dq-windows-guidance">
-                        <p><strong>${esc(t('windowsUpdateAdminNoticeTitle'))}</strong> ${esc(t('windowsUpdateAdminNoticeText'))}</p>
-                    </div>
-                    <div class="dq-actions windows-update-actions">
-                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${esc(windowsActionLabel(s.status))}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
-                        <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">${t('quickOpenWindowsUpdate')}</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
-                        <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'disabled'}><span class="dq-action-label">${t('windowsUpdateInstall')}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
-                        <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">${t('restartNow')}</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
-                    </div>
-                </section>
-            `;
-        }
-
-        function vendorName(vendor) {
-            const v = String(vendor || '').toLowerCase();
-            if (v === 'nvidia') return 'NVIDIA';
-            if (v === 'amd') return 'AMD';
-            if (v === 'intel') return 'Intel';
-            return vendor || 'GPU';
-        }
-
-        function updaterInitials(app) {
-            const base = vendorName(readGpuProp(app, 'vendor')) || readGpuProp(app, 'name') || 'APP';
-            return String(base).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'APP';
-        }
-
-        function readGpuProp(obj, key) {
-            if (!obj) return '';
-            const pascal = key.charAt(0).toUpperCase() + key.slice(1);
-            return obj[key] ?? obj[pascal] ?? '';
-        }
-
-        function gpuDetail() {
-            const s = gpuStatus || {};
-            const adapters = Array.isArray(s.adapters) ? s.adapters : [];
-            const updaters = Array.isArray(s.updaters) ? s.updaters : [];
-            return `
-                <section class="dq-content">
-                    <div class="dq-kicker">${t('updatesTitle')}</div>
-                    <h1 class="dq-heading">${t('videoCardTitle')}</h1>
-                    <p class="dq-sub">${esc(s.message || t('quickGpuIdle'))}</p>
-                    ${updateTabsMarkup('gpu')}
-                    <div class="dq-panel">
-                        ${statusPill('gpu', s)}
-                        <div class="dq-meta">
-                            <span>${t('quickGpuAdapters', adapters.length)}</span>
-                            <span>${t('quickGpuApps', updaters.length)}</span>
-                            <span>${t('quickLastReading', dateText(s.lastCheckedAt))}</span>
-                        </div>
-                        <div class="dq-list">
-                            ${adapters.length ? adapters.map(adapter => `
-                                <div class="dq-update-row">
-                                    <span>${esc(readGpuProp(adapter, 'name') || vendorName(readGpuProp(adapter, 'vendor')))}</span>
-                                    <span>${esc([vendorName(readGpuProp(adapter, 'vendor')), readGpuProp(adapter, 'driverVersion') || '--'].filter(Boolean).join(' - '))}</span>
-                                </div>
-                            `).join('') : `<div class="dq-update-row"><span>${t('quickNoVideoDriver')}</span></div>`}
-                        </div>
-                    </div>
-                    <div class="dq-gpu-guidance">
-                        <p><strong>${esc(t('gpuUpdaterAdminNoticeTitle'))}</strong> ${esc(t('gpuUpdaterAdminNoticeText'))}</p>
-                        <p><strong>${esc(t('gpuUpdaterSessionNoticeTitle'))}</strong> ${esc(t('gpuUpdaterSessionNoticeText'))}</p>
-                    </div>
-                    <div class="dq-app-grid">
-                        ${updaters.map(app => {
-                            const id = readGpuProp(app, 'id');
-                            const name = readGpuProp(app, 'name') || t('quickUpdater');
-                            const vendor = readGpuProp(app, 'vendor');
-                            const source = readGpuProp(app, 'source');
-                            const imageUrl = readGpuProp(app, 'imageUrl');
-                            const iconDataUrl = readGpuProp(app, 'iconDataUrl');
-                            return `
-                            <div class="dq-app-card" data-action="open-gpu-updater" data-updater-id="${esc(id)}" data-gpu-updater-card="true" tabindex="0" role="button">
-                                <div class="dq-app-art">
-                                    ${imageUrl ? `<div class="dq-app-cover" style="background-image:url('${esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${esc(iconDataUrl)}" alt="">` : `<div class="dq-app-fallback">${esc(updaterInitials(app))}</div>`)}
-                                </div>
-                                <div class="dq-app-copy">
-                                    <div class="dq-app-name">${esc(name)}</div>
-                                    <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? t('quickAddedManually') : t('quickDetectedAutomatically'))}</div>
-                                </div>
-                            </div>
-                        `}).join('')}
-                        <div class="dq-app-card dq-app-add" data-action="add-gpu-updater" tabindex="0" role="button">
-                            <div class="dq-app-art"><div class="dq-app-fallback">+</div></div>
-                            <div class="dq-app-copy">
-                                <div class="dq-app-name">${t('quickAddApp')}</div>
-                                <div class="dq-app-meta">${t('quickAddUpdaterDesc')}</div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            `;
-        }
-
         function powerContent() {
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">${t('quickSystem')}</div>
                     <h1 class="dq-heading">${t('quickPower', 'Energia')}</h1>
-                    <p class="dq-sub">${t('quickPowerExpandedDesc', 'Opções de energia, perfis e sistema.')}</p>
                     <div class="dq-power-list">
                         <button class="dq-action" data-action="open-users" tabindex="0">
                             <span class="dq-action-ico">${iconSvg('users')}</span>
@@ -7860,9 +7741,7 @@ function showUserPicker(users, requireSelection = false) {
         function bluetoothContent() {
             return `
                 <section class="dq-content">
-                    <div class="dq-kicker">${t('bluetoothQuickKicker')}</div>
                     <h1 class="dq-heading">Bluetooth</h1>
-                    <p class="dq-sub">${t('bluetoothQuickDesc')}</p>
                     ${window.DoorpiBluetoothUI?.render?.('quick') || ''}
                 </section>
             `;
@@ -7884,7 +7763,6 @@ function showUserPicker(users, requireSelection = false) {
                 <section class="dq-content">
                     <div class="dq-kicker">${t('quickPanel')}</div>
                     <h1 class="dq-heading">${t('soundTitle')}</h1>
-                    <p class="dq-sub">${t('soundQuickDesc')}</p>
                     ${window.DoorpiSoundUI?.render?.('quick') || ''}
                 </section>
             `;
@@ -7902,6 +7780,183 @@ function showUserPicker(users, requireSelection = false) {
                 </section>`;
         }
 
+        function updatesHub() {
+            return `
+                <section class="dq-content dq-update-index">
+                    <h1 class="dq-heading">${t('updatesTitle')}</h1>
+                    <div class="dq-update-directory">
+                        <button class="dq-card dq-update-entry" data-update-view="doorpi" tabindex="0">
+                            <div><h3>Doorpi</h3><p>${esc(doorpiStatus?.localDoorpiVersion || t('quickDoorpiDesc'))}</p></div>
+                            ${statusPill('doorpi', doorpiStatus)}
+                        </button>
+                        <button class="dq-card dq-update-entry" data-update-view="windows" tabindex="0">
+                            <div><h3>Windows</h3><p>${windowsStatus?.lastCheckedAt ? esc(t('windowsUpdateLastCheck', dateText(windowsStatus.lastCheckedAt))) : esc(t('quickWindowsDesc'))}</p></div>
+                            ${statusPill('windows', windowsStatus)}
+                        </button>
+                        <button class="dq-card dq-update-entry" data-update-view="gpu" tabindex="0">
+                            <div><h3>${t('videoCardTitle')}</h3><p>${esc((gpuStatus?.adapters || []).map(adapter => readGpuProp(adapter, 'name')).filter(Boolean).join(' · ') || t('quickGpuDesc'))}</p></div>
+                            ${statusPill('gpu', gpuStatus)}
+                        </button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function updateDetailHeading(label) {
+            return `<header class="dq-update-heading"><button class="dq-update-back" data-update-view="hub" tabindex="0">‹ ${t('updatesTitle')}</button>
+                <h1 class="dq-heading">${esc(label)}</h1></header>`;
+        }
+
+        function doorpiReleaseNotes(status) {
+            const entries = Array.isArray(status?.changelog) ? status.changelog : [];
+            const markup = entries
+                .filter(entry => entry && (entry.title || entry.version || (entry.items || []).length))
+                .map(entry => {
+                    const items = Array.isArray(entry.items) ? entry.items : [];
+                    return `<article class="dq-release-entry">
+                        <div class="dq-release-title"><span>${esc(entry.title || 'Doorpi')}</span>${entry.version ? `<span class="dq-release-version">${esc(entry.version)}</span>` : ''}</div>
+                        ${items.length ? `<ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
+                    </article>`;
+                }).join('');
+            return `<div class="dq-release-notes" role="region" aria-label="${esc(t('sysUpdateReleaseNotes'))}" ${markup ? 'tabindex="0"' : ''}>
+                <div class="dq-release-head">${t('sysUpdateReleaseNotes')}</div>
+                ${markup || `<div class="dq-release-entry"><span>${t('quickNoReleaseNotes')}</span></div>`}
+            </div>`;
+        }
+
+        function doorpiDetail() {
+            const s = doorpiStatus || {};
+            const hasUpdate = !!(s.doorpiUpdateAvailable || s.updaterUpdateAvailable);
+            const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
+            return `
+                <section class="dq-content dq-updates-page dq-doorpi-updates">
+                    ${updateDetailHeading('Doorpi')}
+
+                    <p class="dq-sub">${esc(s.message || t('sysUpdateIdle'))}</p>
+                    <div class="dq-panel">
+                        <div class="dq-meta">
+                            <span>Doorpi ${esc(s.localDoorpiVersion || '--')}${s.doorpiUpdateAvailable && s.remoteDoorpiVersion ? ' → ' + esc(s.remoteDoorpiVersion) : ''}</span>
+                            ${s.updaterUpdateAvailable ? '<span>Updater '+esc(s.localUpdaterVersion || '—')+' → '+esc(s.remoteUpdaterVersion || '—')+'</span>' : ''}
+                            <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
+                        </div>
+                    </div>
+                    <div class="dq-actions">
+                        <button class="dq-action" data-action="check-doorpi" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${active ? t({ checking:'quickChecking', downloading:'windowsUpdateDownloading', installing:'windowsUpdateInstalling' }[s.status]) : t('checkDoorpi')}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action primary" data-action="install-doorpi" tabindex="0" ${hasUpdate && !active ? '' : 'hidden disabled'}><span class="dq-action-label">${t('updateDoorpi')}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                    </div>
+                    ${doorpiReleaseNotes(s)}
+                </section>
+            `;
+        }
+
+        function windowsDetail() {
+            const s = windowsStatus || {};
+            const updates = Array.isArray(s.updates) ? s.updates : [];
+            const packageProgress = Array.isArray(s.packageProgress) ? s.packageProgress : [];
+            const active = s.status === 'checking' || s.status === 'downloading' || s.status === 'installing';
+            return `
+                <section class="dq-content dq-updates-page">
+                    ${updateDetailHeading('Windows')}
+
+                    <p class="dq-sub">${esc(s.message || t('windowsUpdateIdle'))}</p>
+                    <div class="dq-panel">
+                        <div class="dq-meta">
+                            <span>${t('windowsUpdatePackages', packageProgress.length || updates.length)}</span>
+                            ${active ? `<span>${t('windowsUpdateOverall', Math.max(0, Math.min(100, Number(s.overallPercent) || 0)))}</span>` : ''}
+                            <span>${t('windowsUpdateLastCheck', dateText(s.lastCheckedAt))}</span>
+                        </div>
+
+                    </div>
+                    <div class="dq-windows-guidance" ${updates.length && !s.rebootRequired ? '' : 'hidden'}>
+                        <p><strong>${esc(t('windowsUpdateAdminNoticeTitle'))}</strong> ${esc(t('windowsUpdateAdminNoticeText'))}</p>
+                    </div>
+                    <div class="dq-actions windows-update-actions">
+                        <button class="dq-action verify" data-action="check-windows" tabindex="0" ${active ? 'data-busy="true"' : ''}><span class="dq-action-label">${esc(windowsActionLabel(s.status))}</span><span class="dq-action-ico">${iconSvg('refresh', active ? 'dq-spin' : '')}</span></button>
+                        <button class="dq-action manual" data-action="open-windows-update" tabindex="0"><span class="dq-action-label">${t('quickOpenWindowsUpdate')}</span><span class="dq-action-ico">${iconSvg('external')}</span></button>
+                        <button class="dq-action primary install" data-action="install-windows" tabindex="0" ${(updates.length && !s.rebootRequired && !active) ? '' : 'hidden disabled'}><span class="dq-action-label">${t('windowsUpdateInstall')}</span><span class="dq-action-ico">${iconSvg('arrowRight')}</span></button>
+                        <button class="dq-action primary restart" data-action="restart" tabindex="0" ${s.rebootRequired ? '' : 'disabled'}><span class="dq-action-label">${t('restartNow')}</span><span class="dq-action-ico">${iconSvg('shutdown')}</span></button>
+                    </div>
+                    <div class="dq-list">${windowsUpdateRows(s, updates)}</div>
+                </section>
+            `;
+        }
+
+        function vendorName(vendor) {
+            const v = String(vendor || '').toLowerCase();
+            if (v === 'nvidia') return 'NVIDIA';
+            if (v === 'amd') return 'AMD';
+            if (v === 'intel') return 'Intel';
+            return vendor || 'GPU';
+        }
+
+        function updaterInitials(app) {
+            const base = vendorName(readGpuProp(app, 'vendor')) || readGpuProp(app, 'name') || 'APP';
+            return String(base).replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'APP';
+        }
+
+        function readGpuProp(obj, key) {
+            if (!obj) return '';
+            const pascal = key.charAt(0).toUpperCase() + key.slice(1);
+            return obj[key] ?? obj[pascal] ?? '';
+        }
+
+        function gpuDetail() {
+            const s = gpuStatus || {};
+            const adapters = Array.isArray(s.adapters) ? s.adapters : [];
+            const updaters = Array.isArray(s.updaters) ? s.updaters : [];
+            return `
+                <section class="dq-content dq-updates-page">
+                    ${updateDetailHeading(t('videoCardTitle'))}
+
+                    <p class="dq-sub">${esc(s.message || t('quickGpuIdle'))}</p>
+                    <div class="dq-panel">
+                        <div class="dq-meta">
+                            <span>${t('quickLastReading', dateText(s.lastCheckedAt))}</span>
+                        </div>
+                        <div class="dq-list">
+                            ${adapters.length ? adapters.map(adapter => `
+                                <div class="dq-update-row">
+                                    <span>${esc(readGpuProp(adapter, 'name') || vendorName(readGpuProp(adapter, 'vendor')))}</span>
+                                    <span>${esc([vendorName(readGpuProp(adapter, 'vendor')), readGpuProp(adapter, 'driverVersion') || '--'].filter(Boolean).join(' - '))}</span>
+                                </div>
+                            `).join('') : `<div class="dq-update-row"><span>${t('quickNoVideoDriver')}</span></div>`}
+                        </div>
+                    </div>
+                    <h2 class="dq-update-section-title">${t('updateDriverTools')}</h2>
+                    <div class="dq-app-grid">
+                        ${updaters.map(app => {
+                            const id = readGpuProp(app, 'id');
+                            const name = readGpuProp(app, 'name') || t('quickUpdater');
+                            const vendor = readGpuProp(app, 'vendor');
+                            const source = readGpuProp(app, 'source');
+                            const imageUrl = readGpuProp(app, 'imageUrl');
+                            const iconDataUrl = readGpuProp(app, 'iconDataUrl');
+                            return `
+                            <div class="dq-app-card" data-action="open-gpu-updater" data-updater-id="${esc(id)}" data-gpu-updater-card="true" tabindex="0" role="button">
+                                <div class="dq-app-art">
+                                    ${imageUrl ? `<div class="dq-app-cover" style="background-image:url('${esc(imageUrl)}')"></div>` : (iconDataUrl ? `<img src="${esc(iconDataUrl)}" alt="">` : `<div class="dq-app-fallback">${esc(updaterInitials(app))}</div>`)}
+                                </div>
+                                <div class="dq-app-copy">
+                                    <div class="dq-app-name">${esc(name)}</div>
+                                    <div class="dq-app-meta">${esc(vendorName(vendor))} · ${esc(source === 'manual' ? t('quickAddedManually') : t('quickDetectedAutomatically'))}</div>
+                                </div>
+                            </div>
+                        `}).join('')}
+                        <div class="dq-app-card dq-app-add" data-action="add-gpu-updater" tabindex="0" role="button">
+                            <div class="dq-app-art"><div class="dq-app-fallback">+</div></div>
+                            <div class="dq-app-copy">
+                                <div class="dq-app-name">${t('quickAddApp')}</div>
+                                <div class="dq-app-meta">${t('quickAddUpdaterDesc')}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dq-gpu-guidance">
+                        <p><strong>${esc(t('gpuUpdaterAdminNoticeTitle'))}</strong> ${esc(t('gpuUpdaterAdminNoticeText'))}</p>
+                        <p><strong>${esc(t('gpuUpdaterSessionNoticeTitle'))}</strong> ${esc(t('gpuUpdaterSessionNoticeText'))}</p>
+                    </div>
+                </section>
+            `;
+        }
         function storageSizeText(bytes, empty = '0 B') {
             const value = Number(bytes || 0);
             if (!Number.isFinite(value) || value <= 0) return empty;
@@ -8080,10 +8135,26 @@ function showUserPicker(users, requireSelection = false) {
             }).join('');
         }
 
+        function storageProgramListMarkup(programs) {
+            if (programs.length) return storageProgramRowsMarkup(programs);
+            const message = storagePrograms?.error || (!storagePrograms
+                ? 'Carregando programas do Windows…'
+                : storageProgramQuery.trim()
+                    ? t('storageNoProgramMatches')
+                    : 'Nenhum programa identificado nesta unidade.');
+            return `<div class="dq-storage-message">${esc(message)}</div>`;
+        }
+
         function storageProgramInlineDetailMarkup(program) {
             const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
-            const uninstallerActive = storageUninstallerIsActive(program.id);
-            return `<div class="dq-program-inline-detail" data-storage-program-detail="${esc(program.id)}"><div class="dq-program-inline-copy"><div class="dq-program-inline-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${esc(program.version)}</span>` : ''}</div><p class="dq-program-inline-note">${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</p></div><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" data-can-uninstall="${program.canUninstall}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? (uninstallerActive ? 'Retornar' : 'Desinstalar') : 'Indisponível'}</button></div><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div>`;
+            const phase = uninstallStatus?.programId === program.id ? uninstallStatus.status : '';
+            const uninstallerActive = phase === 'started';
+            const processing = phase === 'preparing' || phase === 'direct';
+            const actionLabel = !program.canUninstall ? 'Indisponível'
+                : uninstallerActive ? 'Retornar'
+                : phase === 'direct' ? 'Remoção solicitada'
+                : processing ? 'Solicitando…' : 'Desinstalar';
+            return `<div class="dq-program-inline-detail" data-storage-program-detail="${esc(program.id)}"><div class="dq-program-inline-copy"><div class="dq-program-inline-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${esc(program.version)}</span>` : ''}</div><p class="dq-program-inline-note">${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</p></div><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" data-can-uninstall="${program.canUninstall}" tabindex="0" ${program.canUninstall && !processing ? '' : 'disabled'}>${actionLabel}</button></div><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div>`;
         }
 
         function toggleStorageProgramExpansion(overlay, id, focusAction = true) {
@@ -8118,7 +8189,7 @@ function showUserPicker(users, requireSelection = false) {
             const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0];
             if (!drive) {
                 const loading = !storageStatus;
-                return `<section class="dq-content dq-storage-page"><div class="dq-kicker">Sistema</div><h1 class="dq-heading">Armazenamento</h1><p class="dq-sub">${loading ? 'Lendo unidades, capacidade e distribuição do conteúdo.' : 'Não foi possível encontrar uma unidade de armazenamento.'}</p><section class="dq-storage-loading-panel" aria-live="polite"><div class="dq-storage-loading-state">${loading ? '<span class="dq-storage-loading-ring" aria-hidden="true"></span>' : ''}<strong>${loading ? 'Carregando armazenamento…' : esc(storageStatus?.error || 'Nenhum disco disponível.')}</strong></div></section></section>`;
+                return `<section class="dq-content dq-storage-page"><div class="dq-kicker">Sistema</div><h1 class="dq-heading">${t('quickStorageLabel')}</h1><p class="dq-sub">${loading ? 'Lendo unidades, capacidade e distribuição do conteúdo.' : 'Não foi possível encontrar uma unidade de armazenamento.'}</p><section class="dq-storage-loading-panel" aria-live="polite"><div class="dq-storage-loading-state">${loading ? '<span class="dq-storage-loading-ring" aria-hidden="true"></span>' : ''}<strong>${loading ? 'Carregando armazenamento…' : esc(storageStatus?.error || 'Nenhum disco disponível.')}</strong></div></section></section>`;
             }
             const categories = Array.isArray(drive.categories) ? drive.categories : [];
             const structure = storageStructureSignature(categories);
@@ -8126,26 +8197,25 @@ function showUserPicker(users, requireSelection = false) {
             const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100)));
             const programs = storageProgramsForSelectedDrive();
             const categoryRows = categories.map(category => {
-                const detail = category?.state === 'pending' ? 'Análise em andamento' : 'Ver detalhes desta categoria';
-                return `<button class="dq-storage-console-row" data-storage-overview-category="${esc(category?.key || '')}" data-storage-open-category="${esc(category?.key || '')}" tabindex="0"><span class="dq-storage-legend-dot ${esc(category?.key || 'other')}"></span><span class="dq-storage-console-copy"><strong>${esc(category?.label || category?.key || '')}</strong><small>${esc(detail)}</small></span><span class="dq-storage-console-value"><strong>${esc(storageNodeSizeText(category))}</strong><small>›</small></span></button>`;
+                const detail = category?.state === 'pending' ? t('quickAnalyzing') : '';
+                return `<button class="dq-storage-console-row" data-storage-overview-category="${esc(category?.key || '')}" data-storage-open-category="${esc(category?.key || '')}" tabindex="0"><span class="dq-storage-legend-dot ${esc(category?.key || 'other')}"></span><span class="dq-storage-console-copy"><strong>${esc(category?.label || category?.key || '')}</strong>${detail ? '<small>'+esc(detail)+'</small>' : ''}</span><span class="dq-storage-console-value"><strong>${esc(storageNodeSizeText(category))}</strong><small>›</small></span></button>`;
             }).join('');
             return `<section class="dq-content dq-storage-page">
-                <div class="dq-kicker">Sistema</div>
-                <h1 class="dq-heading">Armazenamento</h1>
-                <p class="dq-sub">Veja o uso desta unidade ou abra uma categoria para entender seus detalhes.</p>
+                <h1 class="dq-heading">${t('quickStorageLabel')}</h1>
+
                 <div class="dq-storage-overview-console">
                     <section class="dq-storage-capacity-panel">
-                        <div class="dq-storage-drive-strip"><div class="dq-storage-drive-strip-title"><span>Unidades</span><strong>Escolha um disco</strong></div><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive)).join('')}</div><button class="dq-action compact" data-action="refresh-storage" tabindex="0"><span class="dq-action-label">Atualizar análise</span><span class="dq-action-ico">${iconSvg('refresh', storageStatus?.calculating ? 'dq-spin' : '')}</span></button></div>
-                        <div class="dq-storage-capacity-main" data-storage-stat="availableBytes"><span>Espaço disponível</span><strong>${esc(storageSizeText(drive.availableBytes))}</strong><small data-storage-used-percent>${usedPercent}% do disco em uso</small></div>
+                        <div class="dq-storage-drive-strip"><div class="dq-storage-drive-strip-title"><span>${t('quickDrives')}</span></div><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive)).join('')}</div><button class="dq-action compact" data-action="refresh-storage" tabindex="0"><span class="dq-action-label">${t('quickAnalyze')}</span><span class="dq-action-ico">${iconSvg('refresh', storageStatus?.calculating ? 'dq-spin' : '')}</span></button></div>
+                        <div class="dq-storage-capacity-main" data-storage-stat="availableBytes"><span>${t('quickDiskAvailable')}</span><strong>${esc(storageSizeText(drive.availableBytes))}</strong><small data-storage-used-percent>${usedPercent}% ${t('quickDiskUsed')}</small></div>
                         <div class="dq-storage-bar" aria-label="Distribuição do disco">${storageSegmentsMarkup(drive)}</div>
                         <div class="dq-storage-summary">
-                            <div class="dq-storage-stat" data-storage-stat="totalBytes"><span>Capacidade</span><strong>${esc(storageSizeText(drive.totalBytes))}</strong></div>
-                            <div class="dq-storage-stat" data-storage-stat="usedBytes"><span>Em uso</span><strong>${esc(storageSizeText(drive.usedBytes))}</strong></div>
-                            <div class="dq-storage-stat" data-storage-stat="reservedBytes"><span>Reservado</span><strong>${esc(storageSizeText(drive.reservedBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="totalBytes"><span>${t('quickCapacity')}</span><strong>${esc(storageSizeText(drive.totalBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="usedBytes"><span>${t('quickUsed')}</span><strong>${esc(storageSizeText(drive.usedBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="reservedBytes"><span>${t('quickReserved')}</span><strong>${esc(storageSizeText(drive.reservedBytes))}</strong></div>
                         </div>
                         <div class="dq-storage-toolbar"><span class="dq-storage-message dq-storage-progress">${esc(storageStatusMessage())}</span></div>
                     </section>
-                    <section class="dq-storage-category-panel"><div class="dq-storage-category-title"><strong>O que ocupa espaço</strong><span>Selecione uma categoria para detalhar</span></div><div class="dq-storage-console-list">${categoryRows || `<div class="dq-storage-message">${esc(storageStatus?.error || 'Calculando categorias…')}</div>`}</div><div class="dq-storage-category-actions"><button class="dq-storage-remove-programs" data-storage-open-programs="true" tabindex="0"><span><strong>Remover programas</strong><small>Software registrado no Windows, incluindo jogos e aplicativos</small></span><b>›</b></button></div></section>
+                    <section class="dq-storage-category-panel"><div class="dq-storage-category-title"><strong>${t('quickUsage')}</strong></div><div class="dq-storage-console-list">${categoryRows || `<div class="dq-storage-message">${esc(storageStatus?.error || 'Calculando categorias…')}</div>`}</div><div class="dq-storage-category-actions"><button class="dq-storage-remove-programs" data-storage-open-programs="true" tabindex="0"><span><strong>${t('quickRemovePrograms')}</strong></span><b>›</b></button></div></section>
                 </div>
             </section>`;
         }
@@ -8155,16 +8225,19 @@ function showUserPicker(users, requireSelection = false) {
             if (!selectedStorageRoot || !drives.some(drive => drive.root === selectedStorageRoot))
                 selectedStorageRoot = drives[0]?.root || '';
             const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0] || null;
-            const programs = storageProgramsForSelectedDrive();
+            const programs = filterStorageProgramsByName(storageProgramsForSelectedDrive(), storageProgramQuery);
             if (selectedStorageProgramId && !programs.some(program => program.id === selectedStorageProgramId))
                 selectedStorageProgramId = '';
             const knownProgramBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
             return `<section class="dq-content dq-storage-page dq-storage-programs-page">
                 <div class="dq-kicker">Armazenamento</div>
-                <h1 class="dq-heading">Remover programas</h1>
+                <h1 class="dq-heading">${t('quickRemovePrograms')}</h1>
                 <p class="dq-sub">Software registrado no Windows. Selecione um item para ver seus detalhes e opções.</p>
                 <div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="overview" tabindex="0">‹ Uso do disco</button><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive, true)).join('')}</div><button class="dq-action compact" data-action="refresh-programs" tabindex="0"><span class="dq-action-label">Atualizar</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button></div>
-                <section class="dq-storage-category-detail-panel"><header class="dq-storage-category-detail-head"><div><span class="dq-storage-kicker">Nesta unidade</span><h2 data-storage-program-count>${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</h2></div><strong data-storage-program-total>${esc(storageSizeText(knownProgramBytes, 'Tamanho não informado'))}</strong></header><div class="dq-storage-vertical-list dq-program-list">${storageProgramRowsMarkup(programs) || `<div class="dq-storage-message">${esc(storagePrograms?.error || (storagePrograms ? 'Nenhum programa identificado nesta unidade.' : 'Carregando programas do Windows…'))}</div>`}</div></section>
+                <section class="dq-storage-category-detail-panel"><header class="dq-storage-category-detail-head"><div><span class="dq-storage-kicker">Nesta unidade</span><h2 data-storage-program-count aria-live="polite">${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</h2></div><strong data-storage-program-total>${esc(storageSizeText(knownProgramBytes, 'Tamanho não informado'))}</strong></header>
+                    <input class="dq-storage-program-search" data-storage-program-search type="search" autocomplete="off" spellcheck="false" aria-label="${esc(t('storageSearchPrograms'))}" placeholder="${esc(t('storageSearchPrograms'))}" value="${esc(storageProgramQuery)}" />
+                    <div class="dq-storage-vertical-list dq-program-list">${storageProgramListMarkup(programs)}</div>
+                </section>
             </section>`;
         }
 
@@ -8195,7 +8268,7 @@ function showUserPicker(users, requireSelection = false) {
             if (!program) { storageView = 'programs'; return storageProgramsContent(); }
             selectedStorageProgramId = program.id;
             const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
-            return `<section class="dq-content dq-storage-page dq-storage-program-detail-view"><div class="dq-kicker">Remover programas</div><h1 class="dq-heading">Detalhes do programa</h1><p class="dq-sub">Confira o item antes de abrir o desinstalador fornecido pelo Windows.</p><div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="programs" tabindex="0">‹ Lista de programas</button></div><section class="dq-storage-program-detail-page"><div class="dq-storage-program-hero"><span class="dq-program-mark">${storageProgramArtwork(program)}</span><div class="dq-storage-program-hero-copy"><span class="dq-storage-kicker">Programa selecionado</span><h2>${esc(program.name || 'Programa')}</h2><p>${esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${esc(program.version)}` : ''}</p></div></div><div class="dq-storage-program-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div><p class="dq-storage-program-guidance">${program.canUninstall ? 'O Doorpi abrirá o desinstalador oficial em primeiro plano e liberará o mouse. Ao voltar, a lista será atualizada automaticamente.' : 'Este item não informou uma ação de desinstalação ao Windows.'}</p><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div></section></section>`;
+            return `<section class="dq-content dq-storage-page dq-storage-program-detail-view"><div class="dq-kicker">${t('quickRemovePrograms')}</div><h1 class="dq-heading">Detalhes do programa</h1><p class="dq-sub">Confira o item antes de abrir o desinstalador fornecido pelo Windows.</p><div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="programs" tabindex="0">‹ Lista de programas</button></div><section class="dq-storage-program-detail-page"><div class="dq-storage-program-hero"><span class="dq-program-mark">${storageProgramArtwork(program)}</span><div class="dq-storage-program-hero-copy"><span class="dq-storage-kicker">Programa selecionado</span><h2>${esc(program.name || 'Programa')}</h2><p>${esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${esc(program.version)}` : ''}</p></div></div><div class="dq-storage-program-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div><p class="dq-storage-program-guidance">${program.canUninstall ? 'O Doorpi abrirá o desinstalador oficial em primeiro plano e liberará o mouse. Ao voltar, a lista será atualizada automaticamente.' : 'Este item não informou uma ação de desinstalação ao Windows.'}</p><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div></section></section>`;
         }
 
         function storageContent() {
@@ -8224,8 +8297,7 @@ function showUserPicker(users, requireSelection = false) {
                 if (updateView === 'doorpi') return doorpiDetail();
                 if (updateView === 'windows') return windowsDetail();
                 if (updateView === 'gpu') return gpuDetail();
-                updateView = 'doorpi';
-                return doorpiDetail();
+                return updatesHub();
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
             if (section === 'storage') return storageContent();
@@ -8242,12 +8314,12 @@ function showUserPicker(users, requireSelection = false) {
         function contentFocusFor(sectionId) {
             if (!sectionId) return '.dq-menu-btn';
             if (sectionId === 'updates') {
-                if (updateView === 'doorpi' || updateView === 'windows' || updateView === 'gpu') return `[data-update-view="${updateView}"]`;
+                if (updateView !== 'hub') return '[data-update-view="hub"]';
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
             if (sectionId === 'storage') {
-                if (storageView === 'programs') return '.dq-program-main';
+                if (storageView === 'programs') return '[data-storage-program-search]';
                 if (storageView === 'program-detail') return '[data-storage-view="programs"]';
                 if (storageView === 'category') return '[data-storage-detail-scroll]';
                 return '.dq-drive-tab.active';
@@ -8264,11 +8336,13 @@ function showUserPicker(users, requireSelection = false) {
         function currentFocusSelector() {
             const el = document.activeElement;
             if (!el?.closest?.('#doorpiQuickPanel')) return null;
+            if (el.matches('.dq-release-notes')) return '.dq-release-notes';
             if (el.dataset?.action) return `[data-action="${el.dataset.action}"]`;
             if (el.dataset?.updateView) return `[data-update-view="${el.dataset.updateView}"]`;
             if (el.dataset?.storageView) return `[data-storage-view="${el.dataset.storageView}"]`;
             if (el.dataset?.storageRoot) return `[data-storage-root="${CSS.escape(el.dataset.storageRoot)}"]`;
             if (el.dataset?.storageCategory) return `[data-storage-category="${CSS.escape(el.dataset.storageCategory)}"]`;
+            if (el.matches('[data-storage-program-search]')) return '[data-storage-program-search]';
             if (el.dataset?.storageProgram) return `[data-storage-program="${CSS.escape(el.dataset.storageProgram)}"]`;
             if (el.dataset?.cancelStorageProgram) return `[data-cancel-storage-program="${CSS.escape(el.dataset.cancelStorageProgram)}"]`;
             if (el.dataset?.uninstallProgram) return `[data-uninstall-program="${CSS.escape(el.dataset.uninstallProgram)}"]`;
@@ -8327,7 +8401,7 @@ function showUserPicker(users, requireSelection = false) {
                 return;
             }
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
-            if (section === 'updates' && !sameSection) updateView = 'doorpi';
+            if (section === 'updates' && !sameSection) updateView = 'hub';
             if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
             depth = 'content';
             if (sameSection && depth === 'content') {
@@ -8344,13 +8418,19 @@ function showUserPicker(users, requireSelection = false) {
         function render(focusSelector) {
             const overlay = ensure();
             overlay.classList.toggle('is-menu-only', !section);
+            const previousNotes = overlay.querySelector('.dq-release-notes');
+            const notesOffset = previousNotes?.scrollTop || 0;
             overlay.innerHTML = `${sidebar()}${content()}`;
+            const notes = overlay.querySelector('.dq-release-notes');
+            if (notes && notesOffset) notes.scrollTop = notesOffset;
             wire(overlay);
             const sidebarEl = overlay.querySelector('.dq-sidebar');
             if (sidebarEl && overlay.style.display !== 'none' && overlay.classList.contains('visible') && !overlay.classList.contains('has-opened')) {
                 sidebarEl.addEventListener('animationend', () => overlay.classList.add('has-opened'), { once: true });
             }
-            const target = (focusSelector ? overlay.querySelector(focusSelector) : null) || overlay.querySelector('.dq-menu-btn.active, button');
+            const requested = focusSelector ? overlay.querySelector(focusSelector) : null;
+            const target = requested && !requested.disabled && !requested.hidden ? requested :
+                overlay.querySelector('.dq-tab.active, .dq-menu-btn.active') || overlay.querySelector('button');
             requestAnimationFrame(() => {
                 const executionLockOpen = document.getElementById('gameLaunchOverlay')
                     ?.classList.contains('execution-lock-visible');
@@ -8488,7 +8568,7 @@ function showUserPicker(users, requireSelection = false) {
             });
             const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / Math.max(1, Number(drive.totalBytes || 0)) * 100)));
             const usedPercentLabel = contentEl.querySelector('[data-storage-used-percent]');
-            if (usedPercentLabel) usedPercentLabel.textContent = `${usedPercent}% do disco em uso`;
+            if (usedPercentLabel) usedPercentLabel.textContent = `${usedPercent}% ${t('quickDiskUsed')}`;
             const bar = contentEl.querySelector('.dq-storage-bar');
             if (bar) bar.innerHTML = storageSegmentsMarkup(drive);
             const legend = contentEl.querySelector('.dq-storage-legend');
@@ -8578,12 +8658,12 @@ function showUserPicker(users, requireSelection = false) {
             return true;
         }
 
-        function patchStorageProgramsList() {
+        function patchStorageProgramsList(resetScroll = false) {
             const overlay = document.getElementById('doorpiQuickPanel');
             const contentEl = overlay?.querySelector('.dq-storage-programs-page');
             const list = contentEl?.querySelector('.dq-program-list');
             if (!contentEl || !list || section !== 'storage' || storageView !== 'programs') return false;
-            const programs = storageProgramsForSelectedDrive();
+            const programs = filterStorageProgramsByName(storageProgramsForSelectedDrive(), storageProgramQuery);
             if (selectedStorageProgramId && !programs.some(program => program.id === selectedStorageProgramId))
                 selectedStorageProgramId = '';
             const bytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
@@ -8591,11 +8671,16 @@ function showUserPicker(users, requireSelection = false) {
             const total = contentEl.querySelector('[data-storage-program-total]');
             if (count) count.textContent = `${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}`;
             if (total) total.textContent = storageSizeText(bytes, 'Tamanho não informado');
-            const focusedId = document.activeElement?.closest?.('[data-storage-program]')?.dataset.storageProgram || '';
-            const scrollTop = list.scrollTop;
-            list.innerHTML = storageProgramRowsMarkup(programs) || `<div class="dq-storage-message">${esc(storagePrograms?.error || (storagePrograms ? 'Nenhum programa identificado nesta unidade.' : 'Carregando programas do Windows…'))}</div>`;
+            const focusedId = document.activeElement?.closest?.('.dq-program-row')?.querySelector('[data-storage-program]')?.dataset.storageProgram || '';
+            const scrollTop = resetScroll ? 0 : list.scrollTop;
+            list.innerHTML = storageProgramListMarkup(programs);
             list.scrollTop = scrollTop;
-            if (focusedId) requestAnimationFrame(() => list.querySelector(`[data-storage-program="${CSS.escape(focusedId)}"]`)?.focus());
+            if (focusedId) requestAnimationFrame(() => {
+                const next = list.querySelector(`[data-storage-program="${CSS.escape(focusedId)}"]`)
+                    || list.querySelector('[data-storage-program]')
+                    || contentEl.querySelector('[data-storage-program-search]');
+                next?.focus();
+            });
             return true;
         }
 
@@ -8677,6 +8762,14 @@ function showUserPicker(users, requireSelection = false) {
             wireWifi(overlay.querySelector('.dq-content'));
             wireSound(overlay.querySelector('.dq-content'));
             wireStorageCategoryButtons(overlay);
+            const programSearch = overlay.querySelector('[data-storage-program-search]');
+            if (programSearch) {
+                programSearch._doorpiVkbCallbacks = { onEnter() {}, onCancel() {} };
+                programSearch.addEventListener('input', () => {
+                    storageProgramQuery = programSearch.value;
+                    patchStorageProgramsList(true);
+                });
+            }
             overlay.onfocusin = event => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement) || !target.closest('.dq-content')) return;
@@ -8717,9 +8810,10 @@ function showUserPicker(users, requireSelection = false) {
             overlay.querySelectorAll('[data-storage-open-programs]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     storageView = 'programs';
+                    storageProgramQuery = '';
                     pendingUninstallId = '';
                     postToHost?.({ action: 'requestStoragePrograms' });
-                    render('.dq-program-main');
+                    render('[data-storage-program-search]');
                 });
             });
             overlay.querySelectorAll('[data-storage-open-category]').forEach(btn => {
@@ -8787,8 +8881,9 @@ function showUserPicker(users, requireSelection = false) {
                         btn.focus();
                         return;
                     }
+                    if (nextView === 'hub') { back(); return; }
                     updateView = nextView;
-                    render(`[data-update-view="${updateView}"]`);
+                    render(contentFocusFor('updates'));
                 });
             });
             overlay.querySelectorAll('[data-connectivity-view]').forEach(btn => {
@@ -8854,7 +8949,7 @@ function showUserPicker(users, requireSelection = false) {
                 ? initialSection
                 : null;
             section = requestedSection;
-            updateView = 'doorpi';
+            updateView = 'hub';
             connectivityView = 'hub';
             depth = requestedSection ? 'content' : 'menu';
             const overlay = ensure();
@@ -8874,7 +8969,7 @@ function showUserPicker(users, requireSelection = false) {
         function openMenu() {
             if (!canOpen()) return;
             section = null;
-            updateView = 'doorpi';
+            updateView = 'hub';
             connectivityView = 'hub';
             depth = 'menu';
             const overlay = ensure();
@@ -8910,6 +9005,12 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function back() {
+            if (section === 'updates' && updateView !== 'hub') {
+                const previous = updateView;
+                updateView = 'hub';
+                render(`[data-update-view="${previous}"]`);
+                return true;
+            }
             if (section === 'storage' && storageView === 'program-detail') {
                 storageView = 'programs';
                 render(`[data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`);
@@ -8962,7 +9063,7 @@ function showUserPicker(users, requireSelection = false) {
                 const focusSelector = section ? `.dq-menu-btn[data-section="${section}"]` : '.dq-menu-btn';
                 if (section === 'sound') window.DoorpiSoundUI?.closeDrawer?.('quick');
                 section = null;
-                updateView = 'doorpi';
+                updateView = 'hub';
                 render(focusSelector);
                 return true;
             }
@@ -8974,9 +9075,30 @@ function showUserPicker(users, requireSelection = false) {
             if (!api.isOpen()) return false;
             if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
+            if (section === 'updates' && active?.matches('.dq-release-notes') && (direction === 'DOWN' || direction === 'UP')) {
+                const down = direction === 'DOWN';
+                if (down ? active.scrollTop + active.clientHeight < active.scrollHeight - 1 : active.scrollTop > 1) {
+                    active.scrollTop += (down ? 1 : -1) * Math.max(64, active.clientHeight * .55);
+                    return true;
+                }
+            }
             if (section === 'storage' && direction === 'UP' && active?.matches?.('[data-confirm-uninstall]')) {
                 document.querySelector(`#doorpiQuickPanel [data-storage-program="${CSS.escape(selectedStorageProgramId || '')}"]`)?.focus();
                 return true;
+            }
+            if (section === 'storage' && storageView === 'programs') {
+                const panel = document.querySelector('#doorpiQuickPanel .dq-storage-programs-page');
+                const search = panel?.querySelector('[data-storage-program-search]');
+                if (search && active === search) {
+                    if (direction === 'DOWN') panel.querySelector('.dq-program-main')?.focus();
+                    else if (direction === 'UP') (panel.querySelector('.dq-drive-tab.active') || panel.querySelector('.dq-storage-back'))?.focus();
+                    else return false;
+                    return true;
+                }
+                if (direction === 'DOWN' && active?.closest('.dq-storage-level-toolbar')) {
+                    search?.focus();
+                    return true;
+                }
             }
             if (section === 'storage' && storageView === 'category') {
                 const panel = document.getElementById('doorpiQuickPanel');
@@ -9002,7 +9124,10 @@ function showUserPicker(users, requireSelection = false) {
                 if (index >= 0 && (direction === 'UP' || direction === 'DOWN')) {
                     const target = items[index + (direction === 'DOWN' ? 1 : -1)];
                     if (target) target.focus();
-                    else if (direction === 'UP') list.closest('.dq-content')?.querySelector('.dq-storage-back')?.focus();
+                    else if (direction === 'UP') {
+                        const content = list.closest('.dq-content');
+                        (content?.querySelector('[data-storage-program-search]') || content?.querySelector('.dq-storage-back'))?.focus();
+                    }
                     return true;
                 }
             }
@@ -11025,7 +11150,7 @@ function renderFolderList(folders) {
         text-transform: uppercase;
     }
     #navHintDown.visible { opacity: 1; }
-    #navHintDown.nav-open { bottom: auto; top: 2rem; }
+    #navHintDown.nav-open { bottom: auto; top: 2rem; padding: 0; height: 24px; }
     #navHintDown.nav-open svg { transform: rotate(180deg); }
     .nav-hint-chip {
         display: inline-flex;
@@ -11164,6 +11289,15 @@ function renderFolderList(folders) {
             animation: editOverlayIn 0.2s ease;
             transition: align-items 0.3s ease, padding-top 0.3s ease;
         }
+        .media-history-confirm-overlay { position: fixed; inset: 0; z-index: 10040; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: rgba(3,4,10,.68); backdrop-filter: blur(16px) saturate(1.12); animation: editOverlayIn .18s ease; }
+        .media-history-confirm { width: min(520px, 94vw); box-sizing: border-box; padding: 28px; border: 1px solid rgba(255,255,255,.15); border-radius: 14px; background: linear-gradient(145deg, rgba(22,24,39,.98), rgba(9,10,18,.98)); box-shadow: 0 28px 80px rgba(0,0,0,.62), inset 0 1px 0 rgba(255,255,255,.06); color: #fff; }
+        .media-history-confirm h2 { margin: 0 0 14px; font-size: clamp(1.15rem, 2vw, 1.45rem); font-weight: 620; }
+        .media-history-confirm p { margin: 0; color: rgba(255,255,255,.72); font-size: 15px; line-height: 1.55; }
+        .media-history-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+        .media-history-confirm-btn { min-height: 48px; padding: 0 18px; border: 1px solid rgba(255,255,255,.17); border-radius: 8px; background: rgba(255,255,255,.07); color: #fff; font: inherit; font-weight: 600; cursor: pointer; outline: none; }
+        .media-history-confirm-btn.is-danger { border-color: rgba(255,107,107,.34); background: rgba(190,45,55,.22); color: #ffdede; }
+        .media-history-confirm-btn:focus, .media-history-confirm-btn:hover { border-color: rgba(255,255,255,.82); background: rgba(255,255,255,.16); box-shadow: 0 0 0 3px rgba(255,255,255,.13); }
+        .media-history-confirm-btn.is-danger:focus, .media-history-confirm-btn.is-danger:hover { border-color: #ff9090; background: rgba(190,45,55,.42); }
         .edit-modal-overlay.vkb-active { align-items: center; padding-top: 0; }
         .edit-modal {
             background: linear-gradient(135deg, rgba(18,20,34,0.95), rgba(9,10,19,0.88));
@@ -11328,7 +11462,6 @@ function renderFolderList(folders) {
         }
 
         .edit-modal-actions [hidden] { display:none !important; }
-        .edit-save-shortcut { font-size:.72em; font-weight:400; opacity:.7; margin-right:.6em; }
 
         .vkb-overlay {
             position: fixed;
@@ -11706,6 +11839,13 @@ function renderFolderList(folders) {
         background: rgba(255,255,255,.12);
         box-shadow: 0 0 0 3px rgba(255,255,255,.11), 0 10px 22px rgba(0,0,0,.22);
     }
+
+        .context-menu.ctx-condensed [data-ctx-secondary] { display:none !important; }
+        .context-menu[role="menu"] { padding:10px; border-radius:6px; max-height:calc(100vh - 20px); overflow-y:auto; }
+        .context-menu[role="menu"] .ctx-game-name { padding:10px 14px 14px; font-weight:600; }
+        .context-menu[role="menu"] .ctx-item { border-radius:3px; min-height:2.8em; padding-inline:14px; }
+        .context-menu .ctx-item:not(.ctx-toggle-item) .ctx-icon { display:none; }
+        .context-menu #ctxMoreActions::after { content:'›'; margin-inline-start:auto; }
 `;
         document.head.appendChild(s);
     })();
@@ -11724,6 +11864,7 @@ function renderFolderList(folders) {
             <button class="ctx-item ctx-primary-action" id="ctxRuntimeAction" role="menuitem">
                 <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">${t('ctxStart')}</span>
             </button>
+            <button class="ctx-item" id="ctxMoreActions" role="menuitem" aria-expanded="false" data-i18n="ctxMoreActions">${t('ctxMoreActions')}</button>
             <button class="ctx-item ctx-toggle-item" id="ctxStoreGamepadControl" role="menuitem">
                 <span id="ctxStoreGamepadControlText">${t('storeDisableGamepadControl')}</span> <span class="ctx-icon"></span>
             </button>
@@ -11745,6 +11886,9 @@ function renderFolderList(folders) {
             <button class="ctx-item ctx-danger" id="ctxDelete" role="menuitem">
                 <span class="ctx-icon">✕</span> <span data-i18n="ctxRemoveGame">${t('ctxRemoveGame')}</span>
             </button>
+            <button class="ctx-item ctx-danger" id="ctxDeleteMediaPermanent" role="menuitem">
+                <span class="ctx-icon">⊘</span> <span>${t('mediaHistoryDeletePermanent')}</span>
+            </button>
         `;
         document.body.appendChild(el);
         return el;
@@ -11752,6 +11896,70 @@ function renderFolderList(folders) {
 
     let _ctxCard = null;
     let _ctxReturnKey = null;
+    let _mediaPermanentDialog = null;
+
+    function _closeMediaPermanentDialog(options = {}) {
+        if (!_mediaPermanentDialog) return false;
+        _mediaPermanentDialog.remove();
+        _mediaPermanentDialog = null;
+        if (options.restoreFocus !== false) {
+            requestAnimationFrame(() => _ctxMenu.querySelector('#ctxDeleteMediaPermanent')?.focus());
+        }
+        return true;
+    }
+
+    function _openMediaPermanentDialog(message, onConfirm) {
+        _closeMediaPermanentDialog();
+        const overlay = document.createElement('div');
+        overlay.className = 'media-history-confirm-overlay';
+        overlay.innerHTML = `
+            <section class="media-history-confirm" role="dialog" aria-modal="true" aria-labelledby="mediaHistoryConfirmTitle" aria-describedby="mediaHistoryConfirmMessage">
+                <h2 id="mediaHistoryConfirmTitle">${t('mediaHistoryDeletePermanent')}</h2>
+                <p id="mediaHistoryConfirmMessage"></p>
+                <div class="media-history-confirm-actions">
+                    <button type="button" class="media-history-confirm-btn" data-confirm-cancel>${t('btnCancel')}</button>
+                    <button type="button" class="media-history-confirm-btn is-danger" data-confirm-delete>${t('mediaHistoryDeletePermanent')}</button>
+                </div>
+            </section>`;
+        overlay.querySelector('#mediaHistoryConfirmMessage').textContent = message;
+        const cancel = overlay.querySelector('[data-confirm-cancel]');
+        const confirm = overlay.querySelector('[data-confirm-delete]');
+        cancel.addEventListener('click', () => _closeMediaPermanentDialog());
+        confirm.addEventListener('click', () => {
+            _closeMediaPermanentDialog({ restoreFocus: false });
+            onConfirm();
+        });
+        overlay.addEventListener('mousedown', event => {
+            if (event.target === overlay) _closeMediaPermanentDialog();
+        });
+        document.body.appendChild(overlay);
+        _mediaPermanentDialog = overlay;
+        requestAnimationFrame(() => cancel.focus());
+    }
+
+    window._doorpiMediaPermanentDialogIsOpen = () => !!_mediaPermanentDialog;
+    window._doorpiMediaPermanentDialogBack = _closeMediaPermanentDialog;
+
+    document.addEventListener('keydown', event => {
+        if (!_mediaPermanentDialog) return;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const buttons = Array.from(_mediaPermanentDialog.querySelectorAll('button'));
+            const current = buttons.indexOf(document.activeElement);
+            buttons[(current + 1 + buttons.length) % buttons.length]?.focus();
+        } else if (event.key === 'Tab') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const buttons = Array.from(_mediaPermanentDialog.querySelectorAll('button'));
+            const current = Math.max(0, buttons.indexOf(document.activeElement));
+            buttons[(current + (event.shiftKey ? buttons.length - 1 : 1)) % buttons.length]?.focus();
+        } else if (event.key === 'Escape' || event.key === 'Backspace') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            _closeMediaPermanentDialog();
+        }
+    }, true);
 
     function _getCtxReturnKey(card) {
         if (!card) return null;
@@ -11764,7 +11972,8 @@ function renderFolderList(folders) {
             channel: card.dataset.channel || '',
             updaterId: card.dataset.updaterId || '',
             deviceId: card.dataset.deviceId || '',
-            historyGameName: card.dataset.historyGameName || ''
+            historyGameName: card.dataset.historyGameName || '',
+            historyGameId: card.dataset.historyGameId || ''
         };
     }
 
@@ -11779,6 +11988,7 @@ function renderFolderList(folders) {
             if (key.id && card.dataset.id === key.id) return true;
             if (key.updaterId && card.dataset.updaterId === key.updaterId) return true;
             if (key.deviceId && card.dataset.deviceId === key.deviceId) return true;
+            if (key.historyGameId && card.dataset.historyGameId === key.historyGameId) return true;
             if (key.historyGameName && card.dataset.historyGameName === key.historyGameName) return true;
             return false;
         }) || null;
@@ -11816,6 +12026,7 @@ function renderFolderList(folders) {
     }
 
     function _openCtxMenu(card, x, y) {
+        _ctxMenu.classList.remove('ctx-condensed');
         _ctxCard = card;
         _ctxReturnKey = _getCtxReturnKey(card);
         _ctxCard.classList.add('ctx-active');
@@ -11832,11 +12043,14 @@ function renderFolderList(folders) {
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
         const isHistoryCard = !!card.dataset.historyGameName;
+        const isMediaHistoryCard = card.dataset.mediaHistory === 'true';
         _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
         _ctxMenu.classList.toggle('bluetooth-device-context', isBluetoothDeviceCard);
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
+        const ctxDeleteMediaPermanentBtn = _ctxMenu.querySelector('#ctxDeleteMediaPermanent');
+        if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
         const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
         const ctxRuntimeBtn = _ctxMenu.querySelector('#ctxRuntimeAction');
         const ctxRuntimeText = _ctxMenu.querySelector('#ctxRuntimeActionText');
@@ -11926,7 +12140,27 @@ function renderFolderList(folders) {
             }
             ctxCloseBtn.style.display = 'none';
             _ctxMenu.querySelector('#ctxGameName').textContent = card.dataset.historyGameName;
+        } else if (isMediaHistoryCard) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'none';
+            if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
+            if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
+            if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+            if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
+            if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
+            if (ctxDeleteBtn) {
+                ctxDeleteBtn.style.display = 'flex';
+                const text = ctxDeleteBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = t('mediaHistoryDeleteOnly');
+            }
+            if (ctxDeleteMediaPermanentBtn) {
+                ctxDeleteMediaPermanentBtn.style.display = 'flex';
+                ctxDeleteMediaPermanentBtn.querySelector('span:last-child').textContent = t('mediaHistoryDeletePermanent');
+            }
+            ctxCloseBtn.style.display = 'none';
+            _ctxMenu.querySelector('#ctxGameName').textContent =
+                card.querySelector('.nav-unified-row-copy strong')?.textContent?.trim() || card.dataset.mediaHistoryTitle || '';
         } else if (isBluetoothDeviceCard) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -11942,6 +12176,7 @@ function renderFolderList(folders) {
             _ctxMenu.querySelector('#ctxGameName').textContent =
                 card.querySelector('.bt-device-copy strong')?.innerText?.trim() || 'Bluetooth';
         } else if (isGpuUpdaterCard) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -11957,6 +12192,7 @@ function renderFolderList(folders) {
             _ctxMenu.querySelector('#ctxGameName').textContent =
                 card.querySelector('.dq-app-name, .nav-gpu-app-name')?.innerText?.trim() || 'Atualizador';
         } else if (isStoreCard) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
@@ -11965,6 +12201,7 @@ function renderFolderList(folders) {
             ctxCloseBtn.style.display = 'none';
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         } else if (isYoutube) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'none';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -11973,6 +12210,7 @@ function renderFolderList(folders) {
             ctxCloseBtn.style.display = 'flex';
             _ctxMenu.querySelector('#ctxGameName').textContent = t('systemAppLabel');
         } else {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -11986,6 +12224,23 @@ function renderFolderList(folders) {
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         }
 
+        const more = _ctxMenu.querySelector('#ctxMoreActions');
+        const secondary = ['ctxStoreGamepadControl','ctxStoreAutoAdd','ctxExtensions','ctxSharing','ctxDelete','ctxDeleteMediaPermanent']
+            .map(id => _ctxMenu.querySelector('#' + id)).filter(item => item && item.style.display !== 'none');
+        _ctxMenu.querySelectorAll('[data-ctx-secondary]').forEach(item => item.removeAttribute('data-ctx-secondary'));
+        secondary.forEach(item => item.dataset.ctxSecondary = '');
+        const condensed = !isMediaHistoryCard && secondary.length >= 2;
+        more.style.display = condensed ? 'flex' : 'none';
+        more.setAttribute('aria-expanded','false');
+        _ctxMenu.classList.toggle('ctx-condensed', condensed);
+        more.onclick = () => {
+            _ctxMenu.classList.remove('ctx-condensed');
+            more.setAttribute('aria-expanded','true');
+            more.style.display = 'none';
+            _syncCtxMenuSeparators();
+            _ctxMenu.style.top = Math.max(10, Math.min(_ctxMenu.offsetTop, innerHeight - _ctxMenu.offsetHeight - 10)) + 'px';
+            secondary[0]?.focus();
+        };
         _syncCtxMenuSeparators();
         _ctxMenu.style.display = 'flex';
         requestAnimationFrame(() => {
@@ -12132,6 +12387,18 @@ function renderFolderList(folders) {
     document.getElementById('ctxDelete').addEventListener('click', () => {
         const card = _ctxCard; _closeCtxMenu({ restoreFocus: false });
         if (!card) return;
+        if (card.dataset.mediaHistory === 'true') {
+            postToHost?.({
+                action: 'deleteMediaHistory',
+                permanent: false,
+                appId: card.dataset.mediaHistoryAppId || '',
+                contentTitle: card.dataset.mediaHistoryTitle || '',
+                creatorName: card.dataset.mediaHistoryCreator || '',
+                category: card.dataset.mediaHistoryCategory || '',
+                seriesTitle: card.dataset.mediaHistorySeriesTitle || ''
+            });
+            return;
+        }
         if (card.dataset.gpuUpdaterCard === 'true') {
             const updaterId = card.dataset.updaterId || '';
             if (updaterId) postToHost?.({ action: 'removeGpuUpdater', updaterId });
@@ -12146,6 +12413,29 @@ function renderFolderList(folders) {
             return;
         }
         _executeDelete(card);
+    });
+
+    document.getElementById('ctxDeleteMediaPermanent').addEventListener('click', () => {
+        const card = _ctxCard;
+        if (!card || card.dataset.mediaHistory !== 'true') return;
+        const category = card.dataset.mediaHistoryCategory || '';
+        const type = category === 'music' ? t('mediaHistoryTypeMusic')
+            : category === 'film-series' ? t('mediaHistoryTypeFilm')
+            : category === 'live' ? t('mediaHistoryTypeStreaming')
+            : t('mediaHistoryTypeVideo');
+        const warning = t('mediaHistoryPermanentWarning', type);
+        _openMediaPermanentDialog(warning, () => {
+            _closeCtxMenu({ restoreFocus: false });
+            postToHost?.({
+                action: 'deleteMediaHistory',
+                permanent: true,
+                appId: card.dataset.mediaHistoryAppId || '',
+                contentTitle: card.dataset.mediaHistoryTitle || '',
+                creatorName: card.dataset.mediaHistoryCreator || '',
+                category,
+                seriesTitle: card.dataset.mediaHistorySeriesTitle || ''
+            });
+        });
     });
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -12383,7 +12673,7 @@ function renderFolderList(folders) {
             postToHost({
                 action: options.applyAction || 'applyArtworkSelection',
                 requestId,
-                gameId,
+                gameId: options.gameId || gameId,
                 gameName: options.gameName || card.dataset.name
                     || card.querySelector('.title')?.textContent?.trim() || '',
                 isMedia,
@@ -12793,6 +13083,7 @@ function renderFolderList(folders) {
                 categories: ['vertical', 'horizontal', 'banner'],
                 applyAction: 'applyHistoryArtworkSelection',
                 gameName: item.Name,
+                gameId: item.Id || '',
                 returnFocus: card,
                 onApplied
             });
@@ -13036,7 +13327,7 @@ function renderFolderList(folders) {
                 </div>
                 <div class="edit-modal-actions">
                     <button class="modal-btn cancel" id="editCancelBtn" data-nav-up="#editTrailerLocalBtn" data-nav-right="#editSaveBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
-                    <button class="modal-btn primary" id="editSaveBtn" hidden data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn"><span class="edit-save-shortcut">Start</span> ${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
+                    <button class="modal-btn primary" id="editSaveBtn" hidden data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
                 </div>  
             </div>
         `;
@@ -13068,6 +13359,17 @@ function renderFolderList(folders) {
             const dirty = hasPendingChanges(), save = overlay.querySelector('#editSaveBtn');
             if (!dirty && document.activeElement === save) overlay.querySelector('#editCancelBtn')?.focus();
             save.hidden = !dirty;
+            const wasDirty = save.dataset.pendingChanges === 'true';
+            save.dataset.pendingChanges = String(dirty);
+            if (dirty) {
+                save.dataset.gamepadHint = 'start';
+                if (!wasDirty && typeof updateGamepadUI === 'function' && typeof isGamepadConnected !== 'undefined' && isGamepadConnected) {
+                    updateGamepadUI(true, typeof _controllerType !== 'undefined' ? _controllerType : 'generic');
+                }
+            } else {
+                delete save.dataset.gamepadHint;
+                save.querySelector('.gp-hint')?.remove();
+            }
             overlay.querySelector('#editCancelBtn').textContent = dirty ? t('editModalCancel', 'Cancelar') : t('navBack', 'Voltar');
         };
         overlay.addEventListener('input', refreshSaveState);

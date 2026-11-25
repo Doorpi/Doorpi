@@ -56,6 +56,8 @@
             .profile-photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(clamp(138px,11vw,172px),1fr)); gap:12px; }
             .profile-photo-choice { position:relative; aspect-ratio:1; padding:0; overflow:hidden; border:2px solid transparent; border-radius:6px; background:rgba(255,255,255,.04); outline:none; }
             .profile-photo-choice.vertical { aspect-ratio:2/3; }
+            .profile-photo-choice.hero { aspect-ratio:3/1; }
+            .profile-photo-grid:has(.hero) { grid-template-columns:repeat(auto-fill,minmax(min(100%,clamp(240px,22vw,420px)),1fr)); }
             .profile-photo-choice img { width:100%; height:100%; object-fit:cover; display:block; }
             .profile-photo-choice:focus { border-color:#fff; transform:scale(1.035); z-index:2; box-shadow:0 12px 28px rgba(0,0,0,.5); }
             .profile-photo-choice small { position:absolute; left:6px; right:6px; bottom:6px; padding:5px 6px; overflow:hidden; border-radius:3px; background:rgba(0,0,0,.72); color:#fff; font-size:.62rem; text-overflow:ellipsis; white-space:nowrap; opacity:0; }
@@ -87,7 +89,9 @@
                 .profile-photo-crop-layout { grid-template-columns:1fr; }
                 .profile-photo-crop-stage { width:min(46vh,360px); }
             }
-        `;
+        
+.profile-photo-crop-stage.is-cover { width:100%; aspect-ratio:3/1; border-radius:6px; }
+`;
         document.head.appendChild(style);
     }
 
@@ -144,7 +148,7 @@
             <div class="profile-photo-sources">
                 <button class="profile-photo-source" data-source="steamgrid" ${picker.hasApiKey ? '' : 'disabled'}>
                     <strong>SteamGrid</strong>
-                    <span>${tx('profilePhotoSteamGridDesc', 'Artes quadradas ou verticais.')}</span>
+                    <span>${picker.cover ? tx('profileCoverSteamGridDesc', 'Banners panorâmicos de jogos.') : tx('profilePhotoSteamGridDesc', 'Artes quadradas ou verticais.')}</span>
                 </button>
                 <button class="profile-photo-source" data-source="local">
                     <strong>${tx('profilePhotoComputer', 'Computador')}</strong>
@@ -161,7 +165,7 @@
         picker.body.querySelector('[data-source="local"]')?.addEventListener('click', () => {
             picker.requestId = `photo_${Date.now()}_${Math.random().toString(16).slice(2)}`;
             setStatus(tx('profilePhotoOpeningFile', 'Abrindo seletor de imagem...'));
-            post({ action: 'pickProfilePhotoSource', requestId: picker.requestId, dialogTitle: tx('dlgPhotoTitle', 'Selecionar foto de perfil') });
+            post({ action: 'pickProfilePhotoSource', requestId: picker.requestId, dialogTitle: picker.cover ? tx('profileCover', 'Capa do perfil') : tx('dlgPhotoTitle', 'Selecionar foto de perfil') });
         });
         picker.body.querySelector('[data-source="url"]')?.addEventListener('click', urlScreen);
         requestAnimationFrame(() => picker?.body.querySelector('.profile-photo-source:not(:disabled)')?.focus({ preventScroll: true }));
@@ -256,6 +260,7 @@
             picker.showingRecommendations = false;
             picker.suggestionTimer = setTimeout(() => requestGameSuggestions(query), 280);
         });
+        input.focus({ preventScroll: true });
         requestArtwork(!!suggestions, '');
     }
 
@@ -304,7 +309,8 @@
                 requestId: picker.requestId,
                 suggestions: true,
                 squares: picker.recommendations.squares,
-                verticals: picker.recommendations.verticals
+                verticals: picker.recommendations.verticals,
+                heroes: picker.recommendations.heroes
             });
             return;
         }
@@ -313,6 +319,8 @@
             : tx('profilePhotoSearching', 'Pesquisando artes...'));
         post({
             action: 'searchProfilePhotoArtwork',
+            artworkType: picker.cover ? 'hero' : 'avatar',
+            favoriteTitles: suggestions && picker.cover ? picker.favoriteTitles : [],
             requestId: picker.requestId,
             query,
             suggestions,
@@ -337,21 +345,23 @@
 
     function handleArtworkResults(data) {
         if (!picker || picker.requestId !== data.requestId || picker.mode !== 'steamgrid') return;
+        const heroes = Array.isArray(data.heroes) ? data.heroes : [];
         const squares = Array.isArray(data.squares) ? data.squares : [];
         const verticals = Array.isArray(data.verticals) ? data.verticals : [];
         picker.showingRecommendations = !!data.suggestions;
         if (data.suggestions && !data.error)
-            picker.recommendations = { squares, verticals };
+            picker.recommendations = { squares, verticals, heroes };
         const results = picker.overlay.querySelector('#profilePhotoResults');
         if (!results) return;
+        const count = picker.cover ? heroes.length : squares.length + verticals.length;
         setStatus(data.error
             ? tx('profilePhotoSearchFailed', 'Não foi possível consultar o SteamGrid.')
-            : tx('profilePhotoResultCount', `${squares.length + verticals.length} imagens encontradas`, squares.length + verticals.length),
+            : tx('profilePhotoResultCount', `${count} imagens encontradas`, count),
             !!data.error);
-        results.innerHTML = squares.length || verticals.length
-            ? renderArtworkGroup(tx('profilePhotoSquares', 'Quadradas'), 'square', squares) +
+        results.innerHTML = count
+            ? picker.cover ? renderArtworkGroup(tx('profileCoverBanners', 'Banners'), 'hero', heroes) : renderArtworkGroup(tx('profilePhotoSquares', 'Quadradas'), 'square', squares) +
               renderArtworkGroup(tx('profilePhotoVerticals', 'Verticais'), 'vertical', verticals)
-            : `<div class="profile-photo-empty">${tx('profilePhotoNoResults', 'Nenhuma arte estática sem logo foi encontrada.')}</div>`;
+            : `<div class="profile-photo-empty">${picker.cover ? tx('profileCoverNoBanners','Nenhum banner encontrado.') : tx('profilePhotoNoResults', 'Nenhuma arte estática sem logo foi encontrada.')}</div>`;
         results.querySelectorAll('.profile-photo-choice').forEach(button => {
             button.addEventListener('click', () => loadRemoteSource(
                 button.dataset.url,
@@ -362,7 +372,7 @@
         picker.body.scrollTop = 0;
         requestAnimationFrame(() => {
             picker?.body?.scrollTo?.({ top: 0, behavior: 'auto' });
-            results.querySelector('.profile-photo-choice')?.focus({ preventScroll: true });
+            if (!picker?.overlay.contains(document.activeElement)) results.querySelector('.profile-photo-choice')?.focus({ preventScroll: true });
         });
     }
 
@@ -419,9 +429,10 @@
     function handleSourceLoaded(data) {
         if (!picker || picker.requestId !== data.requestId) return;
         handleSourceProgress({ requestId: data.requestId, percent: 100 });
+        const owner = picker;
         const image = new Image();
         image.onload = () => {
-            if (!picker) return;
+            if (picker !== owner || picker.requestId !== data.requestId) return;
             if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 16777216) {
                 setStatus(tx('profilePhotoDimensionsTooLarge', 'A imagem possui dimensões grandes demais.'), true);
                 return;
@@ -436,7 +447,9 @@
             };
             cropScreen();
         };
-        image.onerror = () => showSourceLoadError(tx('profilePhotoInvalidImage', 'A imagem não pôde ser decodificada.'));
+        image.onerror = () => {
+            if (picker === owner && picker.requestId === data.requestId) showSourceLoadError(tx('profilePhotoInvalidImage', 'A imagem não pôde ser decodificada.'));
+        };
         image.src = data.dataUrl;
     }
 
@@ -463,7 +476,7 @@
         picker.crop = { offsetX: 0, offsetY: 0, zoom: 1 };
         picker.body.innerHTML = `
             <div class="profile-photo-crop-layout">
-                <button class="profile-photo-crop-stage" id="profilePhotoCropStage" type="button" aria-label="${esc(tx('profilePhotoConfirmCrop', 'Confirmar enquadramento'))}">
+                <button class="profile-photo-crop-stage ${picker.cover ? 'is-cover' : ''}" id="profilePhotoCropStage" type="button" aria-label="${esc(tx('profilePhotoConfirmCrop', 'Confirmar enquadramento'))}">
                     <img class="profile-photo-crop-image" src="${picker.source.dataUrl}" alt="" />
                 </button>
                 <div class="profile-photo-crop-info">
@@ -492,7 +505,7 @@
         picker.body.querySelector('#profilePhotoCropBack').addEventListener('click', sourceScreen);
         requestAnimationFrame(() => {
             updateCropTransform();
-            stage.focus({ preventScroll: true });
+            if (stage.isConnected) stage.focus({ preventScroll: true });
         });
     }
 
@@ -500,14 +513,15 @@
         const stage = picker?.overlay.querySelector('#profilePhotoCropStage');
         if (!picker?.source || !stage) return null;
         const size = Math.max(1, stage.clientWidth);
-        const fit = Math.max(size / picker.source.naturalWidth, size / picker.source.naturalHeight);
+        const height = Math.max(1, stage.clientHeight);
+        const fit = Math.max(size / picker.source.naturalWidth, height / picker.source.naturalHeight);
         const scaledWidth = picker.source.naturalWidth * fit * picker.crop.zoom;
         const scaledHeight = picker.source.naturalHeight * fit * picker.crop.zoom;
         const maxX = Math.max(0, (scaledWidth - size) / 2);
-        const maxY = Math.max(0, (scaledHeight - size) / 2);
+        const maxY = Math.max(0, (scaledHeight - height) / 2);
         picker.crop.offsetX = Math.max(-maxX, Math.min(maxX, picker.crop.offsetX));
         picker.crop.offsetY = Math.max(-maxY, Math.min(maxY, picker.crop.offsetY));
-        return { stage, size, fit, scaledWidth, scaledHeight };
+        return { stage, size, height, fit, scaledWidth, scaledHeight };
     }
 
     function updateCropTransform() {
@@ -534,20 +548,21 @@
         if (!picker?.source || !metrics) return;
         const scale = metrics.fit * picker.crop.zoom;
         const sourceSize = metrics.size / scale;
+        const sourceHeight = metrics.height / scale;
         const centerX = picker.source.naturalWidth / 2 - picker.crop.offsetX / scale;
         const centerY = picker.source.naturalHeight / 2 - picker.crop.offsetY / scale;
         const sx = Math.max(0, Math.min(picker.source.naturalWidth - sourceSize, centerX - sourceSize / 2));
-        const sy = Math.max(0, Math.min(picker.source.naturalHeight - sourceSize, centerY - sourceSize / 2));
+        const sy = Math.max(0, Math.min(picker.source.naturalHeight - sourceHeight, centerY - sourceHeight / 2));
         const canvas = document.createElement('canvas');
-        canvas.width = 1024;
-        canvas.height = 1024;
+        canvas.width = picker.cover ? 1920 : 1024;
+        canvas.height = picker.cover ? 640 : 1024;
         const ctx = canvas.getContext('2d', { alpha: false });
         ctx.fillStyle = '#080a10';
-        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         const image = picker.overlay.querySelector('.profile-photo-crop-image');
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(image, sx, sy, sourceSize, sourceSize, 0, 0, 1024, 1024);
+        ctx.drawImage(image, sx, sy, sourceSize, sourceHeight, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', .9);
         const result = {
             base64: dataUrl.slice(dataUrl.indexOf(',') + 1),
@@ -584,6 +599,8 @@
             body: overlay.querySelector('.profile-photo-picker-body'),
             apiKey: String(options.apiKey || '').trim(),
             hasApiKey: !!options.hasApiKey || !!String(options.apiKey || '').trim(),
+            cover: options.cover === true,
+            favoriteTitles: options.favoriteTitles || [],
             onApply: options.onApply,
             returnFocus: options.returnFocus || document.activeElement,
             mode: 'source',

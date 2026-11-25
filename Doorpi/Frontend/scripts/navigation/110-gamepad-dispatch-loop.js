@@ -85,6 +85,15 @@
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
 
+        if (window._doorpiMediaPermanentDialogIsOpen?.()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window.requestDoorpiBackAction?.();
+            return;
+        }
+
         if (window.isDoorpiFileBrowserOpen?.() && !isVkbOpenForNavigation()) {
             _currentDirection = null;
             _moveState = 0;
@@ -321,6 +330,12 @@
                     return;
                 }
                 else {
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._navMenuHandleKey?.('Y');
+                    if (document.querySelector('.nav-profile-sort-dialog[open]')) {
+                        if (primaryJustPressed(buttons, GAMEPAD)) window._navMenuHandleKey?.('Enter');
+                        if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+                        return;
+                    }
                     if (primaryJustPressed(buttons, GAMEPAD)) window._navMenuHandleKey?.('Enter');
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                         if (window.requestDoorpiBackAction?.()) return;
@@ -356,8 +371,8 @@
             }
             if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-                if (window.requestDoorpiBackAction?.()) return;
                 window._vkbCancel?.();
+                return;
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._vkbConfirm?.();
 

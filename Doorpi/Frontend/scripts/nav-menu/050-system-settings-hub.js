@@ -364,7 +364,7 @@
         });
         body.querySelector('#setSystemUpdates')?.addEventListener('click', () => {
             _systemSubView = 'updates';
-            _systemUpdatesSubView = 'doorpi';
+            _systemUpdatesSubView = 'hub';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();

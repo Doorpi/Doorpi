@@ -154,3 +154,12 @@
                 .sound-mixer-group.control{padding-left:0;padding-top:16px;border-left:0;border-top:1px solid rgba(255,255,255,.1)}
             }
         
+/* Keep text and volume visible while the controller adjusts the slider. */
+.doorpi-quick-panel .sound-focus:is(:focus-visible,.nav-focused-el):not(.sound-volume-slider),
+.doorpi-quick-panel .sound-volume-card.editing {
+    background:var(--doorpi-shell-surface); color:var(--doorpi-shell-ink);
+    outline:2px solid var(--doorpi-shell-muted); outline-offset:-2px; box-shadow:none;
+}
+.doorpi-quick-panel .sound-volume-card.editing .sound-slider-rail i {
+    background:var(--doorpi-shell-accent); box-shadow:none;
+}

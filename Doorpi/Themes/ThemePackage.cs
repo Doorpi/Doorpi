@@ -16,7 +16,7 @@ internal sealed record StagedThemePackage(string Hash, ThemePackageManifest Mani
 // Immutable external visual packages. No internal preference/index JSON is written here.
 internal static class ThemePackage
 {
-    internal static readonly string[] Parts = { "home", "nav-menu", "side-panels", "popups", "login" };
+    internal static readonly string[] Parts = { "home", "nav-menu", "side-panels", "popups", "profile", "login" };
     internal static readonly Dictionary<string, string> AssetTypes = new(StringComparer.OrdinalIgnoreCase)
     { [".png"] = "image/png", [".jpg"] = "image/jpeg", [".jpeg"] = "image/jpeg", [".webp"] = "image/webp", [".avif"] = "image/avif", [".woff"] = "font/woff", [".woff2"] = "font/woff2" };
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow };

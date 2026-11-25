@@ -1,8 +1,8 @@
 // Profile/device selection; package payloads are visual contracts, never executable scripts.
 (() => {
     'use strict';
-    const areas=['home','nav-menu','side-panels','popups','login'];
-    const systemAreas=areas.filter(part=>part!=='login');
+    const areas=['home','nav-menu','side-panels','popups','profile','login'];
+    const systemAreas=areas.filter(part=>part!=='login' && part!=='profile');
     const supports=(theme,part)=>part==='system'
         ? systemAreas.every(area=>(theme.parts||['home','side-panels']).includes(area))
         : (theme.parts||['home','side-panels']).includes(part);
@@ -117,7 +117,7 @@
             const started=Date.now();
             for(const part of areas){
                 if(!current(version,profile))return;
-                if(desired.has(part)||desired.has('__all__')||(part!=='login'&&desired.has('system')))continue;
+                if(desired.has(part)||desired.has('__all__')||(systemAreas.includes(part)&&desired.has('system')))continue;
                 if(part==='login'&&state.activeParts.login===state.savedParts.login)continue;
                 let cancelled=false,timer;
                 try{

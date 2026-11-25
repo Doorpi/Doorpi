@@ -93,30 +93,13 @@
         const hasUpdates = updates.length > 0;
         const tabState = document.getElementById('updatesTabWindowsState');
 
-        if (tabState) {
-            tabState.textContent = status.rebootRequired
-                ? 'Reinício pendente'
-                : active
-                    ? 'Atualização em andamento'
-                    : hasUpdates
-                        ? `${updates.length} atualização(ões)`
-                        : status.status === 'error'
-                            ? 'Falha na verificação'
-                            : 'Windows atualizado';
-        }
-
+        const stateKey = status.rebootRequired ? 'quickRestart' :
+            { checking:'quickChecking', downloading:'windowsUpdateDownloading', installing:'windowsUpdateInstalling',
+              error:'quickError', 'access-denied':'quickError' }[status.status] ||
+            (hasUpdates ? 'quickAvailable' : status.lastCheckedAt ? 'quickUpdated' : 'updateUnchecked');
+        if (tabState) tabState.textContent = _t(stateKey);
         if (badge) {
-            badge.textContent = status.rebootRequired
-                ? _t('restartNow', 'Reiniciar agora').toUpperCase()
-                : active
-                    ? _t('windowsUpdateProcessing', 'PROCESSANDO')
-                    : hasUpdates
-                        ? _t('windowsUpdateAvailable', 'DISPONÍVEL')
-                        : status.status === 'error'
-                            ? 'ERRO'
-                            : status.status === 'access-denied'
-                                ? 'WINDOWS'
-                                : _t('windowsUpdateUpdated', 'ATUALIZADO');
+            badge.textContent = _t(stateKey);
             badge.dataset.state = status.status || 'idle';
         }
 
@@ -204,11 +187,11 @@
 
         if (tabState) {
             tabState.textContent = status.status === 'error'
-                ? 'Falha na detecção'
+                ? _t('quickError')
                 : !adapters.length
-                    ? 'Nenhuma GPU detectada'
+                    ? _t('quickNoGpu')
                     : !updaters.length
-                        ? 'Atualizador não configurado'
+                        ? _t('quickNoApp')
                         : `${updaters.length} atualizador(es)`;
         }
 

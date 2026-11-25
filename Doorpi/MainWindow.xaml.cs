@@ -94,6 +94,9 @@ namespace Doorpi
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string PhotoBase64 { get; set; } = "";
+        public string CoverBase64 { get; set; } = "";
+        public bool AvatarFromGame { get; set; }
+        public string GameAvatarUrl { get; set; } = "";
         public string PhotoSource { get; set; } = "";
         public string PhotoSourceUrl { get; set; } = "";
         public int PhotoSteamGridAssetId { get; set; }
@@ -321,6 +324,9 @@ namespace Doorpi
         [DllImport("user32.dll", SetLastError = true)]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
         [DllImport("dwmapi.dll")]
         private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 
@@ -329,6 +335,7 @@ namespace Doorpi
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WS_THICKFRAME = 0x00040000;
         private const int WS_MAXIMIZEBOX = 0x00010000;
+        private const uint GW_OWNER = 4;
         private const int DWMWA_CLOAKED = 14;
         [DllImport("Powrprof.dll", CharSet = CharSet.Auto, ExactSpelling = true)]
         private static extern bool SetSuspendState(bool hiberate, bool forceCritical, bool disableWakeEvent);
@@ -1481,26 +1488,16 @@ namespace Doorpi
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam")
-                             ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
-
-                if (key?.GetValue("InstallPath") is not string steamPath) return keys;
-
-                string configPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-                if (!File.Exists(configPath)) return keys;
-
-                var matches = Regex.Matches(File.ReadAllText(configPath), @"""path""\s+""([^""]+)""");
-                foreach (Match match in matches)
+                foreach (string library in GetSteamLibraries(GetSteamInstallPath()))
                 {
-                    string appsPath = Path.Combine(
-                        match.Groups[1].Value.Replace(@"\\", @"\"), "steamapps");
+                    string appsPath = Path.Combine(library, "steamapps");
 
                     if (!Directory.Exists(appsPath)) continue;
 
                     foreach (var acf in Directory.GetFiles(appsPath, "appmanifest_*.acf"))
                     {
                         var fi = new FileInfo(acf);
-                        keys.Add($"{fi.Name}|{fi.LastWriteTimeUtc.Ticks}");
+                        keys.Add($"{fi.FullName}|{fi.LastWriteTimeUtc.Ticks}");
                     }
                 }
             }
@@ -2079,7 +2076,7 @@ namespace Doorpi
         {
             user.Id,
             user.Name,
-            user.PhotoBase64,
+            PhotoBase64 = user.AvatarFromGame && user.GameAvatarUrl.Length > 0 ? user.GameAvatarUrl : user.PhotoBase64,
             user.PhotoSource,
             user.PhotoSourceUrl,
             user.PhotoSteamGridAssetId,
@@ -2442,6 +2439,9 @@ namespace Doorpi
                     user.Id,
                     user.Name,
                     user.PhotoBase64,
+                    user.CoverBase64,
+                    user.AvatarFromGame,
+                    user.GameAvatarUrl,
                     user.PhotoSource,
                     user.PhotoSourceUrl,
                     user.PhotoSteamGridAssetId,
@@ -2476,6 +2476,8 @@ namespace Doorpi
             BootStartupTrace.Record("profile-ui-data-send-start");
             BootStartupTrace.RecordProcess(Environment.ProcessId, "DoorpiMain", "profile-host-process-metrics");
             _interactiveUserSessionStarted = true;
+            BackfillSteamHistoryArtwork(currentUserId);
+            ResumePendingSteamImport(currentUserId);
             RecoverInterruptedGameplaySession();
             ArmMainUiGamepadStartupGrace(RequiresConsoleShellStartupGate() ? 8000 : 2000);
             StartHomeWebViewHealthWatch("user-session-loaded", RequiresConsoleShellStartupGate() ? 5000 : 2500);
@@ -3077,14 +3079,8 @@ namespace Doorpi
                 // ownership while it is visible, even if the overlay temporarily
                 // changes the underlying store/app mouse or focus state.
                 bool acceptsInputNow = ownsDesktopVkb || (shouldAcceptInput?.Invoke() ?? true);
-                if (acceptsInputNow && aDoubleClickPending && (DateTime.Now - lastAReleaseTime).TotalMilliseconds > 300)
-                {
+                if (aDoubleClickPending && (DateTime.Now - lastAReleaseTime).TotalMilliseconds > 300)
                     aDoubleClickPending = false;
-                    bool vkbAlreadyExisted = _desktopVkb != null;
-                    OpenMediaExeVkb(autoPositioned: true);
-                    if (!vkbAlreadyExisted && _desktopVkb != null)
-                        ownsDesktopVkb = true;
-                }
 
                 try
                 {
@@ -3260,23 +3256,30 @@ namespace Doorpi
                             if (scroll != 0) SendMouse(0, 0, 0x0800, (uint)scroll);
                         }
 
-                        if (!customProfileOwnsDefaultButtons && anyAPressed)
+                        if (anyAPressed)
                         {
+                            // Capture the I-beam state for the A click even when a
+                            // custom profile owns the button's normal output.
                             aWasOnTextField = IsCursorOnTextField();
-                            aDragOccurred = false; isClicking = true;
-                            clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
-                            SendMouse(0, 0, 0x0002);
-                            if (instantPrimaryClick)
+                            aDragOccurred = false;
+                            if (!customProfileOwnsDefaultButtons)
                             {
-                                SendMouse(0, 0, 0x0004);
-                                isClicking = false;
-                                if (aWasOnTextField && IsCursorOnTextField())
+                                isClicking = true;
+                                clickAccumX = 0; clickAccumY = 0; dragBrokeThreshold = false;
+                                SendMouse(0, 0, 0x0002);
+                                if (instantPrimaryClick)
                                 {
-                                    aDoubleClickPending = true;
-                                    lastAReleaseTime = DateTime.Now;
+                                    SendMouse(0, 0, 0x0004);
+                                    isClicking = false;
+                                    if (aWasOnTextField && IsCursorOnTextField())
+                                    {
+                                        bool vkbAlreadyExisted = _desktopVkb != null;
+                                        OpenMediaExeVkb(autoPositioned: true);
+                                        if (!vkbAlreadyExisted && _desktopVkb != null)
+                                            ownsDesktopVkb = true;
+                                        aWasOnTextField = false;
+                                    }
                                 }
-                                aWasOnTextField = false;
-                                aDragOccurred = false;
                             }
                         }
 
@@ -3317,10 +3320,13 @@ namespace Doorpi
                         }
                         else { remainderX = 0; remainderY = 0; }
 
-                        if (!customProfileOwnsDefaultButtons && anyAReleased)
+                        if (anyAReleased)
                         {
                             isClicking = false;
-                            SendMouse(0, 0, 0x0004);
+                            if (!customProfileOwnsDefaultButtons)
+                            {
+                                SendMouse(0, 0, 0x0004);
+                            }
 
                             if (aWasOnTextField && !aDragOccurred && IsCursorOnTextField())
                             {
@@ -3335,6 +3341,12 @@ namespace Doorpi
                                 }
                                 else
                                 {
+                                    // The A click on an I-beam opens the keyboard regardless
+                                    // of whether a custom profile owns A's normal output.
+                                    bool vkbAlreadyExisted = _desktopVkb != null;
+                                    OpenMediaExeVkb(autoPositioned: true);
+                                    if (!vkbAlreadyExisted && _desktopVkb != null)
+                                        ownsDesktopVkb = true;
                                     aDoubleClickPending = true;
                                     lastAReleaseTime = DateTime.Now;
                                 }
@@ -4442,6 +4454,97 @@ namespace Doorpi
             return result;
         }
 
+        private static readonly string[] _transitionalAppWindowMarkers =
+        ["update", "updater", "install", "installer", "setup", "launcher", "bootstrap", "patcher", "splash", "crash reporter", "error report"];
+
+        private bool IsConfidentExecutableAppWindow(IntPtr hwnd, ExecutableAppSession session, out RECT rect)
+        {
+            rect = default;
+            if (hwnd == IntPtr.Zero || !IsWindow(hwnd) || !IsWindowVisible(hwnd) ||
+                IsIconic(hwnd) || IsWindowCloaked(hwnd) || GetWindow(hwnd, GW_OWNER) != IntPtr.Zero)
+                return false;
+
+            GetWindowProcessId(hwnd, out uint pidRaw);
+            int pid = (int)pidRaw;
+            if (pid <= 0 || !session.ContainsProcessGroupId(pid))
+                return false;
+
+            int extendedStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+            int style = GetWindowLong(hwnd, GWL_STYLE);
+            if ((extendedStyle & WS_EX_TOOLWINDOW) != 0 ||
+                (style & WS_MAXIMIZEBOX) == 0 || !GetWindowRect(hwnd, out rect) ||
+                rect.Width < 520 || rect.Height < 320)
+                return false;
+
+            var className = new StringBuilder(128);
+            if (GetClassName(hwnd, className, className.Capacity) <= 0 ||
+                string.Equals(className.ToString(), "#32770", StringComparison.Ordinal))
+                return false;
+
+            string title = GetWindowTitle(hwnd);
+            if (string.IsNullOrWhiteSpace(title))
+                return false;
+
+            string processName;
+            try
+            {
+                using Process process = Process.GetProcessById(pid);
+                processName = SafeProcessName(process);
+            }
+            catch { return false; }
+
+            string transitionText = $"{processName} {title}";
+            return !_transitionalAppWindowMarkers.Any(marker =>
+                transitionText.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool TryMaximizeConfirmedExecutableAppWindow(IntPtr preferredHwnd, ExecutableAppSession session)
+        {
+            if (session.AppWindowMaximized)
+                return false;
+
+            var candidates = new List<(IntPtr Hwnd, long Area, bool Foreground, bool Preferred)>();
+            IntPtr foreground = GetForegroundWindow();
+            GetWindowProcessId(foreground, out uint foregroundPidRaw);
+            if (foreground == IntPtr.Zero || !session.ContainsProcessGroupId((int)foregroundPidRaw))
+                return false;
+
+            foreach (IntPtr hwnd in EnumerateTopLevelWindows())
+            {
+                if (!IsConfidentExecutableAppWindow(hwnd, session, out RECT rect))
+                    continue;
+
+                candidates.Add((
+                    hwnd,
+                    (long)rect.Width * rect.Height,
+                    hwnd == foreground,
+                    hwnd == preferredHwnd));
+            }
+
+            if (candidates.Count == 0)
+                return false;
+
+            IntPtr selected = candidates
+                .OrderByDescending(candidate => candidate.Foreground)
+                .ThenByDescending(candidate => candidate.Preferred)
+                .ThenByDescending(candidate => candidate.Area)
+                .First().Hwnd;
+
+            // Never steal focus from Doorpi or another app while this background
+            // watch is waiting for the executable's real window.
+            if (GetForegroundWindow() != selected)
+                return false;
+
+            if (!IsConfidentExecutableAppWindow(selected, session, out _))
+                return false;
+
+            ShowWindow(selected, 3); // SW_MAXIMIZE
+            if (!IsZoomed(selected)) return false;
+
+            session.AppWindowMaximized = true;
+            return true;
+        }
+
         private bool IsValidExternalAppWindow(IntPtr hWnd)
         {
             if (hWnd == IntPtr.Zero) return false;
@@ -5191,6 +5294,7 @@ namespace Doorpi
         private void StartMediaExeWatcher(Process? proc, string mediaUrl, string appName, CancellationToken token)
         {
             var watchedSession = GetOrCreateExecutableAppSession(mediaUrl, activate: false);
+            bool autoMaximizeAppWindow = FindConfiguredEmulatorByExecutablePath(mediaUrl) == null;
             if (watchedSession.ProcessGroupCount == 0)
                 InitializeMediaExeProcessGroup(mediaUrl, proc);
 
@@ -5254,6 +5358,9 @@ namespace Doorpi
                                 FocusExternalWindow(activeHwnd);
 
                             });
+
+                            if (autoMaximizeAppWindow && IsActiveExecutableAppSession(watchedSession))
+                                TryMaximizeConfirmedExecutableAppWindow(activeHwnd, watchedSession);
 
                             if (IsActiveExecutableAppSession(watchedSession))
                             {
@@ -5437,7 +5544,7 @@ namespace Doorpi
                 string command = ResolveMediaLaunchCommand(media, mediaUrl);
                 return string.IsNullOrWhiteSpace(command)
                     ? null
-                    : LaunchCommand.Start(command, ProcessWindowStyle.Maximized);
+                    : LaunchCommand.Start(command);
             }
             catch { return null; }
         }
@@ -5720,7 +5827,7 @@ namespace Doorpi
             });
 
             SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
-            _ = TryMaximizeExternalWindowAsync(proc, url, token: executableSession.WatcherCts.Token);
+            TryMaximizeConfirmedExecutableAppWindow(IntPtr.Zero, executableSession);
             StartMediaExeWatcher(proc, url, appName, executableSession.WatcherCts.Token);
             EnsureMediaExeShortcutThread(sessionId);
             if (allowControllerInput)
@@ -8654,6 +8761,7 @@ namespace Doorpi
                                 }
 
                             });
+                            ScheduleGameCursorParking(_currentGameHwnd);
 
                             SendGameLaunchStatus("gameLaunchDone");
                             VerifyGameFocusOrPromptAsync(_currentGameHwnd, game);
@@ -8925,7 +9033,7 @@ namespace Doorpi
 
             if (type == "gameLaunching")
             {
-                CancelStorageRefreshForLaunch();
+                CancelStorageRefresh();
                 _launchAnimationStartedUtc = DateTime.UtcNow;
             }
 
@@ -10354,12 +10462,12 @@ namespace Doorpi
                 ReleaseAllStuckKeys();
                 EnsureCursorVisible();
                 _mainScreenMouseVisible = true;
-                CenterCursorOnScreen();
 
                 var hwnd = ResolveCurrentGameWindow();
                 if (hwnd != IntPtr.Zero)
                 {
                     RestoreGameCleanly(hwnd);
+                    ScheduleGameCursorParking(hwnd);
                     _gameIsMinimized = false;
                     _gameIsRunningAndDoorpiHidden = true;
                     SendGameLaunchStatus("gameLaunchDone");
@@ -10485,6 +10593,7 @@ namespace Doorpi
                 HashSet<int>? baselineBeforeLaunch = null;
                 if (aliveProcess == null && !string.IsNullOrWhiteSpace(executablePath))
                 {
+                    executableSession.AppWindowMaximized = false;
                     baselineBeforeLaunch = SnapshotProcessIds();
                     aliveProcess = StartMediaExecutable(mediaUrl);
                 }
@@ -10513,8 +10622,8 @@ namespace Doorpi
                     if (hwnd != IntPtr.Zero)
                     {
                         if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
-                        ShowWindow(hwnd, 3);
-                        FocusExternalWindow(hwnd);
+                        if (!TryMaximizeConfirmedExecutableAppWindow(hwnd, executableSession))
+                            FocusExternalWindow(hwnd);
                     }
 
                     InitializeMediaExeMouseModeForSession(executableSession, media);
@@ -11190,20 +11299,11 @@ namespace Doorpi
             var list = new List<InstalledApp>();
             try
             {
-                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam")
-                             ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
-
-                if (key?.GetValue("InstallPath") is string steamPath)
+                string steamPath = GetSteamInstallPath();
+                if (steamPath.Length > 0)
                 {
-                    string configPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-                    if (!File.Exists(configPath)) return list;
-
-                    var content = File.ReadAllText(configPath);
-                    var matches = Regex.Matches(content, @"""path""\s+""([^""]+)""");
-
-                    foreach (Match match in matches)
+                    foreach (string libraryPath in GetSteamLibraries(steamPath))
                     {
-                        string libraryPath = match.Groups[1].Value.Replace(@"\\", @"\");
                         string appsPath = Path.Combine(libraryPath, "steamapps");
                         if (!Directory.Exists(appsPath)) continue;
 
@@ -11217,9 +11317,8 @@ namespace Doorpi
                             if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(appId)) continue;
 
                             string iconBase64 = "";
-                            string gameFolder = !string.IsNullOrEmpty(installDir)
-                                ? Path.Combine(libraryPath, "steamapps", "common", installDir)
-                                : "";
+                            string gameFolder = GetSteamGameInstallPath(appsPath, installDir);
+                            if (StorageUninstallEvidence.HasNoInstallFiles(gameFolder)) continue;
 
                             string iconHash = Regex.Match(acfContent, @"""(?:clienticon|icon)""\s+""([a-fA-F0-9]+)""").Groups[1].Value;
                             if (includeIcons && !string.IsNullOrEmpty(iconHash))
@@ -13438,8 +13537,8 @@ namespace Doorpi
 
         private static string? ExtractSteamAppId(InstalledApp app)
         {
-            if (!string.IsNullOrEmpty(app.LaunchUrl) && app.LaunchUrl.StartsWith("steam://run/", StringComparison.OrdinalIgnoreCase))
-                return app.LaunchUrl.Replace("steam://run/", "").Trim();
+            int id = Doorpi.Steam.SteamHistoryImport.AppIdFromUrl(app.LaunchUrl);
+            if (id > 0) return id.ToString();
 
             return app.Source.Equals("Steam", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(app.Path ?? "", @"^\d+$")
                 ? app.Path
@@ -13542,6 +13641,8 @@ namespace Doorpi
         private Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
         {
             var games = LoadGames();
+            var steamIds = new HashSet<int>();
+            string owner = currentUserId;
             bool changed = false;
 
             foreach (var app in platformGames)
@@ -13555,6 +13656,7 @@ namespace Doorpi
                     continue;
 
                 string? steamAppId = ExtractSteamAppId(app);
+                if (int.TryParse(steamAppId, out int id) && id > 0) steamIds.Add(id);
                 bool steamReady = !string.IsNullOrEmpty(steamAppId);
                 var steamAssets = steamReady ? BuildSteamCdnAssets(steamAppId!) : ("", "", "", "");
 
@@ -13581,7 +13683,7 @@ namespace Doorpi
                 changed = true;
             }
 
-            if (changed) SaveGames(games);
+            if (changed) { SaveGames(games); QueueSteamGames(owner, steamIds); }
             return Task.FromResult(changed);
         }
 
@@ -14038,6 +14140,9 @@ namespace Doorpi
             var existingGames = LoadGames();
             bool isFirstGame = existingGames.Count == 0;
             bool dbChanged = false;
+            var steamIds = new HashSet<int>();
+            string owner = currentUserId;
+            long generation = _themeProfileGeneration;
 
             foreach (var app in selectedApps)
             {
@@ -14124,6 +14229,7 @@ namespace Doorpi
                 };
 
                 existingGames.Add(game);
+                if (int.TryParse(ExtractSteamAppId(app), out int steamId) && steamId > 0) steamIds.Add(steamId);
                 if (isEmulatorGame)
                 {
                     foreach (string discPath in app.EmulatorDiscPaths?.Count > 0
@@ -14136,7 +14242,9 @@ namespace Doorpi
 
             if (dbChanged)
             {
+                if (owner != currentUserId || generation != _themeProfileGeneration) return;
                 SaveGames(existingGames);
+                QueueSteamGames(owner, steamIds);
                 _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
             }
 
@@ -14949,7 +15057,7 @@ namespace Doorpi
             return patch;
         }
 
-        private Task<Dictionary<string, string>> SaveSelectedHistoryArtworkAsync(string gameName, JsonElement imagesEl)
+        private Task<Dictionary<string, string>> SaveSelectedHistoryArtworkAsync(string gameId, string gameName, JsonElement imagesEl)
         {
             var patch = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             string profileId = currentUserId;
@@ -14965,21 +15073,13 @@ namespace Doorpi
 
             lock (_gameHistoryFileLock)
             {
-                string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
                 List<GameHistoryEntry> history;
-                try
-                {
-                    history = File.Exists(historyPath)
-                        ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
-                        : new List<GameHistoryEntry>();
-                }
-                catch
-                {
-                    return Task.FromResult(patch);
-                }
+                try { history = LoadGameHistoryForOwner(profileId); }
+                catch { return Task.FromResult(patch); }
 
                 string key = NormalizeGameName(gameName);
-                var entry = history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
+                var entry = history.FirstOrDefault(item => !string.IsNullOrWhiteSpace(gameId) && item.Id == gameId)
+                    ?? history.FirstOrDefault(item => NormalizeGameName(item.Name) == key);
                 if (entry == null) return Task.FromResult(patch);
 
                 foreach (var item in selected)
@@ -15004,8 +15104,8 @@ namespace Doorpi
                     patch[item.Category + "SourceUrl"] = item.Value;
                 }
 
-                string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
-                SafeWriteAllText(historyPath, json);
+                try { SaveGameHistory(history); }
+                catch (OperationCanceledException) { return Task.FromResult(new Dictionary<string, string>()); }
             }
 
             ScheduleProfileSync(profileId, notifyFailure: true, delayMs: 100);
@@ -15013,33 +15113,27 @@ namespace Doorpi
             return Task.FromResult(patch);
         }
 
-        private bool DeleteGameHistoryEntry(string profileId, string gameName)
+        private bool DeleteGameHistoryEntry(string profileId, string gameId, string gameName)
         {
             string key = NormalizeGameName(gameName);
             if (string.IsNullOrWhiteSpace(key)) return false;
 
             lock (_gameHistoryFileLock)
             {
-                string historyPath = Path.Combine(dataFolder, "users", profileId, "game-history.json");
                 List<GameHistoryEntry> history;
-                try
-                {
-                    history = File.Exists(historyPath)
-                        ? JsonSerializer.Deserialize<List<GameHistoryEntry>>(SafeReadAllText(historyPath)) ?? new()
-                        : new List<GameHistoryEntry>();
-                }
+                try { history = LoadGameHistoryForOwner(profileId); }
                 catch
                 {
                     return false;
                 }
 
                 int previousCount = history.Count;
-                history.RemoveAll(entry =>
-                    NormalizeGameName(entry.Name) == key);
+                if (!string.IsNullOrWhiteSpace(gameId)) history.RemoveAll(entry => entry.Id == gameId);
+                else history.RemoveAll(entry => NormalizeGameName(entry.Name) == key);
                 if (history.Count == previousCount) return false;
 
-                string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
-                SafeWriteAllText(historyPath, json);
+                try { SaveGameHistory(history); }
+                catch (OperationCanceledException) { return false; }
             }
 
             ResetLibraryPlaytimeForDeletedHistory(
@@ -15058,12 +15152,14 @@ namespace Doorpi
             lock (_gamesFileLock)
             {
                 string profileGamesPath = Path.Combine(dataFolder, "users", profileId, "games.json");
-                if (!File.Exists(profileGamesPath)) return;
-
                 List<GameModel> games;
+                long revision;
                 try
                 {
-                    games = JsonSerializer.Deserialize<List<GameModel>>(SafeReadAllText(profileGamesPath)) ?? new();
+                    var snapshot = Doorpi.Storage.StateStorage.ReadEntitySnapshot(profileGamesPath);
+                    revision = snapshot.Revision;
+                    games = snapshot.Entities.Select(entity => JsonSerializer.Deserialize<GameModel>(entity.Payload)
+                        ?? throw new InvalidDataException("Biblioteca inválida.")).ToList();
                 }
                 catch
                 {
@@ -15087,7 +15183,10 @@ namespace Doorpi
 
                 if (!changed) return;
                 string json = JsonSerializer.Serialize(games, IndentedJsonOptions);
-                SafeWriteAllText(profileGamesPath, json);
+                Doorpi.Storage.StateStorage.ExecuteTransaction(() =>
+                    Doorpi.Storage.StateStorage.WriteBatchIfRevision(
+                        new Dictionary<string, string?> { [profileGamesPath] = json },
+                        new Dictionary<string, long> { [profileGamesPath] = revision }));
             }
         }
 
@@ -15430,7 +15529,6 @@ namespace Doorpi
                                 ReleaseAllStuckKeys();
                                 EnsureCursorVisible();
                                 _mainScreenMouseVisible = true;
-                                CenterCursorOnScreen();
 
                                 // Busca a janela: primeiro pelo handle salvo, depois pelo nome do processo
                                 IntPtr hwndToRestore = ResolveCurrentGameWindow();
@@ -15473,6 +15571,7 @@ namespace Doorpi
                                 {
                                     Debug.WriteLine($"[RESTORE] Janela encontrada: {hwndToRestore}");
                                     RestoreGameCleanly(hwndToRestore);
+                                    ScheduleGameCursorParking(hwndToRestore);
                                     DiscordRpcManager.Instance.UpdateState("game", game.Name);
 
                                     _gameIsMinimized = false;          // ? permite monitor continuar rastreando
@@ -15494,6 +15593,7 @@ namespace Doorpi
                                 {
                                     IntPtr fb = _lastVisibleWindowBeforeMinimize;
                                     RestoreGameCleanly(fb);
+                                    ScheduleGameCursorParking(fb);
                                     _gameIsMinimized = false;          // ? idem
                                     if (string.IsNullOrWhiteSpace(_lockedGameProcessName))
                                     {
@@ -15994,7 +16094,11 @@ namespace Doorpi
             {
                 _historyStateRevisions.TryGetValue(history, out var captured);
                 string owner = captured?.Owner ?? currentUserId;
+                if (!string.Equals(owner, currentUserId, StringComparison.OrdinalIgnoreCase))
+                    throw new OperationCanceledException("O perfil mudou antes da confirmação do histórico.");
                 string path = captured?.Path ?? Path.Combine(dataFolder, "users", owner, "game-history.json");
+                foreach (GameHistoryEntry entry in history)
+                    if (string.IsNullOrWhiteSpace(entry.Id)) entry.Id = Guid.NewGuid().ToString("N");
                 var ordered = history
                     .Where(entry => !string.IsNullOrWhiteSpace(entry.Name) && entry.TotalPlaytimeMinutes >= 1)
                     .OrderByDescending(entry => entry.LastPlayed)
@@ -16017,25 +16121,54 @@ namespace Doorpi
         private void MergeGamesWithHistory(List<GameModel> games, string owner)
         {
             var history = LoadGameHistoryForOwner(owner);
-            var byName = history
+            var historyByName = history
+                .Where(entry => !string.IsNullOrWhiteSpace(NormalizeGameName(entry.Name)))
                 .GroupBy(entry => NormalizeGameName(entry.Name))
-                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
-                .ToDictionary(group => group.Key, group => group.OrderByDescending(entry => entry.LastPlayed).First());
+                .ToDictionary(group => group.Key, group => group.ToList());
 
-            foreach (var gameGroup in games
+            var gameGroups = games
                 .Where(game => !string.IsNullOrWhiteSpace(game.Name))
-                .GroupBy(game => NormalizeGameName(game.Name)))
+                .GroupBy(game =>
+                {
+                    int appId = Doorpi.Steam.SteamHistoryImport.AppIdFromUrl(game.LaunchUrl);
+                    return appId > 0 ? "steam:" + appId : "name:" + NormalizeGameName(game.Name);
+                })
+                .Where(group => !string.Equals(group.Key, "name:", StringComparison.Ordinal))
+                .ToList();
+            foreach (var gameGroup in gameGroups)
             {
                 if (string.IsNullOrWhiteSpace(gameGroup.Key)) continue;
                 var group = gameGroup.ToList();
                 bool played = group.Any(HasGameBeenPlayed);
+                var newest = group.OrderByDescending(game => game.LastPlayed).First();
+                string nameKey = NormalizeGameName(newest.Name);
+                int steamAppId = group.Select(game => Doorpi.Steam.SteamHistoryImport.AppIdFromUrl(game.LaunchUrl))
+                    .FirstOrDefault(id => id > 0);
+                List<GameHistoryEntry> matches;
+                if (steamAppId > 0)
+                {
+                    matches = history.Where(entry => entry.SteamAppId == steamAppId).ToList();
+                    if (matches.Count == 0 && historyByName.TryGetValue(nameKey, out var sameSteamName))
+                        matches = sameSteamName.Where(entry => entry.SteamAppId == 0).ToList();
+                }
+                else
+                {
+                    matches = historyByName.TryGetValue(nameKey, out var sameName)
+                        ? sameName.Where(entry => entry.SteamAppId == 0).ToList()
+                        : new List<GameHistoryEntry>();
+                }
 
-                if (!byName.TryGetValue(gameGroup.Key, out var entry))
+                GameHistoryEntry? entry = matches
+                    .OrderByDescending(item => item.TotalPlaytimeMinutes)
+                    .ThenByDescending(item => item.LastPlayed)
+                    .FirstOrDefault();
+                if (entry == null)
                 {
                     if (!played) continue;
-                    var newest = group.OrderByDescending(game => game.LastPlayed).First();
                     entry = new GameHistoryEntry
                     {
+                        Id = Guid.NewGuid().ToString("N"),
+                        SteamAppId = steamAppId,
                         Name = newest.Name,
                         TotalPlaytimeMinutes = SaturatingSumPlaytimeMinutes(group.Select(game => game.TotalPlaytimeMinutes)),
                         LastSessionMinutes = newest.LastSessionMinutes,
@@ -16050,7 +16183,20 @@ namespace Doorpi
                         ProfileBannerLocalImage = FirstNotBlank(group.Select(game => game.HeroStaticImage).Concat(group.Select(game => game.HeroImage)))
                     };
                     history.Add(entry);
-                    byName[gameGroup.Key] = entry;
+                }
+                if (steamAppId > 0) entry.SteamAppId = steamAppId;
+                foreach (GameHistoryEntry duplicate in matches.Where(item => !ReferenceEquals(item, entry)))
+                {
+                    entry.TotalPlaytimeMinutes = Math.Max(entry.TotalPlaytimeMinutes, duplicate.TotalPlaytimeMinutes);
+                    if (entry.LastPlayed < duplicate.LastPlayed) entry.LastPlayed = duplicate.LastPlayed;
+                    if (entry.FirstPlayed == DateTime.MinValue || (duplicate.FirstPlayed > DateTime.MinValue && duplicate.FirstPlayed < entry.FirstPlayed)) entry.FirstPlayed = duplicate.FirstPlayed;
+                    entry.ShowcaseVerticalImageUrl = FirstNotBlank(new[] { entry.ShowcaseVerticalImageUrl, duplicate.ShowcaseVerticalImageUrl });
+                    entry.ShowcaseVerticalLocalImage = FirstNotBlank(new[] { entry.ShowcaseVerticalLocalImage, duplicate.ShowcaseVerticalLocalImage });
+                    entry.HistoryHorizontalImageUrl = FirstNotBlank(new[] { entry.HistoryHorizontalImageUrl, duplicate.HistoryHorizontalImageUrl });
+                    entry.HistoryHorizontalLocalImage = FirstNotBlank(new[] { entry.HistoryHorizontalLocalImage, duplicate.HistoryHorizontalLocalImage });
+                    entry.ProfileBannerImageUrl = FirstNotBlank(new[] { entry.ProfileBannerImageUrl, duplicate.ProfileBannerImageUrl });
+                    entry.ProfileBannerLocalImage = FirstNotBlank(new[] { entry.ProfileBannerLocalImage, duplicate.ProfileBannerLocalImage });
+                    history.Remove(duplicate);
                 }
 
                 var latestGame = group.OrderByDescending(game => game.LastPlayed).First();
@@ -16098,6 +16244,44 @@ namespace Doorpi
             }
 
             SaveGameHistory(history);
+        }
+
+        private void RenameGameHistoryEntry(string owner, GameModel game, string oldName, string newName)
+        {
+            lock (_gameHistoryFileLock)
+            {
+                List<GameHistoryEntry> history = LoadGameHistoryForOwner(owner);
+                string oldKey = NormalizeGameName(oldName);
+                string newKey = NormalizeGameName(newName);
+                int steamAppId = Doorpi.Steam.SteamHistoryImport.AppIdFromUrl(game.LaunchUrl);
+                List<GameHistoryEntry> matches = steamAppId > 0
+                    ? history.Where(entry => entry.SteamAppId == steamAppId ||
+                        (entry.SteamAppId == 0 && (NormalizeGameName(entry.Name) == oldKey || NormalizeGameName(entry.Name) == newKey))).ToList()
+                    : history.Where(entry => entry.SteamAppId == 0 &&
+                        (NormalizeGameName(entry.Name) == oldKey || NormalizeGameName(entry.Name) == newKey)).ToList();
+                if (matches.Count == 0) return;
+
+                GameHistoryEntry target = matches
+                    .OrderByDescending(entry => entry.TotalPlaytimeMinutes)
+                    .ThenByDescending(entry => entry.LastPlayed)
+                    .First();
+                foreach (GameHistoryEntry other in matches.Where(entry => !ReferenceEquals(entry, target)))
+                {
+                    target.TotalPlaytimeMinutes = Math.Max(target.TotalPlaytimeMinutes, other.TotalPlaytimeMinutes);
+                    target.LastPlayed = target.LastPlayed > other.LastPlayed ? target.LastPlayed : other.LastPlayed;
+                    if (target.FirstPlayed == DateTime.MinValue || (other.FirstPlayed > DateTime.MinValue && other.FirstPlayed < target.FirstPlayed)) target.FirstPlayed = other.FirstPlayed;
+                    target.ShowcaseVerticalImageUrl = FirstNotBlank(new[] { target.ShowcaseVerticalImageUrl, other.ShowcaseVerticalImageUrl });
+                    target.ShowcaseVerticalLocalImage = FirstNotBlank(new[] { target.ShowcaseVerticalLocalImage, other.ShowcaseVerticalLocalImage });
+                    target.HistoryHorizontalImageUrl = FirstNotBlank(new[] { target.HistoryHorizontalImageUrl, other.HistoryHorizontalImageUrl });
+                    target.HistoryHorizontalLocalImage = FirstNotBlank(new[] { target.HistoryHorizontalLocalImage, other.HistoryHorizontalLocalImage });
+                    target.ProfileBannerImageUrl = FirstNotBlank(new[] { target.ProfileBannerImageUrl, other.ProfileBannerImageUrl });
+                    target.ProfileBannerLocalImage = FirstNotBlank(new[] { target.ProfileBannerLocalImage, other.ProfileBannerLocalImage });
+                    history.Remove(other);
+                }
+                target.Name = newName;
+                target.SteamAppId = steamAppId;
+                SaveGameHistory(history);
+            }
         }
 
         private void RecordDeletedGameSession(string gameName, int sessionMinutes)
@@ -16971,6 +17155,40 @@ namespace Doorpi
             int centerX = (int)(System.Windows.SystemParameters.PrimaryScreenWidth / 2);
             int centerY = (int)(System.Windows.SystemParameters.PrimaryScreenHeight / 2);
             SetCursorPos(centerX, centerY);
+        }
+
+        private void ParkCursorOutsideWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out RECT rect))
+                return;
+
+            // Position just beyond the window's lower-left corner. Windows may clamp
+            // this to the desktop edge when the window fills the only display.
+            SetCursorPos(rect.Left - 2, rect.Bottom + 2);
+        }
+
+        private void ScheduleGameCursorParking(IntPtr hwnd, int delayMilliseconds = 350)
+        {
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(delayMilliseconds).ConfigureAwait(false);
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (!_gameSessionActive || _gameIsMinimized ||
+                            _currentGameHwnd != hwnd || !IsWindow(hwnd) ||
+                            !IsForegroundOwnedByCurrentGame() || IsSystemCursorHidden())
+                            return;
+
+                        ParkCursorOutsideWindow(hwnd);
+                    });
+                }
+                catch { }
+            });
         }
         private int _cleanupAndExitStarted;
 

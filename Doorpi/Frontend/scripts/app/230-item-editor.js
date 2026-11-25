@@ -229,7 +229,7 @@
                 </div>
                 <div class="edit-modal-actions">
                     <button class="modal-btn cancel" id="editCancelBtn" data-nav-up="#editTrailerLocalBtn" data-nav-right="#editSaveBtn">${typeof t === 'function' ? t('editModalCancel', 'Cancelar') : 'Cancelar'}</button>
-                    <button class="modal-btn primary" id="editSaveBtn" hidden data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn"><span class="edit-save-shortcut">Start</span> ${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
+                    <button class="modal-btn primary" id="editSaveBtn" hidden data-nav-up="#editTrailerRemoveBtn" data-nav-left="#editCancelBtn">${typeof t === 'function' ? t('editModalSave', 'Salvar') : 'Salvar'}</button>
                 </div>  
             </div>
         `;
@@ -261,6 +261,17 @@
             const dirty = hasPendingChanges(), save = overlay.querySelector('#editSaveBtn');
             if (!dirty && document.activeElement === save) overlay.querySelector('#editCancelBtn')?.focus();
             save.hidden = !dirty;
+            const wasDirty = save.dataset.pendingChanges === 'true';
+            save.dataset.pendingChanges = String(dirty);
+            if (dirty) {
+                save.dataset.gamepadHint = 'start';
+                if (!wasDirty && typeof updateGamepadUI === 'function' && typeof isGamepadConnected !== 'undefined' && isGamepadConnected) {
+                    updateGamepadUI(true, typeof _controllerType !== 'undefined' ? _controllerType : 'generic');
+                }
+            } else {
+                delete save.dataset.gamepadHint;
+                save.querySelector('.gp-hint')?.remove();
+            }
             overlay.querySelector('#editCancelBtn').textContent = dirty ? t('editModalCancel', 'Cancelar') : t('navBack', 'Voltar');
         };
         overlay.addEventListener('input', refreshSaveState);

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using Doorpi;
 using Doorpi.Storage;
 using Microsoft.Data.Sqlite;
 
@@ -37,6 +38,31 @@ object? Scalar(string root, string sql)
     connection.Open(); using var command = connection.CreateCommand(); command.CommandText = sql; return command.ExecuteScalar();
 }
 JsonArray Array(string json) => JsonNode.Parse(json) as JsonArray ?? throw new Exception("Expected array");
+
+tests.Add(("uninstall evidence uses the Steam app ID and the actual install directory", () =>
+{
+    const string uninstall = "\"C:\\Steam\\steam.exe\" \"steam://uninstall/1234\"";
+    Assert(StorageUninstallEvidence.SteamUninstallAppId("", uninstall) == "1234", "Steam command lost the app ID");
+    Assert(StorageUninstallEvidence.SteamUninstallAppId("Steam App 1234", "") == "1234", "Steam registry key lost the app ID");
+    Assert(StorageUninstallEvidence.SteamLaunchAppId("steam://rungameid/1234/") == "1234", "Legacy Steam launch URL did not match");
+    Assert(StorageUninstallEvidence.SteamUninstallAppId("", "https://example.com/steam://uninstall/1234") == null, "Unrelated command matched Steam");
+
+    string folder = Path.Combine(Root("uninstall"), "steamapps", "common", "Game");
+    Directory.CreateDirectory(folder);
+    string executable = Path.Combine(folder, "game.exe");
+    File.WriteAllText(executable, "fixture");
+    Assert(!StorageUninstallEvidence.HasNoInstallFiles(folder), "Installed game was reported removed");
+    Assert(!StorageUninstallEvidence.IsRemovalConfirmed(true, new[] { folder }, () => true), "Steam was confirmed with game files still present");
+    Assert(!StorageUninstallEvidence.HasNoInstallFiles(executable), "Existing file was reported as an empty directory");
+    Assert(!StorageUninstallEvidence.HasNoInstallFiles("1234"), "App ID was treated as a filesystem path");
+    File.Delete(executable);
+    Assert(StorageUninstallEvidence.HasNoInstallFiles(folder), "Empty game folder blocked confirmation");
+    Directory.Delete(folder);
+    Assert(StorageUninstallEvidence.HasNoInstallFiles(folder), "Missing game folder blocked confirmation");
+    Assert(StorageUninstallEvidence.IsRemovalConfirmed(true, new[] { folder }, () => false), "Stale Steam registry entry blocked confirmation");
+    Assert(!StorageUninstallEvidence.IsRemovalConfirmed(true, System.Array.Empty<string>(), () => true), "Steam was confirmed without identifying its install location");
+    Assert(!StorageUninstallEvidence.IsRemovalConfirmed(false, new[] { folder }, () => false), "An empty folder alone confirmed a standalone uninstall");
+}));
 
 tests.Add(("ownership boundaries and bootstrap contracts", () =>
 {

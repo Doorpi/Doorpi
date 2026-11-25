@@ -52,6 +52,22 @@ public partial class MainWindow
         var snapshot = StateStorage.ReadEntitySnapshot(path);
         var history = snapshot.Entities.Select(entity => JsonSerializer.Deserialize<GameHistoryEntry>(entity.Payload)
             ?? throw new InvalidDataException("Histórico inválido.")).ToList();
+        bool addedIds = false;
+        foreach (GameHistoryEntry entry in history)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.Id)) continue;
+            entry.Id = Guid.NewGuid().ToString("N");
+            addedIds = true;
+        }
+        if (addedIds)
+        {
+            long expectedRevision = snapshot.Revision;
+            string json = JsonSerializer.Serialize(history, IndentedJsonOptions);
+            StateStorage.ExecuteTransaction(() => StateStorage.WriteBatchIfRevision(
+                new Dictionary<string, string?> { [path] = json },
+                new Dictionary<string, long> { [path] = expectedRevision }));
+            snapshot = StateStorage.ReadEntitySnapshot(path);
+        }
         _historyStateRevisions.Add(history, new GameStateRevision(path, owner, snapshot.Revision));
         return history;
     }

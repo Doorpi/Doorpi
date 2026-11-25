@@ -46,6 +46,7 @@ namespace Doorpi
     public class GameHistoryEntry
     {
         public string Id { get; set; } = "";
+        public int SteamAppId { get; set; }
         public string Name { get; set; } = "";
         public long TotalPlaytimeMinutes { get; set; }
         public int LastSessionMinutes { get; set; }

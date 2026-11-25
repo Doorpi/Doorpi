@@ -163,6 +163,8 @@
 
   <ItemGroup>
     <Folder Include="Data\images\" />
+    <EmbeddedResource Include="Frontend\web-scripts\steam-connect.js" LogicalName="Doorpi.SteamConnect.js" />
+    <EmbeddedResource Include="Frontend\web-scripts\steam-connect.css" LogicalName="Doorpi.SteamConnect.css" />
   </ItemGroup>
 
   <Target Name="BuildFrontendStyles" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">

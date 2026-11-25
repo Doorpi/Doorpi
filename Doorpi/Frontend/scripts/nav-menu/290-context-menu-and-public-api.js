@@ -2,7 +2,36 @@
     window._navMenuTriggerCtxMenu = function () {
         if (!window.isNavMenuOpen) return false;
         const catId = CATS[_catIdx]?.id;
-        const focusedProfileItem = _contentItems[_contentIdx];
+        let focusedProfileItem = _contentItems[_contentIdx];
+        if (catId === 'profile') {
+            const activeMediaRow = document.activeElement?.closest?.('[data-media-history="true"]') ||
+                (focusedProfileItem?.id === 'btnProfileRecent' ? focusedProfileItem._profileRecentActive?.() : null);
+            if (activeMediaRow?.dataset?.mediaHistory === 'true') {
+                const rect = activeMediaRow.getBoundingClientRect();
+                window._ctxMenuOpen?.(activeMediaRow, rect.right + 2, rect.top);
+                return true;
+            }
+        }
+        if (catId === 'profile' && _profileSubView === 'gaming') {
+            const activeGameCard = document.activeElement?.closest?.('.nav-achievement-game');
+            if (activeGameCard) focusedProfileItem = activeGameCard;
+        }
+        if (catId === 'profile' && _profileSubView === 'gaming' &&
+            focusedProfileItem?.matches?.('.nav-achievement-game')) {
+            const rowName = focusedProfileItem.querySelector('.nav-profile-game-title strong')?.textContent?.trim() || '';
+            const appId = Number(focusedProfileItem.dataset.steamGame) || 0;
+            const matches = (_menuData.history || []).filter(entry => {
+                if (appId && Number(entry.SteamAppId) === appId) return true;
+                const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+                return rowName && normalize(entry.Name) === normalize(rowName);
+            }).sort((a,b) => Number(b.TotalPlaytimeMinutes || 0) - Number(a.TotalPlaytimeMinutes || 0));
+            const historyEntry = matches[0];
+            focusedProfileItem.dataset.historyGameName = historyEntry?.Name || rowName;
+            focusedProfileItem.dataset.historyGameId = historyEntry?.Id || '';
+            _setTopbarFocus(false);
+            _openHistoryContextMenu(focusedProfileItem);
+            return true;
+        }
         if (catId === 'profile' && !_topbarFocus && focusedProfileItem?.dataset?.historyGameName) {
             _openHistoryContextMenu(focusedProfileItem);
             return true;
@@ -65,7 +94,7 @@
     window._navMenuDeleteHistory = function (element) {
         const item = _findHistoryItem(element);
         if (!item) return;
-        postToHost?.({ action: 'deleteGameHistory', gameName: item.Name });
+        postToHost?.({ action: 'deleteGameHistory', gameId: item.Id || '', gameName: item.Name });
     };
     window._navMenuRemoveItem = function (catId, itemKey) {
         if (catId === 'games' && Array.isArray(_menuData.games)) {

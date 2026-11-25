@@ -443,6 +443,8 @@
 
         if (!changed && !forceReload) return;
         ++_menuReloadToken;
+        _steamProfileView = { profileId:'', requested:false, games:[] };
+        ++_steamAchievementRequest;
 
         _menuData.games = [];
         _menuData.gamesTotal = null;

@@ -640,7 +640,7 @@ public sealed partial class StorageDatabase
         {
             "users.json" => "users", "user.json" => "user", "games.json" => "games",
             "game-history.json" => "game-history", "media-history.json" => "media-history", "controls.json" => "controls",
-            "media.json" or "folders.json" or "stores.json" or "emulators.json" or "emulator-game-suppressions.json" or
+            "steam-games.json" or "steam-achievements.json" or "media.json" or "folders.json" or "stores.json" or "emulators.json" or "emulator-game-suppressions.json" or
             "browser-downloads.json" or "profiles-v2.json" or "extensions.json" => "entities",
             "appcache.json" or "web-permissions.json" or "browser-settings.json" or "library-bootstrap.json" => "structured", _ => "document"
         };

@@ -1,4 +1,8 @@
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
+    const svgControls = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M8 6.5h8c2.6 0 4.1 1.6 4.7 4.3l1 4.5c.6 2.8-1.8 4.2-3.7 2.4L15.5 15h-7L6 17.7c-1.9 1.8-4.3.4-3.7-2.4l1-4.5C3.9 8.1 5.4 6.5 8 6.5Z"/>
+        <path d="M6.5 10.8h3m-1.5-1.5v3"/><g fill="currentColor" stroke="none"><circle cx="15.5" cy="11.7" r=".9"/><circle cx="18" cy="9.9" r=".9"/></g>
+    </svg>`;
     function _renderSettingsLegacy(body) {
         if (_settingsSubView === 'accountHub') { _renderSettingsAccountHub(body); return; }
         if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
@@ -11,7 +15,6 @@
         if (_settingsSubView === 'sound') { _renderSettingsSound(body); return; }
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
-        const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
         body.innerHTML = `
@@ -87,7 +90,6 @@
         }
 
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
-        const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgStorage = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3.5"/><path d="M4 5.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/><path d="M4 11.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/></svg>`;
@@ -223,8 +225,8 @@
             _settingsReturnToRoot = true;
             _settingsSubView = 'system';
             _systemSubView = detail;
-            if (detail === 'updates') _systemUpdatesSubView = 'doorpi';
-            _contentIdx = 0;
+            if (detail === 'updates') _systemUpdatesSubView = 'hub';
+            _contentIdx = detail === 'updates' ? 1 : 0;
             _renderContent('settings');
             _updateContentFocus();
         };
@@ -297,37 +299,16 @@
         const startBtn = document.getElementById('navCardStartUpdate');
 
         const hasUpdate = !!(status.doorpiUpdateAvailable || status.updaterUpdateAvailable);
-        const isChecking = status.status === 'checking';
-        const isError = status.status === 'error';
-        const isNotConfigured = status.status === 'not-configured';
+        const busy = ['checking','downloading','installing'].includes(status.status);
         const tabState = document.getElementById('updatesTabDoorpiState');
 
-        if (tabState) {
-            tabState.textContent = status.forceUpdate
-                ? 'Atualização obrigatória'
-                : isChecking
-                    ? 'Verificando agora'
-                    : hasUpdate
-                        ? 'Atualização disponível'
-                        : isError
-                            ? 'Falha na verificação'
-                            : isNotConfigured
-                                ? 'Configuração necessária'
-                                : 'Sistema atualizado';
-        }
-
+        const phase = { checking:'quickChecking', downloading:'windowsUpdateDownloading', installing:'windowsUpdateInstalling',
+            error:'quickError', 'not-configured':'updateSetupNeeded' }[status.status];
+        const stateLabel = phase ? _t(phase) : status.forceUpdate ? _t('updateRequired') : hasUpdate ? _t('quickAvailable') :
+            _t(status.lastCheckedAt ? 'quickUpdated' : 'updateUnchecked');
+        if (tabState) tabState.textContent = stateLabel;
         if (badge) {
-            badge.textContent = status.forceUpdate
-                ? 'OBRIGATORIA'
-                : isChecking
-                    ? 'VERIFICANDO'
-                    : hasUpdate
-                        ? 'DISPONÍVEL'
-                        : isError
-                            ? 'ERRO'
-                            : isNotConfigured
-                                ? 'CONFIGURAR'
-                                : 'ATUALIZADO';
+            badge.textContent = stateLabel;
             badge.dataset.state = status.status || 'idle';
         }
 
@@ -342,11 +323,11 @@
         }
 
         if (versions) {
-            const remoteDoorpi = status.remoteDoorpiVersion ? ` -> ${status.remoteDoorpiVersion}` : '';
-            const remoteUpdater = status.remoteUpdaterVersion ? ` -> ${status.remoteUpdaterVersion}` : '';
+            const remoteDoorpi = status.doorpiUpdateAvailable && status.remoteDoorpiVersion ? ` → ${_esc(status.remoteDoorpiVersion)}` : '';
+            const remoteUpdater = status.updaterUpdateAvailable && status.remoteUpdaterVersion ? ` → ${_esc(status.remoteUpdaterVersion)}` : '';
             versions.innerHTML = `
-                <span>Doorpi ${status.localDoorpiVersion || '--'}${remoteDoorpi}</span>
-                <span>Updater ${status.localUpdaterVersion || '--'}${remoteUpdater}</span>
+                <span>Doorpi ${_esc(status.localDoorpiVersion || '—')}${remoteDoorpi}</span>
+                ${status.updaterUpdateAvailable ? `<span>Updater ${_esc(status.localUpdaterVersion || '—')}${remoteUpdater}</span>` : ''}
             `;
         }
 
@@ -371,6 +352,7 @@
         }
 
         if (startBtn) {
+            startBtn.disabled = busy;
             startBtn.classList.toggle('visible', hasUpdate);
             startBtn.style.display = hasUpdate ? '' : 'none';
         }

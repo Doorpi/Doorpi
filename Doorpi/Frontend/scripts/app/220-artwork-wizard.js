@@ -180,7 +180,7 @@
             postToHost({
                 action: options.applyAction || 'applyArtworkSelection',
                 requestId,
-                gameId,
+                gameId: options.gameId || gameId,
                 gameName: options.gameName || card.dataset.name
                     || card.querySelector('.title')?.textContent?.trim() || '',
                 isMedia,
@@ -590,6 +590,7 @@
                 categories: ['vertical', 'horizontal', 'banner'],
                 applyAction: 'applyHistoryArtworkSelection',
                 gameName: item.Name,
+                gameId: item.Id || '',
                 returnFocus: card,
                 onApplied
             });

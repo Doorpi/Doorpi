@@ -15,7 +15,7 @@ try{
  }else if(command==='dev'){
   load(folder);let revision=0,timer;const clients=new Set();
   const runtime={'/runtime/style.css':'Doorpi/wwwroot/style.css','/runtime/theme-runtime.js':'Doorpi/Frontend/scripts/themes/010-theme-runtime.js','/runtime/trailer-layout.js':'Doorpi/Frontend/scripts/themes/030-trailer-layout.js','/runtime/package-styles.js':'Doorpi/Frontend/scripts/themes/040-package-styles.js','/themes/contract.json':'Doorpi/wwwroot/themes/contract.json','/themes/package-contract.json':'Doorpi/Frontend/themes/package-contract.json',
-   '/runtime/nav-menu.css':'Doorpi/Frontend/injected-styles/nav-menu/nav-menu-styles.css','/runtime/login.css':'Doorpi/Frontend/injected-styles/app/doorpi-overlay-styles.css','/runtime/popups.css':'Doorpi/Frontend/injected-styles/app/auxiliary-style-installation-1.css'};
+   '/runtime/profile.css':'Doorpi/Frontend/injected-styles/nav-menu/doorpi-unified-profile-styles.css','/runtime/nav-menu.css':'Doorpi/Frontend/injected-styles/nav-menu/nav-menu-styles.css','/runtime/login.css':'Doorpi/Frontend/injected-styles/app/doorpi-overlay-styles.css','/runtime/popups.css':'Doorpi/Frontend/injected-styles/app/auxiliary-style-installation-1.css'};
   const server=http.createServer((request,response)=>{
    if(!request.headers.host?.startsWith('127.0.0.1:')||request.method!=='GET'){response.writeHead(403);response.end();return;}
    response.setHeader('Cache-Control','no-store');response.setHeader('Access-Control-Allow-Origin','null');response.setHeader('X-Content-Type-Options','nosniff');

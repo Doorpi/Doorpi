@@ -176,10 +176,26 @@
             }).join('');
         }
 
+        function storageProgramListMarkup(programs) {
+            if (programs.length) return storageProgramRowsMarkup(programs);
+            const message = storagePrograms?.error || (!storagePrograms
+                ? 'Carregando programas do Windows…'
+                : storageProgramQuery.trim()
+                    ? t('storageNoProgramMatches')
+                    : 'Nenhum programa identificado nesta unidade.');
+            return `<div class="dq-storage-message">${esc(message)}</div>`;
+        }
+
         function storageProgramInlineDetailMarkup(program) {
             const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
-            const uninstallerActive = storageUninstallerIsActive(program.id);
-            return `<div class="dq-program-inline-detail" data-storage-program-detail="${esc(program.id)}"><div class="dq-program-inline-copy"><div class="dq-program-inline-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${esc(program.version)}</span>` : ''}</div><p class="dq-program-inline-note">${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</p></div><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" data-can-uninstall="${program.canUninstall}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? (uninstallerActive ? 'Retornar' : 'Desinstalar') : 'Indisponível'}</button></div><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div>`;
+            const phase = uninstallStatus?.programId === program.id ? uninstallStatus.status : '';
+            const uninstallerActive = phase === 'started';
+            const processing = phase === 'preparing' || phase === 'direct';
+            const actionLabel = !program.canUninstall ? 'Indisponível'
+                : uninstallerActive ? 'Retornar'
+                : phase === 'direct' ? 'Remoção solicitada'
+                : processing ? 'Solicitando…' : 'Desinstalar';
+            return `<div class="dq-program-inline-detail" data-storage-program-detail="${esc(program.id)}"><div class="dq-program-inline-copy"><div class="dq-program-inline-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${esc(program.version)}</span>` : ''}</div><p class="dq-program-inline-note">${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</p></div><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" data-can-uninstall="${program.canUninstall}" tabindex="0" ${program.canUninstall && !processing ? '' : 'disabled'}>${actionLabel}</button></div><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div>`;
         }
 
         function toggleStorageProgramExpansion(overlay, id, focusAction = true) {
@@ -214,7 +230,7 @@
             const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0];
             if (!drive) {
                 const loading = !storageStatus;
-                return `<section class="dq-content dq-storage-page"><div class="dq-kicker">Sistema</div><h1 class="dq-heading">Armazenamento</h1><p class="dq-sub">${loading ? 'Lendo unidades, capacidade e distribuição do conteúdo.' : 'Não foi possível encontrar uma unidade de armazenamento.'}</p><section class="dq-storage-loading-panel" aria-live="polite"><div class="dq-storage-loading-state">${loading ? '<span class="dq-storage-loading-ring" aria-hidden="true"></span>' : ''}<strong>${loading ? 'Carregando armazenamento…' : esc(storageStatus?.error || 'Nenhum disco disponível.')}</strong></div></section></section>`;
+                return `<section class="dq-content dq-storage-page"><div class="dq-kicker">Sistema</div><h1 class="dq-heading">${t('quickStorageLabel')}</h1><p class="dq-sub">${loading ? 'Lendo unidades, capacidade e distribuição do conteúdo.' : 'Não foi possível encontrar uma unidade de armazenamento.'}</p><section class="dq-storage-loading-panel" aria-live="polite"><div class="dq-storage-loading-state">${loading ? '<span class="dq-storage-loading-ring" aria-hidden="true"></span>' : ''}<strong>${loading ? 'Carregando armazenamento…' : esc(storageStatus?.error || 'Nenhum disco disponível.')}</strong></div></section></section>`;
             }
             const categories = Array.isArray(drive.categories) ? drive.categories : [];
             const structure = storageStructureSignature(categories);
@@ -222,26 +238,25 @@
             const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / total * 100)));
             const programs = storageProgramsForSelectedDrive();
             const categoryRows = categories.map(category => {
-                const detail = category?.state === 'pending' ? 'Análise em andamento' : 'Ver detalhes desta categoria';
-                return `<button class="dq-storage-console-row" data-storage-overview-category="${esc(category?.key || '')}" data-storage-open-category="${esc(category?.key || '')}" tabindex="0"><span class="dq-storage-legend-dot ${esc(category?.key || 'other')}"></span><span class="dq-storage-console-copy"><strong>${esc(category?.label || category?.key || '')}</strong><small>${esc(detail)}</small></span><span class="dq-storage-console-value"><strong>${esc(storageNodeSizeText(category))}</strong><small>›</small></span></button>`;
+                const detail = category?.state === 'pending' ? t('quickAnalyzing') : '';
+                return `<button class="dq-storage-console-row" data-storage-overview-category="${esc(category?.key || '')}" data-storage-open-category="${esc(category?.key || '')}" tabindex="0"><span class="dq-storage-legend-dot ${esc(category?.key || 'other')}"></span><span class="dq-storage-console-copy"><strong>${esc(category?.label || category?.key || '')}</strong>${detail ? '<small>'+esc(detail)+'</small>' : ''}</span><span class="dq-storage-console-value"><strong>${esc(storageNodeSizeText(category))}</strong><small>›</small></span></button>`;
             }).join('');
             return `<section class="dq-content dq-storage-page">
-                <div class="dq-kicker">Sistema</div>
-                <h1 class="dq-heading">Armazenamento</h1>
-                <p class="dq-sub">Veja o uso desta unidade ou abra uma categoria para entender seus detalhes.</p>
+                <h1 class="dq-heading">${t('quickStorageLabel')}</h1>
+
                 <div class="dq-storage-overview-console">
                     <section class="dq-storage-capacity-panel">
-                        <div class="dq-storage-drive-strip"><div class="dq-storage-drive-strip-title"><span>Unidades</span><strong>Escolha um disco</strong></div><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive)).join('')}</div><button class="dq-action compact" data-action="refresh-storage" tabindex="0"><span class="dq-action-label">Atualizar análise</span><span class="dq-action-ico">${iconSvg('refresh', storageStatus?.calculating ? 'dq-spin' : '')}</span></button></div>
-                        <div class="dq-storage-capacity-main" data-storage-stat="availableBytes"><span>Espaço disponível</span><strong>${esc(storageSizeText(drive.availableBytes))}</strong><small data-storage-used-percent>${usedPercent}% do disco em uso</small></div>
+                        <div class="dq-storage-drive-strip"><div class="dq-storage-drive-strip-title"><span>${t('quickDrives')}</span></div><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive)).join('')}</div><button class="dq-action compact" data-action="refresh-storage" tabindex="0"><span class="dq-action-label">${t('quickAnalyze')}</span><span class="dq-action-ico">${iconSvg('refresh', storageStatus?.calculating ? 'dq-spin' : '')}</span></button></div>
+                        <div class="dq-storage-capacity-main" data-storage-stat="availableBytes"><span>${t('quickDiskAvailable')}</span><strong>${esc(storageSizeText(drive.availableBytes))}</strong><small data-storage-used-percent>${usedPercent}% ${t('quickDiskUsed')}</small></div>
                         <div class="dq-storage-bar" aria-label="Distribuição do disco">${storageSegmentsMarkup(drive)}</div>
                         <div class="dq-storage-summary">
-                            <div class="dq-storage-stat" data-storage-stat="totalBytes"><span>Capacidade</span><strong>${esc(storageSizeText(drive.totalBytes))}</strong></div>
-                            <div class="dq-storage-stat" data-storage-stat="usedBytes"><span>Em uso</span><strong>${esc(storageSizeText(drive.usedBytes))}</strong></div>
-                            <div class="dq-storage-stat" data-storage-stat="reservedBytes"><span>Reservado</span><strong>${esc(storageSizeText(drive.reservedBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="totalBytes"><span>${t('quickCapacity')}</span><strong>${esc(storageSizeText(drive.totalBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="usedBytes"><span>${t('quickUsed')}</span><strong>${esc(storageSizeText(drive.usedBytes))}</strong></div>
+                            <div class="dq-storage-stat" data-storage-stat="reservedBytes"><span>${t('quickReserved')}</span><strong>${esc(storageSizeText(drive.reservedBytes))}</strong></div>
                         </div>
                         <div class="dq-storage-toolbar"><span class="dq-storage-message dq-storage-progress">${esc(storageStatusMessage())}</span></div>
                     </section>
-                    <section class="dq-storage-category-panel"><div class="dq-storage-category-title"><strong>O que ocupa espaço</strong><span>Selecione uma categoria para detalhar</span></div><div class="dq-storage-console-list">${categoryRows || `<div class="dq-storage-message">${esc(storageStatus?.error || 'Calculando categorias…')}</div>`}</div><div class="dq-storage-category-actions"><button class="dq-storage-remove-programs" data-storage-open-programs="true" tabindex="0"><span><strong>Remover programas</strong><small>Software registrado no Windows, incluindo jogos e aplicativos</small></span><b>›</b></button></div></section>
+                    <section class="dq-storage-category-panel"><div class="dq-storage-category-title"><strong>${t('quickUsage')}</strong></div><div class="dq-storage-console-list">${categoryRows || `<div class="dq-storage-message">${esc(storageStatus?.error || 'Calculando categorias…')}</div>`}</div><div class="dq-storage-category-actions"><button class="dq-storage-remove-programs" data-storage-open-programs="true" tabindex="0"><span><strong>${t('quickRemovePrograms')}</strong></span><b>›</b></button></div></section>
                 </div>
             </section>`;
         }
@@ -251,16 +266,19 @@
             if (!selectedStorageRoot || !drives.some(drive => drive.root === selectedStorageRoot))
                 selectedStorageRoot = drives[0]?.root || '';
             const drive = drives.find(item => item.root === selectedStorageRoot) || drives[0] || null;
-            const programs = storageProgramsForSelectedDrive();
+            const programs = filterStorageProgramsByName(storageProgramsForSelectedDrive(), storageProgramQuery);
             if (selectedStorageProgramId && !programs.some(program => program.id === selectedStorageProgramId))
                 selectedStorageProgramId = '';
             const knownProgramBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
             return `<section class="dq-content dq-storage-page dq-storage-programs-page">
                 <div class="dq-kicker">Armazenamento</div>
-                <h1 class="dq-heading">Remover programas</h1>
+                <h1 class="dq-heading">${t('quickRemovePrograms')}</h1>
                 <p class="dq-sub">Software registrado no Windows. Selecione um item para ver seus detalhes e opções.</p>
                 <div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="overview" tabindex="0">‹ Uso do disco</button><div class="dq-drive-tabs">${drives.map(item => storageDriveTabMarkup(item, drive, true)).join('')}</div><button class="dq-action compact" data-action="refresh-programs" tabindex="0"><span class="dq-action-label">Atualizar</span><span class="dq-action-ico">${iconSvg('refresh')}</span></button></div>
-                <section class="dq-storage-category-detail-panel"><header class="dq-storage-category-detail-head"><div><span class="dq-storage-kicker">Nesta unidade</span><h2 data-storage-program-count>${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</h2></div><strong data-storage-program-total>${esc(storageSizeText(knownProgramBytes, 'Tamanho não informado'))}</strong></header><div class="dq-storage-vertical-list dq-program-list">${storageProgramRowsMarkup(programs) || `<div class="dq-storage-message">${esc(storagePrograms?.error || (storagePrograms ? 'Nenhum programa identificado nesta unidade.' : 'Carregando programas do Windows…'))}</div>`}</div></section>
+                <section class="dq-storage-category-detail-panel"><header class="dq-storage-category-detail-head"><div><span class="dq-storage-kicker">Nesta unidade</span><h2 data-storage-program-count aria-live="polite">${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</h2></div><strong data-storage-program-total>${esc(storageSizeText(knownProgramBytes, 'Tamanho não informado'))}</strong></header>
+                    <input class="dq-storage-program-search" data-storage-program-search type="search" autocomplete="off" spellcheck="false" aria-label="${esc(t('storageSearchPrograms'))}" placeholder="${esc(t('storageSearchPrograms'))}" value="${esc(storageProgramQuery)}" />
+                    <div class="dq-storage-vertical-list dq-program-list">${storageProgramListMarkup(programs)}</div>
+                </section>
             </section>`;
         }
 
@@ -291,7 +309,7 @@
             if (!program) { storageView = 'programs'; return storageProgramsContent(); }
             selectedStorageProgramId = program.id;
             const status = uninstallStatus?.programId === program.id ? uninstallStatus.message : '';
-            return `<section class="dq-content dq-storage-page dq-storage-program-detail-view"><div class="dq-kicker">Remover programas</div><h1 class="dq-heading">Detalhes do programa</h1><p class="dq-sub">Confira o item antes de abrir o desinstalador fornecido pelo Windows.</p><div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="programs" tabindex="0">‹ Lista de programas</button></div><section class="dq-storage-program-detail-page"><div class="dq-storage-program-hero"><span class="dq-program-mark">${storageProgramArtwork(program)}</span><div class="dq-storage-program-hero-copy"><span class="dq-storage-kicker">Programa selecionado</span><h2>${esc(program.name || 'Programa')}</h2><p>${esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${esc(program.version)}` : ''}</p></div></div><div class="dq-storage-program-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div><p class="dq-storage-program-guidance">${program.canUninstall ? 'O Doorpi abrirá o desinstalador oficial em primeiro plano e liberará o mouse. Ao voltar, a lista será atualizada automaticamente.' : 'Este item não informou uma ação de desinstalação ao Windows.'}</p><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div></section></section>`;
+            return `<section class="dq-content dq-storage-page dq-storage-program-detail-view"><div class="dq-kicker">${t('quickRemovePrograms')}</div><h1 class="dq-heading">Detalhes do programa</h1><p class="dq-sub">Confira o item antes de abrir o desinstalador fornecido pelo Windows.</p><div class="dq-storage-level-toolbar"><button class="dq-storage-back" data-storage-view="programs" tabindex="0">‹ Lista de programas</button></div><section class="dq-storage-program-detail-page"><div class="dq-storage-program-hero"><span class="dq-program-mark">${storageProgramArtwork(program)}</span><div class="dq-storage-program-hero-copy"><span class="dq-storage-kicker">Programa selecionado</span><h2>${esc(program.name || 'Programa')}</h2><p>${esc(program.publisher || 'Editor não informado')}${program.version ? ` · versão ${esc(program.version)}` : ''}</p></div></div><div class="dq-storage-program-facts"><span>Tamanho · ${esc(storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${esc(program.installRoot || 'Não informada')}</span><span class="dq-storage-program-status" ${status ? '' : 'hidden'}>${esc(status)}</span></div><p class="dq-storage-program-guidance">${program.canUninstall ? 'O Doorpi abrirá o desinstalador oficial em primeiro plano e liberará o mouse. Ao voltar, a lista será atualizada automaticamente.' : 'Este item não informou uma ação de desinstalação ao Windows.'}</p><div class="dq-storage-program-actions"><button class="dq-program-action" data-cancel-storage-program="${esc(program.id)}" tabindex="0">Cancelar</button><button class="dq-program-action danger" data-confirm-uninstall="${esc(program.id)}" tabindex="0" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div></section></section>`;
         }
 
         function storageContent() {

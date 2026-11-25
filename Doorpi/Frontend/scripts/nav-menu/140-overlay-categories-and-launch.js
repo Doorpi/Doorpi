@@ -8,9 +8,14 @@
         _overlay.innerHTML = `
             <canvas id="navMenuBg"></canvas>
             <div class="nav-layout">
-                <div class="nav-topbar" id="navTopbar">
-                    <div class="nav-cat-list" id="navCatList"></div>
+                <div class="nav-category-track">
+                    <div class="nav-category-clip">
+                        <div class="nav-topbar" id="navTopbar">
+                            <div class="nav-cat-list" id="navCatList"></div>
+                        </div>
+                    </div>
                 </div>
+                <button class="nav-category-shortcut" type="button" tabindex="-1" aria-label="${_esc(_t("tabsHint"))}"><kbd>LB</kbd><kbd>RB</kbd></button>
                 <div class="nav-content" id="navContent">
                     <div class="nav-content-header" id="navHeaderWrap">
                         <h2 class="nav-content-title" id="navContentTitle"></h2>
@@ -22,6 +27,7 @@
 
         document.body.appendChild(_overlay);
 
+        _overlay.querySelector('.nav-category-shortcut').onclick = () => _setTopbarFocus(true);
         _buildCatList();
     }
 
@@ -46,6 +52,7 @@
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
         if (_navMenuPhase === 'closing') return;
+        _profileCardReturn = null;
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sound' && Number(idx) !== _catIdx) {
             window.DoorpiSoundUI?.closeDrawer?.('settings');
         }

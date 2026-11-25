@@ -17,8 +17,7 @@
                 if (updateView === 'doorpi') return doorpiDetail();
                 if (updateView === 'windows') return windowsDetail();
                 if (updateView === 'gpu') return gpuDetail();
-                updateView = 'doorpi';
-                return doorpiDetail();
+                return updatesHub();
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
             if (section === 'storage') return storageContent();
@@ -35,12 +34,12 @@
         function contentFocusFor(sectionId) {
             if (!sectionId) return '.dq-menu-btn';
             if (sectionId === 'updates') {
-                if (updateView === 'doorpi' || updateView === 'windows' || updateView === 'gpu') return `[data-update-view="${updateView}"]`;
+                if (updateView !== 'hub') return '[data-update-view="hub"]';
                 return '.dq-card';
             }
             if (sectionId === 'power') return '.dq-action';
             if (sectionId === 'storage') {
-                if (storageView === 'programs') return '.dq-program-main';
+                if (storageView === 'programs') return '[data-storage-program-search]';
                 if (storageView === 'program-detail') return '[data-storage-view="programs"]';
                 if (storageView === 'category') return '[data-storage-detail-scroll]';
                 return '.dq-drive-tab.active';
@@ -57,11 +56,13 @@
         function currentFocusSelector() {
             const el = document.activeElement;
             if (!el?.closest?.('#doorpiQuickPanel')) return null;
+            if (el.matches('.dq-release-notes')) return '.dq-release-notes';
             if (el.dataset?.action) return `[data-action="${el.dataset.action}"]`;
             if (el.dataset?.updateView) return `[data-update-view="${el.dataset.updateView}"]`;
             if (el.dataset?.storageView) return `[data-storage-view="${el.dataset.storageView}"]`;
             if (el.dataset?.storageRoot) return `[data-storage-root="${CSS.escape(el.dataset.storageRoot)}"]`;
             if (el.dataset?.storageCategory) return `[data-storage-category="${CSS.escape(el.dataset.storageCategory)}"]`;
+            if (el.matches('[data-storage-program-search]')) return '[data-storage-program-search]';
             if (el.dataset?.storageProgram) return `[data-storage-program="${CSS.escape(el.dataset.storageProgram)}"]`;
             if (el.dataset?.cancelStorageProgram) return `[data-cancel-storage-program="${CSS.escape(el.dataset.cancelStorageProgram)}"]`;
             if (el.dataset?.uninstallProgram) return `[data-uninstall-program="${CSS.escape(el.dataset.uninstallProgram)}"]`;
@@ -120,7 +121,7 @@
                 return;
             }
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
-            if (section === 'updates' && !sameSection) updateView = 'doorpi';
+            if (section === 'updates' && !sameSection) updateView = 'hub';
             if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
             depth = 'content';
             if (sameSection && depth === 'content') {
@@ -137,13 +138,19 @@
         function render(focusSelector) {
             const overlay = ensure();
             overlay.classList.toggle('is-menu-only', !section);
+            const previousNotes = overlay.querySelector('.dq-release-notes');
+            const notesOffset = previousNotes?.scrollTop || 0;
             overlay.innerHTML = `${sidebar()}${content()}`;
+            const notes = overlay.querySelector('.dq-release-notes');
+            if (notes && notesOffset) notes.scrollTop = notesOffset;
             wire(overlay);
             const sidebarEl = overlay.querySelector('.dq-sidebar');
             if (sidebarEl && overlay.style.display !== 'none' && overlay.classList.contains('visible') && !overlay.classList.contains('has-opened')) {
                 sidebarEl.addEventListener('animationend', () => overlay.classList.add('has-opened'), { once: true });
             }
-            const target = (focusSelector ? overlay.querySelector(focusSelector) : null) || overlay.querySelector('.dq-menu-btn.active, button');
+            const requested = focusSelector ? overlay.querySelector(focusSelector) : null;
+            const target = requested && !requested.disabled && !requested.hidden ? requested :
+                overlay.querySelector('.dq-tab.active, .dq-menu-btn.active') || overlay.querySelector('button');
             requestAnimationFrame(() => {
                 const executionLockOpen = document.getElementById('gameLaunchOverlay')
                     ?.classList.contains('execution-lock-visible');

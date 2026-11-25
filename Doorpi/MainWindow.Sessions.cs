@@ -65,6 +65,7 @@ namespace Doorpi
             public string ExecutablePath = "";
             public bool CloseProcessOnReturn;
             public bool AllowControllerInput = true;
+            public volatile bool AppWindowMaximized;
             public int SessionId;
 
             public int ProcessGroupCount

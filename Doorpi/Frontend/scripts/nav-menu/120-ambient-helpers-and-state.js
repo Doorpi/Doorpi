@@ -173,7 +173,7 @@
     } catch (_) {}
     let _systemSubView = null;
     let _settingsReturnToRoot = false;
-    let _systemUpdatesSubView = 'doorpi';
+    let _systemUpdatesSubView = 'hub';
     let _releaseNotesScrollActive = false;
     let _sharingFocusAppId = '';
     let _sharingSubView = 'apps';
@@ -214,6 +214,7 @@
     let _wifiUpdateStatus = null;
     let _storageStatus = null;
     let _storagePrograms = null;
+    let _storageProgramQuery = '';
     let _storageView = 'overview';
     let _storageSelectedRoot = '';
     let _storageSelectedCategoryKey = 'applications';

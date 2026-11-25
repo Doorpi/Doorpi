@@ -52,6 +52,14 @@
             wireWifi(overlay.querySelector('.dq-content'));
             wireSound(overlay.querySelector('.dq-content'));
             wireStorageCategoryButtons(overlay);
+            const programSearch = overlay.querySelector('[data-storage-program-search]');
+            if (programSearch) {
+                programSearch._doorpiVkbCallbacks = { onEnter() {}, onCancel() {} };
+                programSearch.addEventListener('input', () => {
+                    storageProgramQuery = programSearch.value;
+                    patchStorageProgramsList(true);
+                });
+            }
             overlay.onfocusin = event => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement) || !target.closest('.dq-content')) return;
@@ -92,9 +100,10 @@
             overlay.querySelectorAll('[data-storage-open-programs]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     storageView = 'programs';
+                    storageProgramQuery = '';
                     pendingUninstallId = '';
                     postToHost?.({ action: 'requestStoragePrograms' });
-                    render('.dq-program-main');
+                    render('[data-storage-program-search]');
                 });
             });
             overlay.querySelectorAll('[data-storage-open-category]').forEach(btn => {
@@ -162,8 +171,9 @@
                         btn.focus();
                         return;
                     }
+                    if (nextView === 'hub') { back(); return; }
                     updateView = nextView;
-                    render(`[data-update-view="${updateView}"]`);
+                    render(contentFocusFor('updates'));
                 });
             });
             overlay.querySelectorAll('[data-connectivity-view]').forEach(btn => {

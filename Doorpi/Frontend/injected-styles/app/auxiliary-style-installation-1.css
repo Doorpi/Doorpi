@@ -188,7 +188,7 @@
         text-transform: uppercase;
     }
     #navHintDown.visible { opacity: 1; }
-    #navHintDown.nav-open { bottom: auto; top: 2rem; }
+    #navHintDown.nav-open { bottom: auto; top: 2rem; padding: 0; height: 24px; }
     #navHintDown.nav-open svg { transform: rotate(180deg); }
     .nav-hint-chip {
         display: inline-flex;
@@ -327,6 +327,15 @@
             animation: editOverlayIn 0.2s ease;
             transition: align-items 0.3s ease, padding-top 0.3s ease;
         }
+        .media-history-confirm-overlay { position: fixed; inset: 0; z-index: 10040; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: rgba(3,4,10,.68); backdrop-filter: blur(16px) saturate(1.12); animation: editOverlayIn .18s ease; }
+        .media-history-confirm { width: min(520px, 94vw); box-sizing: border-box; padding: 28px; border: 1px solid rgba(255,255,255,.15); border-radius: 14px; background: linear-gradient(145deg, rgba(22,24,39,.98), rgba(9,10,18,.98)); box-shadow: 0 28px 80px rgba(0,0,0,.62), inset 0 1px 0 rgba(255,255,255,.06); color: #fff; }
+        .media-history-confirm h2 { margin: 0 0 14px; font-size: clamp(1.15rem, 2vw, 1.45rem); font-weight: 620; }
+        .media-history-confirm p { margin: 0; color: rgba(255,255,255,.72); font-size: 15px; line-height: 1.55; }
+        .media-history-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+        .media-history-confirm-btn { min-height: 48px; padding: 0 18px; border: 1px solid rgba(255,255,255,.17); border-radius: 8px; background: rgba(255,255,255,.07); color: #fff; font: inherit; font-weight: 600; cursor: pointer; outline: none; }
+        .media-history-confirm-btn.is-danger { border-color: rgba(255,107,107,.34); background: rgba(190,45,55,.22); color: #ffdede; }
+        .media-history-confirm-btn:focus, .media-history-confirm-btn:hover { border-color: rgba(255,255,255,.82); background: rgba(255,255,255,.16); box-shadow: 0 0 0 3px rgba(255,255,255,.13); }
+        .media-history-confirm-btn.is-danger:focus, .media-history-confirm-btn.is-danger:hover { border-color: #ff9090; background: rgba(190,45,55,.42); }
         .edit-modal-overlay.vkb-active { align-items: center; padding-top: 0; }
         .edit-modal {
             background: linear-gradient(135deg, rgba(18,20,34,0.95), rgba(9,10,19,0.88));
@@ -491,7 +500,6 @@
         }
 
         .edit-modal-actions [hidden] { display:none !important; }
-        .edit-save-shortcut { font-size:.72em; font-weight:400; opacity:.7; margin-right:.6em; }
 
         .vkb-overlay {
             position: fixed;
@@ -869,3 +877,10 @@
         background: rgba(255,255,255,.12);
         box-shadow: 0 0 0 3px rgba(255,255,255,.11), 0 10px 22px rgba(0,0,0,.22);
     }
+
+        .context-menu.ctx-condensed [data-ctx-secondary] { display:none !important; }
+        .context-menu[role="menu"] { padding:10px; border-radius:6px; max-height:calc(100vh - 20px); overflow-y:auto; }
+        .context-menu[role="menu"] .ctx-game-name { padding:10px 14px 14px; font-weight:600; }
+        .context-menu[role="menu"] .ctx-item { border-radius:3px; min-height:2.8em; padding-inline:14px; }
+        .context-menu .ctx-item:not(.ctx-toggle-item) .ctx-icon { display:none; }
+        .context-menu #ctxMoreActions::after { content:'›'; margin-inline-start:auto; }

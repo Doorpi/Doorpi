@@ -9,6 +9,7 @@
     <ProjectReference Include="../Doorpi.Storage/Doorpi.Storage.csproj" />
     <Compile Include="../Doorpi/ProfileSync/ProfileSyncLocalStore.cs" Link="ProfileSyncLocalStore.cs" />
     <Compile Include="../Doorpi/ProfileSync/ProfileSyncModels.cs" Link="ProfileSyncModels.cs" />
+    <Compile Include="../Doorpi/Steam/SteamProfileModels.cs" Link="SteamProfileModels.cs" />
     <Compile Include="../Doorpi/ProfileSync/ProfileSyncSerializer.cs" Link="ProfileSyncSerializer.cs" />
     <Compile Include="../Doorpi/ProfileSync/ProfileSyncRecovery.cs" Link="ProfileSyncRecovery.cs" />
   </ItemGroup>

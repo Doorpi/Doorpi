@@ -16,6 +16,7 @@
         _profileTabTransitionDirection = direction;
         const hadTopbarFocus = _topbarFocus;
         const update = () => {
+            if (!window.isNavMenuOpen || CATS[_catIdx]?.id !== 'profile') return;
             _renderContent('profile');
             _contentIdx = Math.max(0, Math.min(_contentItems.length - 1, focusIndex));
             if (!hadTopbarFocus) {
@@ -58,6 +59,8 @@
             _profileOverviewAdvance = null;
         }
         _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
+        const header = document.getElementById('navHeaderWrap');
+        if (id === 'settings' && header) header.style.display = _settingsSubView === 'account' ? 'none' : 'block';
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
         body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
         body.classList.toggle('theme-settings-active', id === 'settings' && _settingsSubView === 'themes');
@@ -95,17 +98,63 @@
         document.head.appendChild(style);
     }
 
+    function _openProfileEditor() {
+        _catIdx = CATS.findIndex(cat => cat.id === 'settings');
+        _settingsSubView = 'account';
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
+        _updateTopbarFocusVisual();
+        _contentIdx = 0;
+        const headerWrap = document.getElementById('navHeaderWrap');
+        if (headerWrap) headerWrap.style.display = 'block';
+        document.getElementById('navContentTitle').textContent = CATS[_catIdx].label;
+        document.getElementById('navContentSub').textContent = _subtitle('settings');
+        _renderContent('settings');
+        const back = document.getElementById('setBack');
+        if (back) back.dataset.returnToProfile = 'true';
+        _setTopbarFocus(false);
+    }
+
+    function _profileLibraryRanking(games) {
+        // Reconcile each game first, then sum the unique games for the profile.
+        const gameTotals = new Map();
+        const identities = new Map();
+        const nameKey = item => String(item.Name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+        const steamId = item => Number(item.SteamAppId) || Number(String(item.LaunchUrl || '').match(/^steam:\/\/(?:run|rungameid)\/(\d+)/i)?.[1]) || 0;
+        for (const item of [...(_menuData.history || []), ...games]) if (steamId(item)) {
+            const key = nameKey(item), id = steamId(item);
+            identities.set(key, identities.has(key) && identities.get(key) !== id ? null : id);
+        }
+        for (const item of [...(_menuData.history || []), ...games]) {
+            if (!item?.Name || !(Number(item.TotalPlaytimeMinutes) >= 1)) continue;
+            const id = steamId(item) || identities.get(nameKey(item));
+            const key = id ? `steam:${id}` : `name:${nameKey(item)}`;
+            const previous = gameTotals.get(key);
+            if (!previous || Number(item.TotalPlaytimeMinutes) > Number(previous.TotalPlaytimeMinutes)) gameTotals.set(key, item);
+        }
+        return {gameTotals, identities, steamId, nameKey};
+    }
+
     function _renderProfile(body) {
         _ensureUnifiedProfileStyles();
+        // Read the visual package's preferred entry before building an expensive overview.
+        const probe = document.createElement('div');
+        probe.className = 'nav-unified-profile';
+        body.append(probe);
+        const entry = getComputedStyle(probe).getPropertyValue('--profile-entry').trim() || 'standard';
+        const gamesFirst = entry === 'games';
+        probe.remove();
+        if (gamesFirst && !_profileSubView) {
+            _profileSubView = 'gaming';
+            _steamView().openGame = null;
+        }
         const prof = _menuData.user || {};
         const games = _menuData.games || [];
-        const gameHistory = (_menuData.history || []).filter(item => item?.Name && Number(item.TotalPlaytimeMinutes) >= 1);
-        const mediaHistory = (_menuData.mediaHistory || []).filter(item => item?.ContentTitle && Number(item.TotalPlaybackSeconds) >= 1);
+        const {gameTotals, identities, steamId, nameKey} = _profileLibraryRanking(games);
+        const gameHistory = [...gameTotals.values()];
+        const mediaHistory = (_menuData.mediaHistory || []).filter(item => item?.ContentTitle && !item.PermanentlyExcluded && Number(item.TotalPlaybackSeconds) >= 1);
         const mediaApps = _menuData.media || [];
         const tab = ['gaming', 'film-series', 'streaming', 'music'].includes(_profileSubView) ? _profileSubView : 'overview';
         const trackingEnabled = prof.ApplicationHistoryEnabled !== false && prof.applicationHistoryEnabled !== false;
-        const name = prof.Name || 'Doorpi';
-        const photo = prof.PhotoBase64 || '';
 
         const fmtSeconds = value => {
             const total = Math.max(0, Math.round(Number(value) || 0));
@@ -115,6 +164,28 @@
             if (!hours) return `${minutes} min`;
             return `${hours}h ${String(minutes).padStart(2, '0')}min`;
         };
+        const gamingTime = () => {
+            const minutes = new Map([...gameTotals].map(([id,game])=>[id,Number(game.TotalPlaytimeMinutes)||0]));
+            for (const game of _steamView().games) {
+                const id = 'steam:'+game.AppId;
+                minutes.set(id,Math.max(minutes.get(id)||0,game.PlaytimeMinutes||0));
+            }
+            return fmtSeconds([...minutes.values()].reduce((sum,value)=>sum+value,0)*60);
+        };
+        if (_profileSubView === 'gaming') {
+            const library = new Map(gameTotals);
+            for (const item of [...games,...(_menuData.history || [])]) {
+                if (!item?.Name) continue;
+                const id = steamId(item) || identities.get(nameKey(item));
+                const key = id ? 'steam:'+id : 'name:'+nameKey(item);
+                const entry = library.get(key);
+                if (!entry) library.set(key,item);
+                else if ((Date.parse(item.LastPlayed)||0) > (Date.parse(entry.LastPlayed)||0))
+                    library.set(key,{...entry,LastPlayed:item.LastPlayed});
+            }
+            _renderProfileGames(body,library,fmtSeconds,entry);
+            return;
+        }
         const relDate = value => {
             const time = new Date(value || 0).getTime();
             if (!Number.isFinite(time) || time <= 0) return '';
@@ -188,7 +259,6 @@
             const fallbacks = encodeURIComponent(JSON.stringify(candidates.slice(1)));
             return `${fallback}<img${imageClass ? ` class="${_esc(imageClass)}"` : ''} src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}"${lazy ? ' loading="lazy" decoding="async"' : ''} alt="" />`;
         };
-        const gameMinutes = gameHistory.reduce((sum, item) => sum + (Number(item.TotalPlaytimeMinutes) || 0), 0);
         const mediaSeconds = mediaHistory.reduce((sum, item) => sum + (Number(item.TotalPlaybackSeconds) || 0), 0);
         const films = mediaHistory.filter(item => item.Category === 'film-series');
         const streams = mediaHistory.filter(item => item.Category === 'live' || item.Category === 'video');
@@ -328,7 +398,8 @@
             seconds:group.seconds,
             date:group.latest?.LastPlayed,
             artChain:mediaArtChain(group.latest),
-            platform:appName(group.latest?.AppId)
+            platform:appName(group.latest?.AppId),
+            source:group.latest
         }));
         const streamRows = [...streams.reduce((map, item) => {
             const title = String(item.CreatorName || item.ContentTitle || appName(item.AppId)).trim();
@@ -346,20 +417,12 @@
             ...item,
             sub:[...item.platforms].join(' · '),
             platform:appName(item.latest?.AppId),
+            source:item.latest,
             artChain:mediaArtChain(item.latest)
         }));
         const musicRows = mediaRows(music);
 
-        if (tab === 'gaming') {
-            if (gameHighlight) hero = { ...gameHighlight, kicker:_t('navStatMostPlayed','Mais jogado') };
-            rows = gameRows.sort((a,b) => b.seconds - a.seconds);
-            sectionTitle = _t('navMostPlayedGames', 'Mais jogados');
-            stats = [
-                [_t('navStatGames','Jogos na biblioteca'), String(games.length)],
-                [_t('navStatTime','Tempo jogado'), fmtSeconds(gameMinutes * 60)],
-                [_t('navLastPlayed','Último jogado'), latestGame?.Name || '--', true]
-            ];
-        } else if (tab === 'film-series') {
+        if (tab === 'film-series') {
             if (filmHighlight) hero = filmHighlight;
             rows = filmRows.sort((a,b) => b.seconds - a.seconds);
             sectionTitle = _t('navMostWatchedTitles', 'Mais assistidos');
@@ -403,7 +466,7 @@
             const latestMediaToday = isToday(latestMedia?.LastPlayed) ? latestMedia : null;
             const latestIsMedia = new Date(latestMediaToday?.LastPlayed || 0) > new Date(latestGameToday?.LastPlayed || 0);
             stats = [
-                [_t('navGamingTime','Tempo em jogos'), fmtSeconds(gameMinutes * 60)],
+                [_t('navGamingTime'), gamingTime()],
                 [_t('navWatchTime','Tempo assistido'), fmtSeconds(mediaSeconds)],
                 [_t('navLastActivity','Última atividade'), (latestIsMedia ? mediaActivityLabel(latestMediaToday) : latestGameToday?.Name) || '--', true]
             ];
@@ -419,14 +482,20 @@
             else element.style.removeProperty('--twitch-channel-backdrop');
         };
         const tabs = [
-            ['overview', _t('navProfileOverview','Visão geral')],
+            ...(gamesFirst ? [] : [['overview', _t('navProfileOverview','Visão geral')]]),
             ['gaming', _t('navGames','Jogos')],
             ['film-series', _t('navFilmsSeries','Filmes e séries')],
             ['streaming', _t('navStreamingVideos','Ao vivo e vídeos')],
             ['music', _t('navMusic','Música')]
         ];
+        if ((entry === 'cards' || entry === 'standard') && tab === 'overview') {
+            _renderProfileCards(body, tabs, gameTotals, fmtSeconds, rows, [
+                ['film-series', filmHighlight], ['streaming', streamHighlight], ['music', musicHighlight]
+            ], trackingEnabled, entry === 'standard');
+            return;
+        }
         const rowHtml = rows.map((item, index) => `
-            <div class="nav-unified-row${index === 0 ? ' is-current' : ''}" data-profile-recent-index="${index}" role="option" aria-selected="${index === 0 ? 'true' : 'false'}">
+            <div class="nav-unified-row${index === 0 ? ' is-current' : ''}" data-profile-recent-index="${index}"${item.source ? ` data-media-history="true" data-media-history-app-id="${_esc(item.source.AppId)}" data-media-history-title="${_esc(item.source.ContentTitle)}" data-media-history-creator="${_esc(item.source.CreatorName || '')}" data-media-history-category="${_esc(item.source.Category || '')}" data-media-history-series-title="${_esc(item.source.SeriesTitle || '')}"` : ''} role="option" aria-selected="${index === 0 ? 'true' : 'false'}">
                 <span class="nav-unified-row-art">${artImage(item.artChain, true, item.platform)}</span>
                 <span class="nav-unified-row-copy"><strong>${_esc(item.title)}</strong><small>${_esc(item.sub || '')}</small></span>
                 <span class="nav-unified-row-time"><strong>${fmtSeconds(item.seconds)}</strong><small>${relDate(item.date)}</small></span>
@@ -440,20 +509,25 @@
             : ` is-entering-${_profileTabTransitionDirection}`;
 
         body.innerHTML = `
-            <div class="nav-unified-profile${profileEntryClass}" style="--profile-accent:${accent}">
+            <div class="nav-unified-profile${entry==='standard'?' profile-standard':''}${profileEntryClass}" style="--profile-accent:${accent}">
                 <header class="nav-unified-identity">
-                    <div class="nav-unified-avatar">${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" alt="" />` : '◎'}</div>
-                    <div class="nav-unified-name"><h2>${_esc(name)}</h2></div>
+                    ${_profileIdentityMarkup()}
                     <button class="nav-unified-edit" id="btnEditProfileHub" tabindex="-1">${_t('navEditProfileBtn','Editar perfil')}</button>
                 </header>
                 <nav class="nav-unified-tabs" aria-label="${_t('navProfileSections','Seções do perfil')}">${tabs.map(([id,label]) => `<button class="nav-unified-tab${tab === id ? ' is-active' : ''}" data-profile-tab="${id}" tabindex="-1">${label}</button>`).join('')}</nav>
                 <div class="nav-unified-main">
                     <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}${hero.channelHub ? ' is-twitch-channel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean), false, hero.appId ? appName(hero.appId) : _t('navGames','Jogos'), hero.channelHub ? 'is-channel-avatar' : '')}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
-                    <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong>${tab === 'gaming' && gameHistory.length ? `<button class="nav-unified-journey" id="btnGameHistory" tabindex="-1">${_t('navGameHistoryBtn','Ver jornada')}</button>` : ''}</div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
+                    <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong></div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
                 </div>
                 <footer class="nav-unified-stats">${stats.map(([label,value,compact]) => `<div class="nav-unified-stat${compact ? ' is-compact' : ''}"><small>${label}</small><strong>${_esc(value)}</strong></div>`).join('')}</footer>
             </div>`;
 
+        if (tab === 'overview') {
+            const time = body.querySelector('.nav-unified-stat strong');
+            time.dataset.profileGamingTime = '';
+            time.refreshGamingTime = () => {time.textContent = gamingTime();};
+        }
+        _bindProfileFavorites(body,gameTotals,fmtSeconds);
         applyChannelBackdrop(body.querySelector('.nav-unified-hero'), hero);
 
         const bindArtFallback = image => {
@@ -471,11 +545,9 @@
         const heroButton = body.querySelector('#btnProfileHero');
         const recent = body.querySelector('#btnProfileRecent');
         const edit = body.querySelector('#btnEditProfileHub');
-        const journey = body.querySelector('#btnGameHistory');
         if (heroButton) _contentItems.push(heroButton);
         if (recent) _contentItems.push(recent);
         if (edit) _contentItems.push(edit);
-        if (journey) _contentItems.push(journey);
         if (recent) {
             const recentRows = [...recent.querySelectorAll('.nav-unified-row')];
             const recentList = recent.querySelector('.nav-unified-list');
@@ -502,6 +574,13 @@
             };
             recent._profileRecentStep = direction => selectRecent(recentIndex + direction);
             recent._profileRecentAtStart = () => recentIndex <= 0;
+            recent._profileRecentActive = () => recentRows[recentIndex] || null;
+            recentRows.forEach(row => row.addEventListener('contextmenu', event => {
+                if (!row.dataset.mediaHistory) return;
+                event.preventDefault();
+                const rect = row.getBoundingClientRect();
+                window._ctxMenuOpen?.(row, rect.right + 2, rect.top);
+            }));
         }
         if (heroButton) {
             let requestedHeroIndex = _profileOverviewHeroIndex;
@@ -663,6 +742,8 @@
             _profileOverviewAdvance = null;
         }
         body.querySelectorAll('.nav-unified-tab').forEach(button => button.addEventListener('click', () => {
+            if (button.dataset.profileTab === tab) return;
+            _profileCardReturn = null;
             const currentTabIndex = tabs.findIndex(([id]) => id === tab);
             const nextTabIndex = tabs.findIndex(([id]) => id === button.dataset.profileTab);
             const direction = nextTabIndex < currentTabIndex ? 'back' : 'forward';
@@ -670,25 +751,7 @@
             _contentIdx = nextTabIndex;
             _renderProfileWithTransition(direction, nextTabIndex);
         }));
-        edit?.addEventListener('click', () => {
-            _catIdx = CATS.findIndex(cat => cat.id === 'settings');
-            _settingsSubView = 'accountHub';
-            document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
-            _updateTopbarFocusVisual();
-            _contentIdx = 0;
-            const headerWrap = document.getElementById('navHeaderWrap');
-            if (headerWrap) headerWrap.style.display = 'block';
-            document.getElementById('navContentTitle').textContent = CATS[_catIdx].label;
-            document.getElementById('navContentSub').textContent = _subtitle('settings');
-            _renderContent('settings');
-            _setTopbarFocus(false);
-        });
-        journey?.addEventListener('click', () => {
-            _profileSubView = 'history';
-            _contentIdx = 0;
-            _renderContent('profile');
-            _setTopbarFocus(false);
-        });
+        edit?.addEventListener('click', _openProfileEditor);
         if (tab === 'overview') {
             overviewHighlights.forEach((item, index) => {
                 if (index === _profileOverviewHeroIndex) return;
