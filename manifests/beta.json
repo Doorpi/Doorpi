@@ -1,63 +1,54 @@
 {
   "schemaVersion": 1,
   "channel": "beta",
-  "manifestVersion": 1794672052431,
-  "publishedAt": "2026-11-14T16:02:34.7250017Z",
-  "expiresAt": "2026-11-28T16:02:34.7250017Z",
+  "manifestVersion": 1795613522318,
+  "publishedAt": "2026-11-25T13:33:46.9558394Z",
+  "expiresAt": "2026-12-09T13:33:46.9558394Z",
   "minimumSupportedManifestVersion": 1,
   "doorpi": {
-    "version": "0.5.30",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.5.30/doorpi-0.5.30.doorpiupdate.zip",
-    "sha256": "d3ab93ad4f55b5a4a3b09c0ef5fa5df50709f359501f86789108d305cb9aa6cf",
-    "sizeBytes": 138000245,
+    "version": "0.6.30",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.30/doorpi-0.6.30.doorpiupdate.zip",
+    "sha256": "0f4a904157ecabb05061454254c945563fa95064d30902c6d24a9df2c390cab6",
+    "sizeBytes": 138108803,
     "minUpdaterVersion": "0.1.3",
     "forceUpdate": false,
     "allowRollback": false
   },
   "updater": {
     "version": "0.1.3",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.5.30/updater-0.1.3.doorpiupdate.zip",
-    "sha256": "7990031de4743c04ef53db21406688998bcc79a09465f66b0ab9db2b7494da77",
-    "sizeBytes": 73552334,
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.30/updater-0.1.3.doorpiupdate.zip",
+    "sha256": "e9c191a86c964d89101f03a5871c46dd1f582693530a688036ecbeed9f345e29",
+    "sizeBytes": 73560309,
     "forceUpdate": false,
     "allowRollback": false
   },
   "changelog": [
     {
-      "version": "0.5.30",
-      "title": "Doorpi 0.5.30",
+      "version": "0.6.30",
+      "title": "Doorpi 0.6.30",
       "items": [
-        "Novo sistema de criação de temas da comunidade.",
-        "Adicionado gerenciamento de armazenamento do sistema.",
-        "Melhorias de desempenho e otimização.",
-        "Mudanças na identidade visual do programa.",
-        "Melhorias na navegação da biblioteca.",
-        "Novo bootstrap de inicialização no modo imersivo.",
-        "Mudanças na arquitetura de armazenamento dos dados do usuário."
+        "Vincule sua conta Steam para transferir horas jogadas e converter conquistas em troféus Doorpi.",
+        "Corrigido o teclado virtual em aplicativos executáveis.",
+        "Adicionada busca ao gerenciamento de armazenamento.",
+        "Refinado o layout da tela de perfil."
       ],
       "locales": {
         "pt-BR": {
-          "title": "Doorpi 0.5.30",
+          "title": "Doorpi 0.6.30",
           "items": [
-            "Novo sistema de criação de temas da comunidade.",
-            "Adicionado gerenciamento de armazenamento do sistema.",
-            "Melhorias de desempenho e otimização.",
-            "Mudanças na identidade visual do programa.",
-            "Melhorias na navegação da biblioteca.",
-            "Novo bootstrap de inicialização no modo imersivo.",
-            "Mudanças na arquitetura de armazenamento dos dados do usuário."
+            "Vincule sua conta Steam para transferir horas jogadas e converter conquistas em troféus Doorpi.",
+            "Corrigido o teclado virtual em aplicativos executáveis.",
+            "Adicionada busca ao gerenciamento de armazenamento.",
+            "Refinado o layout da tela de perfil."
           ]
         },
         "en": {
-          "title": "Doorpi 0.5.30",
+          "title": "Doorpi 0.6.30",
           "items": [
-            "New community theme creation system.",
-            "Added system storage management.",
-            "Performance improvements and optimizations.",
-            "Updated visual identity and appearance.",
-            "Improved library navigation.",
-            "New startup bootstrap for immersive mode.",
-            "Changes to the user data storage architecture."
+            "Link your Steam account to transfer playtime and convert achievements into Doorpi trophies.",
+            "Fixed the virtual keyboard in executable applications.",
+            "Added search to storage management.",
+            "Refined the profile screen layout."
           ]
         }
       }
@@ -66,6 +57,6 @@
   "signature": {
     "algorithm": "RSA-SHA256-PKCS1",
     "keyId": "6b65ba1c963d49d6",
-    "value": "IacfQpFQqtUCYiDsap+qEaDuuJILFy6bfpWrQakwTABSNxaDxu7XfTRjPQLRFRZ61ONXDSLFzXRwNWMxzXWD4Wt0fGQggu2dVbxJZ3csssysZCw3dU7AsQniKRWGY9yICXPuAmKWwyBr7b2AdEozoG8atIyAufW4gH1lahao7s93bc/b+xWlik4GYtvrIWJKJkN1anwpcydLu4CtIJ9u++KJVCrkQdRLHAIbGcpld20vt5WztxRB7xONq+r5thA5ttKyo/bI0lYT3yLNC7xGLSX0zrrUWcFoDAIwpKm7B8p25lentHUxXmvFYo7lzOpbL1lDdT97WVeWOlYTNm5J/93uWWYFRi0yObK4GkAbozxWFWJAMPaqn1m6SCDoUHid96BqHNQonluVvkbOWsR+YVnjn/VUy98rGY5oKYJT0VPjsVwyMNT1amLO/iQBf2TRk21i2X7e1DzD/rvDmET4HvPquPteuj7R1RYWdNzU38hRFuu0XKwzyQm4R/fGbYKA"
+    "value": "A2vd0c4eBFc1MkYJCm3L34mvAPueTA3Wsv5xOvhR5D1LiQ3HnSkOQQoy7syv6UOsdd2k9699cxTRtmffYvjBgJuZpYKfrp1Brtwn532NrhZgytBbcPz5rQo53VEJCYW4gnO1HUgQaw1S8VM1Emdo92iLsGU+Qp+NWYd0PYFGQqBY2zYjuNkU5f7xN9ir6Pej2gkaPV4ebaCiafCG/6HsaPucRmFZHFABwtpYsRXYYjYtOEFtx8tMwlj3eFushxQXiVdOobMd3Q6QQcKOYRHYFer6FzI5PUGTmtWQlt8dcYltBGXityfSndSVw2gwWpxUcFuJd1eN6XYHdDaxA0FGZkvch2kpESQgiaqvYMs8h8WCpRIRXsV2c5UsA7RIZ5MudMSAi7KUAAxqGgOxnhvzqd+0yZex0ko/2YR0G2/R5M/fuKOuQEEJdpm6/tllBJgCI3vKtjOwj3xOab/v6Y2juCMD2tgMs0THS8xJMUA4a9kFINkgF5QAJjN5KhDEy7rB"
   }
 }

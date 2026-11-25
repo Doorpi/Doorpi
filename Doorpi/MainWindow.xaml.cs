@@ -16094,8 +16094,6 @@ namespace Doorpi
             {
                 _historyStateRevisions.TryGetValue(history, out var captured);
                 string owner = captured?.Owner ?? currentUserId;
-                if (!string.Equals(owner, currentUserId, StringComparison.OrdinalIgnoreCase))
-                    throw new OperationCanceledException("O perfil mudou antes da confirmação do histórico.");
                 string path = captured?.Path ?? Path.Combine(dataFolder, "users", owner, "game-history.json");
                 foreach (GameHistoryEntry entry in history)
                     if (string.IsNullOrWhiteSpace(entry.Id)) entry.Id = Guid.NewGuid().ToString("N");

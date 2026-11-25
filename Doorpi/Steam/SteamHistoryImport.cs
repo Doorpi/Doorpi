@@ -32,19 +32,18 @@ public static class SteamHistoryImport
                 SteamHistoryArtwork.FillMissing(target);
                 long libraryMinutes = library.Where(game => AppIdFromUrl(game.LaunchUrl) == source.AppId || (AppIdFromUrl(game.LaunchUrl) == 0 && Key(game.Name) == Key(source.Name)))
                     .Select(game => game.TotalPlaytimeMinutes).DefaultIfEmpty(0).Max();
-                target.TotalPlaytimeMinutes = source.PlaytimeMinutes > 0
-                    ? source.PlaytimeMinutes
-                    : Math.Max(libraryMinutes, target.TotalPlaytimeMinutes);
+                target.TotalPlaytimeMinutes = Math.Max(
+                    source.PlaytimeMinutes,
+                    Math.Max(libraryMinutes, target.TotalPlaytimeMinutes));
                 if (source.LastPlayedUnix > 0 && source.LastPlayedUnix <= DateTimeOffset.MaxValue.ToUnixTimeSeconds())
                     target.LastPlayed = new[] { target.LastPlayed, DateTimeOffset.FromUnixTimeSeconds(source.LastPlayedUnix).LocalDateTime }.Max();
             }
             foreach (var game in library.Where(game => AppIdFromUrl(game.LaunchUrl) == source.AppId ||
                 (AppIdFromUrl(game.LaunchUrl) == 0 && names[Key(source.Name)] == 1 && Key(game.Name) == Key(source.Name))))
             {
-                if (source.PlaytimeMinutes > 0)
-                    game.TotalPlaytimeMinutes = source.PlaytimeMinutes;
-                else
-                    game.TotalPlaytimeMinutes = Math.Max(game.TotalPlaytimeMinutes, target?.TotalPlaytimeMinutes ?? 0);
+                game.TotalPlaytimeMinutes = Math.Max(
+                    game.TotalPlaytimeMinutes,
+                    Math.Max(source.PlaytimeMinutes, target?.TotalPlaytimeMinutes ?? 0));
             }
         }
     }
