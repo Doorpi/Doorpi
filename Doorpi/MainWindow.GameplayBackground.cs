@@ -331,6 +331,8 @@ public partial class MainWindow
         string gameName;
         long initialPlaytime;
         int elapsedMinutes;
+        long updatedTotalPlaytimeMinutes = 0;
+        int updatedLastSessionMinutes = 0;
 
         lock (_sessionPlaytimeLock)
         {
@@ -374,6 +376,8 @@ public partial class MainWindow
                     game.LastSessionMinutes = elapsedMinutes;
                     game.LastPlayed = DateTime.Now;
                     SaveGames(games);
+                    updatedTotalPlaytimeMinutes = game.TotalPlaytimeMinutes;
+                    updatedLastSessionMinutes = game.LastSessionMinutes;
                 }
                 else if (!string.IsNullOrWhiteSpace(gameName))
                 {
@@ -416,7 +420,30 @@ public partial class MainWindow
 
         if (!IsGameplayBackgroundMode)
         {
-            try { _ = Dispatcher.BeginInvoke(LoadGamesIntoUI); }
+            // Fechar uma sessão atualiza apenas o card do jogo. Reenviar a biblioteca
+            // inteira reordena o carrossel pelo LastPlayed e pode desfocar o card em
+            // que a pessoa já está navegando após voltar do jogo.
+            try
+            {
+                if (updatedTotalPlaytimeMinutes > 0)
+                {
+                    string updatedGameId = gameId;
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        if (webView?.CoreWebView2 == null) return;
+                        webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                        {
+                            type = "gameUpdated",
+                            gameId = updatedGameId,
+                            game = new
+                            {
+                                totalPlaytimeMinutes = updatedTotalPlaytimeMinutes,
+                                lastSessionMinutes = updatedLastSessionMinutes
+                            }
+                        }));
+                    });
+                }
+            }
             catch { }
         }
         else

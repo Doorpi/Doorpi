@@ -11,8 +11,9 @@ function openSetup(isAddingUser = false) {
     _setupSyncMessage = '';
     _setupLayoutConfirmed = !!isAddingUser;
     _setupUsers = [{
-        id: '', name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+        id: '', name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
         photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+        coverSource: '', coverSourceUrl: '', coverSteamGridAssetId: 0, coverUsesMostPlayedGame: null,
         photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0,
         syncConnected: false, importCloud: false
     }];

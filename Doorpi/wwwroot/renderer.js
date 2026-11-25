@@ -1675,6 +1675,8 @@ const CardRenderer = (() => {
         if (hasOwn('trailerSource')) card.dataset.trailerSource = patch.trailerSource || '';
         if (hasOwn('trailerType')) card.dataset.trailerType = patch.trailerType || '';
         if (hasOwn('isAnimated')) card.dataset.isAnimated = String(!!patch.isAnimated);
+        if (hasOwn('totalPlaytimeMinutes')) card.dataset.totalPlaytimeMinutes = String(Number(patch.totalPlaytimeMinutes) || 0);
+        if (hasOwn('lastSessionMinutes')) card.dataset.lastSessionMinutes = String(Number(patch.lastSessionMinutes) || 0);
         if (patch.iconBase64 != null || patch.name != null) {
             _syncFallback(card, card.dataset.iconBase64 || '', patch.name || card.querySelector('.title')?.textContent || '');
         }
@@ -1725,6 +1727,10 @@ const CardRenderer = (() => {
             if (typeof switchHeroBackground === 'function') {
                 switchHeroBackground(bgSrc, null, heroSrc);
             }
+        }
+        if ((hasOwn('totalPlaytimeMinutes') || hasOwn('lastSessionMinutes')) &&
+            stage?.dataset.cardId === cardId) {
+            window.updateHomeFeatureStage?.(card, { animate: false });
         }
     }
 

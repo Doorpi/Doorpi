@@ -6,7 +6,7 @@ namespace Doorpi.ProfileSync;
 
 public static class ProfileSyncSnapshotFactory
 {
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 8;
 
     public static CloudProfileV1 Create(
         UserProfile profile,
@@ -15,7 +15,8 @@ public static class ProfileSyncSnapshotFactory
         DateTimeOffset updatedAtUtc,
         IEnumerable<CloudControlProfileV1>? controlProfiles = null,
         IEnumerable<CloudControlAssignmentV1>? controlAssignments = null,
-        IEnumerable<MediaActivityHistoryEntry>? mediaHistory = null)
+            IEnumerable<MediaActivityHistoryEntry>? mediaHistory = null,
+            byte[]? profileCover = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(history);
@@ -50,7 +51,8 @@ public static class ProfileSyncSnapshotFactory
             LastModifiedDeviceId = deviceId ?? "",
             TotalPlaytimeSeconds = SaturatingSum(games.Select(game => game.TotalPlaytimeSeconds)),
             TotalMediaPlaybackSeconds = SaturatingSum(media.Select(entry => entry.TotalPlaybackSeconds)),
-            CoverBase64 = profile.CoverBase64,
+            CoverBase64 = "",
+            Cover = CreateCover(profile, profileCover ?? TryDecodeBase64(profile.CoverBase64)),
             AvatarFromGame = profile.AvatarFromGame,
             ProfilePhoto = CreatePhoto(profile),
             Games = games,
@@ -202,6 +204,30 @@ public static class ProfileSyncSnapshotFactory
                 : ""
         };
     }
+
+    private static CloudProfileCoverV1 CreateCover(UserProfile profile, byte[]? content)
+    {
+        string sourceUrl = IsHttpsUrl(profile.CoverSourceUrl) ? profile.CoverSourceUrl : "";
+        string contentHash = content is { Length: > 0 }
+            ? ProfileSyncSerializer.ComputeBinaryHash(content)
+            : profile.CoverContentHash ?? "";
+        bool useMostPlayedGame = profile.CoverUsesMostPlayedGame ??
+            (content is not { Length: > 0 } && sourceUrl.Length == 0 && string.IsNullOrWhiteSpace(contentHash));
+        bool hasCover = !useMostPlayedGame || content is { Length: > 0 } || sourceUrl.Length > 0 || contentHash.Length > 0;
+        return new CloudProfileCoverV1
+        {
+            UseMostPlayedGame = useMostPlayedGame,
+            HasCover = hasCover,
+            Source = profile.CoverSource ?? "",
+            SourceUrl = sourceUrl,
+            SteamGridAssetId = Math.Max(0, profile.CoverSteamGridAssetId),
+            ContentHash = contentHash,
+            CloudFileName = "doorpi-profile-cover.jpg"
+        };
+    }
+
+    private static bool IsHttpsUrl(string? value)
+        => Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) && uri.Scheme == Uri.UriSchemeHttps;
 
     private static byte[]? TryDecodeBase64(string value)
     {
@@ -405,7 +431,10 @@ public static class ProfileSyncEngine
             local.CreatedAtUtc?.ToUniversalTime(),
             remote.CreatedAtUtc?.ToUniversalTime(),
             "createdAtUtc", conflictPaths);
-        merged.CoverBase64 = MergeValue(baseline.CoverBase64, local.CoverBase64, remote.SchemaVersion >= 7 ? remote.CoverBase64 : local.CoverBase64, "cover", conflictPaths);
+        if (remote.SchemaVersion >= 8)
+            merged.Cover = MergeCover(baseline.Cover, local.Cover, remote.Cover, conflictPaths);
+        else
+            merged.CoverBase64 = MergeValue(baseline.CoverBase64, local.CoverBase64, remote.SchemaVersion >= 7 ? remote.CoverBase64 : local.CoverBase64, "cover", conflictPaths);
         merged.AvatarFromGame = MergeValue(baseline.AvatarFromGame, local.AvatarFromGame, remote.SchemaVersion >= 7 ? remote.AvatarFromGame : local.AvatarFromGame, "avatarMode", conflictPaths);
         merged.ProfilePhoto = MergePhoto(
             baseline.ProfilePhoto,
@@ -518,7 +547,8 @@ public static class ProfileSyncEngine
         merged.CreatedAtUtc = Earliest(local.CreatedAtUtc, remote.CreatedAtUtc);
         if (remote.SchemaVersion >= 7)
         {
-            merged.CoverBase64 = MergeLegacyOptionalValue(local.CoverBase64, remote.CoverBase64, "cover", conflictPaths);
+            if (remote.SchemaVersion >= 8) merged.Cover = MergeLegacyCover(local.Cover, remote.Cover, conflictPaths);
+            else merged.CoverBase64 = MergeLegacyOptionalValue(local.CoverBase64, remote.CoverBase64, "cover", conflictPaths);
             merged.AvatarFromGame = MergeLegacyValue(local.AvatarFromGame, remote.AvatarFromGame, "avatarMode", conflictPaths);
         }
         merged.ProfilePhoto = MergeLegacyPhoto(local.ProfilePhoto, remote.ProfilePhoto, conflictPaths);
@@ -975,6 +1005,26 @@ public static class ProfileSyncEngine
         return ClonePhoto(string.Equals(selected, remoteFingerprint, StringComparison.Ordinal) ? remote : local);
     }
 
+    private static CloudProfileCoverV1 MergeCover(CloudProfileCoverV1? baseline, CloudProfileCoverV1? local,
+        CloudProfileCoverV1? remote, HashSet<string> conflictPaths)
+    {
+        baseline ??= new CloudProfileCoverV1(); local ??= new CloudProfileCoverV1(); remote ??= new CloudProfileCoverV1();
+        string baseFingerprint = CoverFingerprint(baseline), localFingerprint = CoverFingerprint(local), remoteFingerprint = CoverFingerprint(remote);
+        string selected = MergeValue(baseFingerprint, localFingerprint, remoteFingerprint, "cover", conflictPaths);
+        return CloneCover(string.Equals(selected, remoteFingerprint, StringComparison.Ordinal) ? remote : local);
+    }
+
+    private static CloudProfileCoverV1 MergeLegacyCover(CloudProfileCoverV1? local, CloudProfileCoverV1? remote,
+        HashSet<string> conflictPaths)
+    {
+        local ??= new CloudProfileCoverV1(); remote ??= new CloudProfileCoverV1();
+        string localFingerprint = CoverFingerprint(local), remoteFingerprint = CoverFingerprint(remote);
+        if (localFingerprint == remoteFingerprint) return CloneCover(local);
+        if (!local.HasCover) return CloneCover(remote);
+        if (!remote.HasCover) return CloneCover(local);
+        conflictPaths.Add("cover"); return CloneCover(local);
+    }
+
     private static CloudProfilePhotoV1 MergeLegacyPhoto(
         CloudProfilePhotoV1? local,
         CloudProfilePhotoV1? remote,
@@ -1222,6 +1272,15 @@ public static class ProfileSyncEngine
         return "local:" + (assignment.TargetFingerprint ?? "").Trim().ToLowerInvariant();
     }
 
+    private static CloudProfileCoverV1 CloneCover(CloudProfileCoverV1? cover)
+        => new()
+        {
+            UseMostPlayedGame = cover?.UseMostPlayedGame == true,
+            HasCover = cover?.HasCover == true, Source = cover?.Source ?? "", SourceUrl = cover?.SourceUrl ?? "",
+            SteamGridAssetId = Math.Max(0, cover?.SteamGridAssetId ?? 0), ContentHash = cover?.ContentHash ?? "",
+            CloudFileName = cover?.CloudFileName ?? "doorpi-profile-cover.jpg"
+        };
+
     private static string ControlProfilesFingerprint(IEnumerable<CloudControlProfileV1>? profiles)
     {
         string json = JsonSerializer.Serialize((profiles ?? Array.Empty<CloudControlProfileV1>())
@@ -1292,7 +1351,15 @@ public static class ProfileSyncEngine
         AddValueDifference(differences, ProfileDifferenceKind.CreatedAt, "createdAtUtc",
             local.CreatedAtUtc, remote.CreatedAtUtc, FormatDate);
 
-        if (remote.SchemaVersion >= 7)
+        if (remote.SchemaVersion >= 8)
+        {
+            if (CoverFingerprint(local.Cover) != CoverFingerprint(remote.Cover))
+                differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.ProfilePhoto, Path = "cover",
+                    LocalSummary = local.Cover?.HasCover == true ? "Personalizada" : "Automática",
+                    RemoteSummary = remote.Cover?.HasCover == true ? "Personalizada" : "Automática" });
+            AddValueDifference(differences, ProfileDifferenceKind.ProfilePhoto, "avatarFromGame", local.AvatarFromGame, remote.AvatarFromGame);
+        }
+        else if (remote.SchemaVersion >= 7)
         {
             if (local.CoverBase64 != remote.CoverBase64)
                 differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.ProfilePhoto, Path = "cover",
@@ -1493,6 +1560,10 @@ public static class ProfileSyncEngine
             photo.Zoom.ToString("R", CultureInfo.InvariantCulture),
             photo.ContentHash ?? "");
     }
+
+    private static string CoverFingerprint(CloudProfileCoverV1? cover)
+        => cover == null ? "" : string.Join("|", cover.HasCover, cover.Source ?? "", cover.SourceUrl ?? "",
+            cover.SteamGridAssetId, cover.ContentHash ?? "", cover.UseMostPlayedGame);
 
     private static ProfileSyncDecision CreateDecision(
         ProfileSyncAction action,

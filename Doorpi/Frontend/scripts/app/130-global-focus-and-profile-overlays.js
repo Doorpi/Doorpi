@@ -44,10 +44,15 @@
         if (fallback) fallback.focus();
     }
     function scheduleDoorpiFocusRecovery() {
+        const recoveryToken = Number(window._doorpiFocusRecoveryToken || 0) + 1;
+        window._doorpiFocusRecoveryToken = recoveryToken;
         const delays = [0, 80, 220, 520];
         delays.forEach(delay => {
             setTimeout(() => {
+                if (window._doorpiFocusRecoveryToken !== recoveryToken) return;
                 if (window._vkbIsOpen) return;
+                if (window._doorpiGameReturnFocusInProgress === true) return;
+                if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) return;
                 if (window.isMediaAppActive || window.isGameLaunchActive) return;
                 const active = document.activeElement;
                 const hasUsefulFocus = active &&

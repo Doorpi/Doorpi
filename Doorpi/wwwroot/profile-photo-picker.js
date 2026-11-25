@@ -554,8 +554,10 @@
         const sx = Math.max(0, Math.min(picker.source.naturalWidth - sourceSize, centerX - sourceSize / 2));
         const sy = Math.max(0, Math.min(picker.source.naturalHeight - sourceHeight, centerY - sourceHeight / 2));
         const canvas = document.createElement('canvas');
-        canvas.width = picker.cover ? 1920 : 1024;
-        canvas.height = picker.cover ? 640 : 1024;
+        const outputWidth = picker.cover ? 1920 : 1024;
+        const outputHeight = picker.cover ? 640 : 1024;
+        canvas.width = outputWidth;
+        canvas.height = outputHeight;
         const ctx = canvas.getContext('2d', { alpha: false });
         ctx.fillStyle = '#080a10';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -563,7 +565,7 @@
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(image, sx, sy, sourceSize, sourceHeight, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', .9);
+        const dataUrl = canvas.toDataURL('image/jpeg', 1);
         const result = {
             base64: dataUrl.slice(dataUrl.indexOf(',') + 1),
             photoSource: picker.source.source,

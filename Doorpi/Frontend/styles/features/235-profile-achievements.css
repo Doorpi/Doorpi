@@ -30,6 +30,20 @@
 .nav-achievement-game-list,.nav-achievement-detail-list { min-height:0; overflow:auto; scrollbar-width:thin; scrollbar-color:#ffffff38 transparent; padding:4px; }
 .nav-achievement-games > header { display:flex; align-items:center; gap:12px; }
 .nav-achievement-games > header > div:first-child { margin-inline-end:auto; }
+.nav-steam-games-heading { display:flex; align-items:center; gap:12px; min-width:0; }
+.nav-steam-games-logo { display:grid; place-items:center; width:clamp(30px,2.1vw,48px); height:clamp(30px,2.1vw,48px); flex:0 0 auto; color:#9fc6e8; }
+.nav-steam-games-logo svg { width:100%; height:100%; }
+.nav-steam-games-heading > div { min-width:0; }
+.nav-steam-games-heading small { color:inherit; opacity:.72; font-size:clamp(11px,.72vw,17px); }
+.nav-steam-sync-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:42px; padding:0 14px; border:1px solid #ffffff25; border-radius:8px; background:#ffffff09; color:inherit; font:inherit; cursor:pointer; }
+.nav-steam-sync-button:focus,.nav-steam-sync-button:hover,.nav-steam-sync-button.nav-focused-el { outline:2px solid currentColor; outline-offset:2px; background:#ffffff18; }
+.nav-steam-sync-button:disabled { opacity:.55; }
+.nav-steam-games-progress { display:grid; grid-template-columns:minmax(120px,1fr) auto; gap:6px 14px; padding:0 10px 10px; color:inherit; }
+.nav-steam-games-progress[hidden] { display:none; }
+.nav-steam-games-progress progress { grid-column:1/-1; width:100%; height:7px; accent-color:#75a9d2; }
+.nav-steam-games-progress progress.is-pending { accent-color:#e6b15c; }
+.nav-steam-games-progress small { opacity:.8; }
+.nav-steam-games-progress > span { grid-column:1/-1; max-width:90ch; opacity:.72; line-height:1.4; }
 .nav-achievement-game-list {
     display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:clamp(12px,1.3vw,32px);
     align-content:start;

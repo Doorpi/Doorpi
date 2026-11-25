@@ -5327,15 +5327,22 @@ window.isNavMenuOpen = false;
         return _steamProfileView;
     }
     const _steamMedalNames = () => Object.fromEntries(['gold','silver','bronze','iron'].map(key=>[key,_t('steam.'+key)]));
-    function _setProfileArtwork(part,value) {
+    function _setProfileArtwork(part,value,metadata={}) {
         const user = _menuData.user;
         if (!user.Id || user.Id !== window._doorpiCurrentUserId) return;
         if (part === 'avatarGame' && value && !/^https:\/\/[^"<>\s]+$/i.test(value)) value = '';
         if (part === 'avatarGame' && user.AvatarFromGame && user.GameAvatarUrl === value) return;
-        const patch = part === 'cover' ? {CoverBase64:value} : {AvatarFromGame:true,GameAvatarUrl:value};
+        const patch = part === 'cover' ? {
+            CoverBase64:value, CoverSource:metadata.source || '', CoverSourceUrl:metadata.sourceUrl || '',
+            CoverSteamGridAssetId:Number(metadata.steamGridAssetId || 0),
+            CoverUsesMostPlayedGame:!!metadata.useMostPlayedGame
+        } : {AvatarFromGame:true,GameAvatarUrl:value};
         Object.assign(user,patch);
         if (window._doorpiProfile?.Id === user.Id) Object.assign(window._doorpiProfile,patch);
-        postToHost({action:'setProfileArtwork',userId:user.Id,part,value});
+        postToHost({action:'setProfileArtwork',userId:user.Id,part,value,...(part==='cover'?{
+            source:patch.CoverSource, sourceUrl:patch.CoverSourceUrl, steamGridAssetId:patch.CoverSteamGridAssetId,
+            useMostPlayedGame:patch.CoverUsesMostPlayedGame
+        }:{})});
         if (part === 'avatarGame') window._applyDoorpiTopProfile?.(user);
     }
     function _profileIdentityMarkup() {
@@ -5370,11 +5377,11 @@ window.isNavMenuOpen = false;
                 avatar?.replaceChildren(img);
             }
             list.parentElement.querySelector('.nav-profile-cover')?.remove();
-            if (user.CoverBase64) {
+            if (user.CoverBase64 || user.CoverSourceUrl) {
                 const cover = document.createElement('img');
                 cover.alt = '';
                 cover.className = 'nav-profile-cover';
-                cover.src = 'data:image/jpeg;base64,' + user.CoverBase64;
+                cover.src = user.CoverBase64 ? 'data:image/jpeg;base64,' + user.CoverBase64 : user.CoverSourceUrl;
                 list.before(cover);
             }
             list.replaceChildren(...games.map((game,index)=>{
@@ -5392,7 +5399,7 @@ window.isNavMenuOpen = false;
                     img.onerror = () => { if (!img.dataset.steamHeader) img.remove(); };
                     img.src = art;
                     item.append(img);
-                    if (index===0 && !user.CoverBase64) {
+                    if (index===0 && !user.CoverBase64 && !user.CoverSourceUrl) {
                         const cover = img.cloneNode();
                         cover.src = _profileBanner(game);
                         cover.className = 'nav-profile-cover';
@@ -5443,8 +5450,9 @@ window.isNavMenuOpen = false;
         const state = _steamView();
         if (!state.profileId || String(data.profileId) !== state.profileId) return;
         if (data.type === 'steamProfileStatus') {
-            for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message'])
+            for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message','phase','progressCurrent','progressTotal','progressPercent','firstSync','pending'])
                 if (data[key] != null) state[key] = data[key];
+            window._refreshSteamProfileSyncUi?.();
             if (Array.isArray(data.achievementIndex)) state.games = [...data.achievementIndex].sort((a,b) => b.unlocked-a.unlocked || b.total-a.total || a.Name.localeCompare(b.Name));
             if (Array.isArray(data.achievementIndex) && !state.games.some(game => game.AppId === _steamAchievementGame)) {
                 if (_steamAchievementGame) state.openGame = null;
@@ -5605,8 +5613,8 @@ window.isNavMenuOpen = false;
             <div class="nav-achievement-detail-list nav-profile-grid" aria-label="${_t('steam.list')}">
             ${items.map(_steamTrophyCard).join('') || '<p class="nav-achievement-empty" role="status">'+_esc(detail?.error || (selected.steam?.total && !detail?_t('steam.loading'):_t('steam.noTrophies')))+'</p>'}</div>
             ${items.length && detail.error?'<p role="status">'+_esc(detail.error)+'</p>':''}</section>`
-            : `<section class="nav-achievement-games"><header><div><h3>${_t('steam.yourGames')}</h3></div>${compact?'':_steamSummaryMarkup()}${sortBar}
-            ${!state.steamId?'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>':''}</header>
+            : `<section class="nav-achievement-games"><header><div class="nav-steam-games-heading"><span class="nav-steam-games-logo" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><div><h3>${_t('steam.yourGames')}</h3><small id="navSteamGamesStatus" role="status" aria-live="polite"></small></div>${state.steamId?'<button type="button" data-steam-focus="sync" id="btnSteamSyncNow" class="nav-steam-sync-button" tabindex="-1" aria-label="'+_esc(_t('steam.syncNow'))+'" title="'+_esc(_t('steam.syncNow'))+'">↻ <span>'+_esc(_t('steam.syncNow'))+'</span></button>':'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>'}</div>${compact?'':_steamSummaryMarkup()}${sortBar}</header>
+            <div class="nav-steam-games-progress" id="navSteamGamesProgress" hidden><progress id="navSteamGamesProgressBar" max="100" value="0" aria-label="${_esc(_t('steam.syncProgress'))}"></progress><small id="navSteamGamesProgressHint"></small><span id="navSteamGamesFirstSyncHint" hidden>${_esc(_t('steam.firstSyncHint'))}</span></div>
             <div class="nav-achievement-game-list nav-profile-grid">${rows.map((row,i)=>_profileGameRow(row,i,fmtSeconds)).join('') || '<p class="nav-achievement-empty">'+_t('navGameHistoryEmpty')+'</p>'}</div></section>`;
         body.innerHTML = `<div class="nav-unified-profile nav-achievements-profile${entry==='standard'?' profile-standard':''}">
             <header class="nav-unified-identity">${_profileIdentityMarkup()}${compact?'<button class="nav-unified-edit" data-steam-focus="edit" tabindex="-1">'+_esc(_t('navEditProfileBtn'))+'</button>':''}</header>
@@ -5617,6 +5625,40 @@ window.isNavMenuOpen = false;
         const editButton = body.querySelector('[data-steam-focus=edit]');
         if (editButton) _contentItems.push(editButton);
         _contentItems.forEach(_bindSteamFocus);
+        const syncButton = body.querySelector('#btnSteamSyncNow');
+        if (syncButton) syncButton.onclick = () => {
+            if (state.busy) return;
+            state.busy = true;
+            state.phase = 'starting';
+            state.progressPercent = 0;
+            state.message = state.firstSync ? _t('steam.firstSyncStarting') : _t('steam.syncStarting');
+            window._refreshSteamProfileSyncUi?.();
+            postToHost?.({action:'steamImport'});
+        };
+        window._refreshSteamProfileSyncUi = () => {
+            const activeState = _steamView();
+            const status = document.querySelector('#navSteamGamesStatus');
+            if (status) status.textContent = activeState.busy ? activeState.message || _t('steam.updating') : activeState.pending ? activeState.message || _t('steam.resumeHint') : '';
+            const progress = document.querySelector('#navSteamGamesProgress');
+            const bar = document.querySelector('#navSteamGamesProgressBar');
+            const hint = document.querySelector('#navSteamGamesProgressHint');
+            const firstHint = document.querySelector('#navSteamGamesFirstSyncHint');
+            const isRunning = !!activeState.busy;
+            if (progress) progress.hidden = !isRunning && !activeState.pending;
+            if (bar) {
+                bar.value = Math.max(0, Math.min(100, Number(activeState.progressPercent) || 0));
+                bar.classList.toggle('is-pending', !isRunning && !!activeState.pending);
+            }
+            if (hint) hint.textContent = activeState.progressTotal > 0
+                ? `${activeState.progressCurrent || 0} / ${activeState.progressTotal} · ${activeState.message || ''}`
+                : activeState.message || '';
+            if (firstHint) {
+                firstHint.hidden = !activeState.firstSync || (!isRunning && !activeState.pending);
+                firstHint.textContent = activeState.pending && !isRunning ? _t('steam.resumeHint') : _t('steam.firstSyncHint');
+            }
+            if (syncButton) syncButton.disabled = !!activeState.busy || !activeState.hasKey;
+        };
+        window._refreshSteamProfileSyncUi();
         editButton?.addEventListener('click',_openProfileEditor);
         const dialog = body.querySelector('.nav-profile-sort-dialog');
         const trigger = body.querySelector('.nav-profile-sort-trigger');
@@ -6235,10 +6277,13 @@ window.isNavMenuOpen = false;
         }, new Map()).values()].sort((a,b) => b.seconds - a.seconds);
         const groupFilmTitles = entries => [...entries.reduce((map, item) => {
             const title = mediaPrimaryTitle(item);
-            const key = `${String(item.AppId || '').toLowerCase()}\u001f${title.toLocaleLowerCase()}`;
-            const current = map.get(key) || { title, seconds:0, entries:[], latest:null };
+            // Content identity spans services: the same movie or series must not
+            // be counted separately just because it was watched in another app.
+            const key = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase();
+            const current = map.get(key) || { title, seconds:0, entries:[], latest:null, platforms:new Set() };
             current.seconds += Number(item.TotalPlaybackSeconds) || 0;
             current.entries.push(item);
+            current.platforms.add(appName(item.AppId));
             if (!current.latest || new Date(item.LastPlayed || 0) > new Date(current.latest.LastPlayed || 0)) current.latest = item;
             map.set(key, current);
             return map;
@@ -6258,12 +6303,12 @@ window.isNavMenuOpen = false;
             artChain:[gameArt(mostPlayedGame)].filter(Boolean),
             appId:''
         } : null;
-        const topFilm = groupFilmTitles(filmPlatform?.entries || [])[0];
+        const topFilm = groupFilmTitles(films)[0];
         const filmHighlight = topFilm?.latest ? (() => {
             const chain = mediaArtChain(topFilm.latest);
             return {
                 kind:'film-series',
-                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(filmPlatform.id)}`,
+                kicker:_t('navMostWatched','Mais assistido'),
                 title:topFilm.title,
                 meta:filmHighlightMeta(topFilm),
                 art:chain[0] || appArt(appFor(filmPlatform.id)),
@@ -6294,7 +6339,7 @@ window.isNavMenuOpen = false;
             const chain = mediaArtChain(favoriteCreatorEntry);
             return {
                 kind:'streaming',
-                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(favoriteCreatorEntry.AppId)}`,
+                kicker:_t('navMostWatched','Mais assistido'),
                 title:favoriteCreator.label,
                 meta:`${fmtSeconds(favoriteCreator.seconds)} ${_t('navProfileTotalSuffix','no total')}`,
                 art:chain[0] || appArt(appFor(favoriteCreatorEntry.AppId)),
@@ -6318,7 +6363,7 @@ window.isNavMenuOpen = false;
             const chain = mediaArtChain(topMusicEntry);
             return {
                 kind:'music',
-                kicker:`${_t('navMostListened','Mais ouvido')} · ${appName(topMusicEntry.AppId)}`,
+                kicker:_t('navMostListened','Mais ouvido'),
                 title:topMusicArtist[0],
                 meta:`${fmtSeconds(topMusicArtist[1])} ${_t('navProfileTotalSuffix','no total')}`,
                 art:chain[0] || appArt(appFor(topMusicEntry.AppId)),
@@ -8446,10 +8491,13 @@ window.isNavMenuOpen = false;
                     </div>
 
                     <div class="nav-profile-sync nav-connected-account" data-provider="steam">
-                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span></div>
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span><button class="nav-icon-btn nav-steam-header-sync" id="navSteamSyncNow" data-steam-action="import" tabindex="-1" title="${_t('steam.syncNow')}" aria-label="${_t('steam.syncNow')}" hidden>↻ <span>${_t('steam.syncNow')}</span></button></div>
                         <p class="nav-connected-description"><span id="navSteamIdentity">${_t('steam.publicProfile')}</span></p>
                         <button class="nav-icon-btn nav-provider-manage" id="navSteamManage" tabindex="-1" > ${PLATFORM_ICONS.Steam}<span>${_t('steam.connect')}</span></button>
                         <span class="nav-profile-sync-status" id="navSteamConnectionState" role="status">${_t('steam.disconnected')}</span>
+                        <span class="nav-profile-sync-status nav-steam-sync-message" id="navSteamSyncMessage" role="status" aria-live="polite"></span>
+                        <progress id="navSteamProgress" max="100" value="0" hidden aria-label="${_t('steam.syncProgress')}"></progress>
+                        <small class="nav-steam-first-sync-hint" id="navSteamFirstSyncHint" hidden>${_t('steam.firstSyncHint')}</small>
                         <button class="nav-icon-btn nav-steam-manual" id="navSteamManual" tabindex="-1" aria-expanded="false" aria-controls="navSteamControls">${_t('steam.manual')}</button>
                         <div id="navSteamControls" class="nav-steam-controls" hidden>
                         <label class="nav-profile-field-label" for="navSteamManualKey">${_t('steam.keyLabel')}</label>
@@ -8459,7 +8507,6 @@ window.isNavMenuOpen = false;
                         <label class="nav-profile-field-label" for="navSteamAccount">${_t('steam.accountLabel')}</label>
                         <input class="nav-profile-field-input" id="navSteamAccount" readonly tabindex="-1" placeholder="https://steamcommunity.com/id/seu-perfil" maxlength="2048" />
                         <span class="nav-profile-sync-status" id="navSteamStatus" role="status" aria-live="polite"></span>
-                        <progress id="navSteamProgress" max="100" hidden aria-label="${_t('steam.syncProgress')}"></progress>
                         <span class="nav-connected-description" id="navSteamTotals"></span>
                         <button class="nav-icon-btn" id="navSteamView" tabindex="-1" aria-expanded="false">${_t('steam.importedSummary')}</button>
                         <div id="navSteamData" class="nav-steam-preview" hidden></div>
@@ -8467,7 +8514,6 @@ window.isNavMenuOpen = false;
                             <button class="nav-icon-btn" data-steam-action="getKey" tabindex="-1">${_t('steam.getKey')}</button>
                             <button class="nav-icon-btn" data-steam-action="pasteKey" tabindex="-1">${_t('steam.pasteKey')}</button>
                             <button class="nav-icon-btn" data-steam-action="pasteAccount" tabindex="-1">${_t('steam.pasteAccount')}</button>
-                            <button class="nav-icon-btn" data-steam-action="import" tabindex="-1">${_t('steam.import')}</button>
                             <button class="nav-icon-btn" data-steam-action="disconnect" tabindex="-1">${_t('steam.removeKey')}</button>
                         </div>
                         <small class="nav-connected-description">${_t('steam.keyNotice')}</small>
@@ -8586,10 +8632,19 @@ window.isNavMenuOpen = false;
             if (status) status.textContent = steamState.message || _t('steam.configureHint');
             const progress = body.querySelector('#navSteamProgress');
             if (progress) {
-                progress.hidden = !steamState.busy;
-                const counts = String(steamState.message || '').match(/conquistas:\s*(\d+)\/(\d+)/i);
-                if (counts) { progress.max = Math.max(1, Number(counts[2])); progress.value = Number(counts[1]); }
-                else progress.removeAttribute('value');
+                progress.hidden = !steamState.busy && !steamState.pending;
+                progress.max = 100;
+                progress.value = Math.max(0, Math.min(100, Number(steamState.progressPercent) || 0));
+                progress.classList.toggle('is-pending', !steamState.busy && !!steamState.pending);
+            }
+            const syncMessage = body.querySelector('#navSteamSyncMessage');
+            if (syncMessage) syncMessage.textContent = steamState.busy
+                ? `${steamState.message || _t('steam.updating')}${steamState.progressTotal > 0 ? ` · ${steamState.progressCurrent || 0}/${steamState.progressTotal}` : ''}`
+                : steamState.pending ? steamState.message || _t('steam.resumeHint') : '';
+            const firstSyncHint = body.querySelector('#navSteamFirstSyncHint');
+            if (firstSyncHint) {
+                firstSyncHint.hidden = !steamState.firstSync || (!steamState.busy && !steamState.pending);
+                firstSyncHint.textContent = steamState.pending && !steamState.busy ? _t('steam.resumeHint') : _t('steam.firstSyncHint');
             }
             if (steamAccount && (steamState.account || (!steamAccount.value && steamState.steamId))) steamAccount.value = steamState.account || steamState.steamId;
             const totals = body.querySelector('#navSteamTotals');
@@ -8625,6 +8680,11 @@ window.isNavMenuOpen = false;
             if (manage) manage.textContent = steamState.hasKey && steamState.account ? _t('steam.anotherAccount') : _t('steam.connect');
             const primary = body.querySelector('#navSteamManage');
             if (primary) primary.disabled = !!steamState.busy;
+            const syncNow = body.querySelector('#navSteamSyncNow');
+            if (syncNow) {
+                syncNow.hidden = !(steamState.hasKey && (steamState.account || steamState.steamId));
+                syncNow.disabled = !!steamState.busy;
+            }
             const connectionState = body.querySelector('#navSteamConnectionState');
             if (connectionState) connectionState.textContent = steamState.busy ? _t('steam.updating') : steamState.hasKey && (steamState.account || steamState.steamId) ? _t('steam.connected') : _t('steam.disconnected');
             if (connectionState && !steamState.busy && /não foi|não pôde|mudou|cancelad|inválid|restrit|privad|indispon|configure primeiro/i.test(steamState.message || '')) connectionState.textContent = steamState.message;
@@ -8710,17 +8770,18 @@ window.isNavMenuOpen = false;
         const refreshArt = () => {
             const game = rankedArt();
             const preview = body.querySelector('.nav-editor-cover');
-            const source = user.CoverBase64 ? 'data:image/jpeg;base64,'+user.CoverBase64 : _profileBanner(game);
+            const source = user.CoverBase64 ? 'data:image/jpeg;base64,'+user.CoverBase64 : (user.CoverSourceUrl || _profileBanner(game));
             preview.onerror = () => {
                 const fallback = game && _profileGameArt(game);
                 preview.onerror = () => { preview.hidden = true; };
-                if (fallback && !user.CoverBase64 && fallback !== source) preview.src = fallback;
+                if (fallback && !user.CoverBase64 && !user.CoverSourceUrl && fallback !== source) preview.src = fallback;
                 else preview.hidden = true;
             };
             if (source) preview.src = source;
             preview.hidden = !source;
             for (const btn of body.querySelectorAll('[data-art-mode]')) {
-                const auto = btn.dataset.artPart === 'avatar' ? user.AvatarFromGame : !user.CoverBase64;
+                const auto = btn.dataset.artPart === 'avatar' ? user.AvatarFromGame :
+                    (user.CoverUsesMostPlayedGame ?? (!user.CoverBase64 && !user.CoverSourceUrl));
                 btn.setAttribute('aria-pressed', String((btn.dataset.artMode === 'game') === !!auto));
             }
         };
@@ -8730,7 +8791,8 @@ window.isNavMenuOpen = false;
             const cover = button.dataset.artPart === 'cover';
             if (button.dataset.artMode === 'image') { pickImage(cover,button); return; }
             const game = rankedArt();
-            _setProfileArtwork(cover?'cover':'avatarGame',cover || !game ? '' : _profileGameArt(game));
+            _setProfileArtwork(cover?'cover':'avatarGame',cover || !game ? '' : _profileGameArt(game),
+                cover ? {useMostPlayedGame:true} : undefined);
             if (!cover && game) {
                 const image = document.createElement('img');
                 image.alt = '';
@@ -8755,7 +8817,7 @@ window.isNavMenuOpen = false;
                 onApply: result => {
                     if (!returnFocus.isConnected || target !== window._doorpiCurrentUserId || revision !== _menuReloadToken) return;
                     if (cover) {
-                        _setProfileArtwork('cover',result.base64);
+                        _setProfileArtwork('cover',result.base64,{useMostPlayedGame:false,source:result.photoSource,sourceUrl:result.photoSourceUrl,steamGridAssetId:result.photoSteamGridAssetId});
                         refreshArt();
                         _showSavedFeedback();
                         return;
@@ -11942,6 +12004,50 @@ window.isNavMenuOpen = false;
         const r = focused.getBoundingClientRect();
         window._ctxMenuOpen?.(focused, r.right + 2, r.top);
         return true;
+    };
+
+    window._navMenuCaptureGameReturnFocus = function () {
+        if (!window.isNavMenuOpen) return null;
+        const category = CATS[_catIdx]?.id || '';
+        if (category === 'profile' && _profileSubView === 'gaming') {
+            const active = document.activeElement?.closest?.('.nav-achievement-game');
+            const selected = active || _contentItems[_contentIdx]?.closest?.('.nav-achievement-game');
+            return { kind: 'profile-game', key: selected?.dataset?.steamFocus || '' };
+        }
+        if (category === 'games' || category === 'media') {
+            const active = document.activeElement?.closest?.('.nav-vertical-card');
+            const selected = active || _contentItems[_contentIdx]?.closest?.('.nav-vertical-card');
+            if (selected) return { kind: 'library-card', category, key: selected.dataset.gameId || '' };
+        }
+        return null;
+    };
+
+    window._navMenuFocusGameReturnTarget = function (descriptor = null) {
+        if (!window.isNavMenuOpen) return false;
+        const category = CATS[_catIdx]?.id || '';
+        let cards = [];
+        let selected = null;
+        if (category === 'profile' && _profileSubView === 'gaming') {
+            cards = _contentItems.filter(item => item?.matches?.('.nav-achievement-game') && item.offsetWidth > 0 && item.offsetHeight > 0);
+            selected = cards.find(item => descriptor?.key && item.dataset.steamFocus === descriptor.key)
+                || _contentItems[_contentIdx]?.closest?.('.nav-achievement-game')
+                || cards[0];
+        } else if ((category === 'games' || category === 'media') &&
+                   (!descriptor?.category || descriptor.category === category)) {
+            cards = _contentItems.filter(item => item?.matches?.('.nav-vertical-card') && item.offsetWidth > 0 && item.offsetHeight > 0);
+            selected = cards.find(item => descriptor?.key && item.dataset.gameId === descriptor.key)
+                || _contentItems[_contentIdx]?.closest?.('.nav-vertical-card')
+                || cards[0];
+        }
+        if (!selected) return false;
+        const index = _contentItems.indexOf(selected);
+        if (index < 0) return false;
+        _topbarFocus = false;
+        _contentIdx = index;
+        _updateContentFocus();
+        selected.focus({ preventScroll: true });
+        selected.scrollIntoView?.({ behavior: 'instant', block: 'nearest' });
+        return document.activeElement === selected;
     };
 
     // ── Expose ────────────────────────────────────────────────────────────────

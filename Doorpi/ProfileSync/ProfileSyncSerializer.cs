@@ -55,6 +55,8 @@ public static class ProfileSyncSerializer
         public string? CoverBase64 { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? AvatarFromGame { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public CanonicalProfileCover? Cover { get; init; }
         public int SchemaVersion { get; init; }
         public string ProfileName { get; init; } = "";
         public string PinCode { get; init; } = "";
@@ -74,8 +76,9 @@ public static class ProfileSyncSerializer
         public static CanonicalProfileContent From(CloudProfileV1 profile)
             => new()
             {
-                CoverBase64 = profile.SchemaVersion >= 7 ? profile.CoverBase64 : null,
+                CoverBase64 = profile.SchemaVersion is >= 7 and < 8 ? profile.CoverBase64 : null,
                 AvatarFromGame = profile.SchemaVersion >= 7 ? profile.AvatarFromGame : null,
+                Cover = profile.SchemaVersion >= 8 ? NormalizeCover(profile.Cover) : null,
                 SchemaVersion = profile.SchemaVersion,
                 Steam = profile.SchemaVersion >= 6 && profile.Steam != null ? Doorpi.Steam.SteamProfileMerge.Fingerprint(profile.Steam) : null,
                 ProfileName = profile.ProfileName ?? "",
@@ -187,6 +190,17 @@ public static class ProfileSyncSerializer
                 ContentHash = photo?.ContentHash ?? ""
             };
 
+        private static CanonicalProfileCover NormalizeCover(CloudProfileCoverV1? cover)
+            => new()
+            {
+                UseMostPlayedGame = cover?.UseMostPlayedGame == true,
+                HasCover = cover?.HasCover == true,
+                Source = cover?.Source ?? "",
+                SourceUrl = cover?.SourceUrl ?? "",
+                SteamGridAssetId = cover?.SteamGridAssetId ?? 0,
+                ContentHash = cover?.ContentHash ?? ""
+            };
+
         private static CloudGameHistoryEntryV1 NormalizeGame(CloudGameHistoryEntryV1 game)
             => new()
             {
@@ -248,6 +262,16 @@ public static class ProfileSyncSerializer
         public double CropX { get; init; }
         public double CropY { get; init; }
         public double Zoom { get; init; } = 1;
+        public string ContentHash { get; init; } = "";
+    }
+
+    private sealed class CanonicalProfileCover
+    {
+        public bool UseMostPlayedGame { get; init; }
+        public bool HasCover { get; init; }
+        public string Source { get; init; } = "";
+        public string SourceUrl { get; init; } = "";
+        public int SteamGridAssetId { get; init; }
         public string ContentHash { get; init; } = "";
     }
 }

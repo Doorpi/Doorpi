@@ -1030,7 +1030,7 @@ function moveFocus(direction) {
 
     const items = getNavigableItems();
     if (!items.length) return;
-    const current = document.activeElement;
+    let current = document.activeElement;
 
     const executionOverlay = document.getElementById('gameLaunchOverlay');
     if (executionOverlay?.classList.contains('execution-lock-visible')) {
@@ -1054,8 +1054,19 @@ function moveFocus(direction) {
             const nf = Array.from(document.querySelectorAll('.filter-bar .filter-btn')).find(f => !f.classList.contains('active') && f.offsetWidth > 0);
             if (nf) { nf.focus(); return; }
         }
-        items[0].focus();
-        return;
+        // O card focado pode perder o foco DOM durante a transição de retorno
+        // de um jogo. Reentra pelo último card do carrossel lembrado antes de
+        // processar esta direção, em vez de começar no primeiro item (perfil).
+        const rememberedHomeCard = window.DoorpiNavigation?.getEntryTarget?.('home');
+        if (rememberedHomeCard && items.includes(rememberedHomeCard)) {
+            rememberedHomeCard.focus({ preventScroll: true });
+            if (document.activeElement === rememberedHomeCard)
+                current = rememberedHomeCard;
+        }
+        if (!items.includes(current)) {
+            items[0].focus();
+            return;
+        }
     }
 
     if (!isModalOpen) {

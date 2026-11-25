@@ -10,7 +10,7 @@ namespace Doorpi;
 
 public partial class MainWindow
 {
-    private sealed class SteamImportProgress(Action<string> report) : IProgress<string> { public void Report(string message) => report(message); }
+    private sealed class SteamImportProgress(Action<SteamImportProgressUpdate> report) : IProgress<SteamImportProgressUpdate> { public void Report(SteamImportProgressUpdate value) => report(value); }
     private (string Directory, long Generation, (long, long, long) Revisions, SteamProfileData? Data)? _steamPresentationCache;
     private SteamProfileData? ReadSteamPresentation(string directory, long generation)
     {
@@ -44,6 +44,8 @@ public partial class MainWindow
         long capturedUserRevision = StateStorage.GetRevision(userPath);
         string operationAccount = "";
         bool operationStarted = false;
+        bool firstSync = false;
+        SteamSyncOperation? currentOperation = null;
         SteamProfileData? statusData = null;
         bool statusLoaded = false;
         void Status(string message, bool busy = false)
@@ -56,7 +58,11 @@ public partial class MainWindow
                 medals = SteamMedals.Count(data?.Games.SelectMany(game => game.Achievements) ?? Enumerable.Empty<SteamAchievementData>()),
                 achievementGames = data?.Games.Count(game => game.Achievements.Count > 0) ?? 0,
                 achievementIndex = busy ? null : data?.Games.OrderBy(game => game.Name).Select(game => new { game.AppId, game.Name, game.PlaytimeMinutes, game.LastPlayedUnix, medals = SteamMedals.Count(game.Achievements), unlocked = game.Achievements.Count(item => item.Unlocked), total = game.Achievements.Count, previewIcons = SteamMedals.InDisplayOrder(game.Achievements).Take(6).Select(item => new { item.IconFile, item.IconUrl }), checkedUtc = game.AchievementsCheckedUtc }).ToArray(),
-                games = summaries, busy, message, manualKeyRequired = _steamManualKeyFallback.Contains(owner) });
+                games = summaries, busy, message,
+                phase = currentOperation?.Phase ?? "", progressCurrent = currentOperation?.Current ?? 0,
+                progressTotal = currentOperation?.Total ?? 0, progressPercent = currentOperation?.Percent ?? 0,
+                firstSync = currentOperation?.FirstSync ?? firstSync, pending = currentOperation?.Pending ?? false,
+                manualKeyRequired = _steamManualKeyFallback.Contains(owner) });
         }
         try
         {
@@ -75,6 +81,7 @@ public partial class MainWindow
             {
                 string operationPath = Path.Combine(directory, "steam-sync-operation.json");
                 var operation = StateStorage.Exists(operationPath) ? JsonSerializer.Deserialize<SteamSyncOperation>(StateStorage.ReadAllText(operationPath)) : null;
+                currentOperation = operation;
                 bool running = _steamImportGate.CurrentCount == 0;
                 Status(running && operation != null ? operation.Message : SteamProfileStore.HasKey(directory) ? "Conexão salva neste Windows. Atualize para consultar horas e conquistas." : "Escolha Configurar Steam, entre na sua conta e clique na chave.", running);
                 return true;
@@ -118,27 +125,34 @@ public partial class MainWindow
                 var before = StateStorage.ReadSnapshot(names);
                 string keyValue = SteamProfileStore.ReadKey(directory);
                 var previous = SteamProfileStore.Read(directory);
+                firstSync = previous == null || previous.Games.Count == 0;
                 operationAccount = account;
-                if (automaticCompletion == null) SaveSteamOperation(directory, account, true, "Consultando perfil e biblioteca Steam...");
+                currentOperation = new SteamSyncOperation { Pending = true, Account = account, FirstSync = firstSync, Phase = "starting", Message = "Preparando importação Steam…" };
+                if (automaticCompletion == null) SaveSteamOperation(directory, account, true, currentOperation.Message, new("starting", currentOperation.Message), firstSync);
                 operationStarted = automaticCompletion == null;
-                if (automaticCompletion == null) NotifySteamOperation(owner, "Consultando a Steam. Você pode continuar usando o Doorpi.", true);
-                Status("Consultando perfil e biblioteca Steam...", true);
-                string lastProgress = "Importação concluída.";
+                if (automaticCompletion == null) NotifySteamOperation(owner, firstSync
+                    ? "Primeira sincronização: importando biblioteca, horas e troféus jogo a jogo. Pode demorar; se fechar o Doorpi, a importação será retomada na próxima abertura."
+                    : "Consultando a Steam. Você pode continuar usando o Doorpi.", true);
+                Status(currentOperation.Message, true);
+                string lastProgress = currentOperation.Message;
                 int progressActive = 1;
                 DateTimeOffset lastProgressSaved = DateTimeOffset.MinValue;
-                var progress = new SteamImportProgress(message =>
+                var progress = new SteamImportProgress(update =>
                 {
-                    lastProgress = message;
+                    lastProgress = update.Message;
+                    currentOperation = new SteamSyncOperation { Pending = true, Account = account, Message = update.Message, Phase = update.Phase, Current = update.Current, Total = update.Total, Percent = update.Percent, FirstSync = firstSync, UpdatedUtc = DateTimeOffset.UtcNow };
                     if (automaticCompletion != null) return;
                     if (DateTimeOffset.UtcNow - lastProgressSaved < TimeSpan.FromSeconds(1)) return;
                     lastProgressSaved = DateTimeOffset.UtcNow;
                     StateStorage.ExecuteTransaction(() =>
                     {
                         if (owner != currentUserId || generation != _themeProfileGeneration || StateStorage.GetRevision(userPath) != capturedUserRevision) throw new OperationCanceledException("O perfil mudou durante a consulta Steam.");
-                        SaveSteamOperation(directory, account, true, message);
+                        SaveSteamOperation(directory, account, true, update.Message, update, firstSync);
                     });
-                    NotifySteamOperation(owner, message, true);
-                    _ = Dispatcher.InvokeAsync(() => { if (Volatile.Read(ref progressActive) != 0 && owner == currentUserId) Status(message, true); });
+                    NotifySteamOperation(owner, firstSync
+                        ? update.Message + " A primeira sincronização pode demorar; se fechar o Doorpi, ela será retomada na próxima abertura."
+                        : update.Message, true);
+                    _ = Dispatcher.InvokeAsync(() => { if (Volatile.Read(ref progressActive) != 0 && owner == currentUserId) Status(update.Message, true); });
                 });
                 using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(45));
                 int? targetApp = root.TryGetProperty("appId", out var targetValue) && targetValue.TryGetInt32(out int targetId) && targetId > 0 ? targetId : null;
@@ -161,7 +175,8 @@ public partial class MainWindow
                 writes[Path.Combine(directory, "steam-connection.json")] = JsonSerializer.Serialize(imported.SteamId);
                 writes[historyPath] = JsonSerializer.Serialize(history);
                 if (before.Documents[gamesPath] != null) writes[gamesPath] = JsonSerializer.Serialize(library);
-                if (automaticCompletion == null) writes[Path.Combine(directory, "steam-sync-operation.json")] = JsonSerializer.Serialize(new SteamSyncOperation { Pending = imported.RetryRequired, Account = account, Message = lastProgress, UpdatedUtc = DateTimeOffset.UtcNow });
+                currentOperation = new SteamSyncOperation { Pending = imported.RetryRequired, Account = account, Message = lastProgress, Phase = imported.RetryRequired ? "pending-retry" : "complete", Current = currentOperation?.Current ?? 0, Total = currentOperation?.Total ?? 0, Percent = imported.RetryRequired ? currentOperation?.Percent ?? 98 : 100, FirstSync = imported.RetryRequired && firstSync, UpdatedUtc = DateTimeOffset.UtcNow };
+                if (automaticCompletion == null) writes[Path.Combine(directory, "steam-sync-operation.json")] = JsonSerializer.Serialize(currentOperation);
                 StateStorage.WriteBatchIfRevision(writes, before.Revisions);
                 automaticCompletion?.Invoke(!imported.RetryRequired);
                 if (automaticCompletion == null) NotifySteamOperation(owner, lastProgress, false);
@@ -190,7 +205,8 @@ public partial class MainWindow
                 : exception.Message;
             if (operationStarted && StateStorage.GetRevision(userPath) == capturedUserRevision)
             {
-                SaveSteamOperation(directory, operationAccount, true, message);
+                currentOperation = new SteamSyncOperation { Pending = true, Account = operationAccount, Message = message, Phase = "interrupted", Percent = currentOperation?.Percent ?? 0, Current = currentOperation?.Current ?? 0, Total = currentOperation?.Total ?? 0, FirstSync = firstSync, UpdatedUtc = DateTimeOffset.UtcNow };
+                SaveSteamOperation(directory, operationAccount, true, message, new(currentOperation.Phase, message, currentOperation.Current, currentOperation.Total, currentOperation.Percent), firstSync);
                 NotifySteamOperation(owner, message + " Nova tentativa no próximo login ou pela atualização manual.", false);
             }
             try { Status(message); } catch { PostProfileSyncMessage(new { type = "steamProfileStatus", profileId = owner, busy = false, message = "Não foi possível ler os dados Steam armazenados. Eles não foram substituídos." }); }

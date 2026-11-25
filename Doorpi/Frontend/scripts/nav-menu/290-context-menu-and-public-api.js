@@ -61,6 +61,50 @@
         return true;
     };
 
+    window._navMenuCaptureGameReturnFocus = function () {
+        if (!window.isNavMenuOpen) return null;
+        const category = CATS[_catIdx]?.id || '';
+        if (category === 'profile' && _profileSubView === 'gaming') {
+            const active = document.activeElement?.closest?.('.nav-achievement-game');
+            const selected = active || _contentItems[_contentIdx]?.closest?.('.nav-achievement-game');
+            return { kind: 'profile-game', key: selected?.dataset?.steamFocus || '' };
+        }
+        if (category === 'games' || category === 'media') {
+            const active = document.activeElement?.closest?.('.nav-vertical-card');
+            const selected = active || _contentItems[_contentIdx]?.closest?.('.nav-vertical-card');
+            if (selected) return { kind: 'library-card', category, key: selected.dataset.gameId || '' };
+        }
+        return null;
+    };
+
+    window._navMenuFocusGameReturnTarget = function (descriptor = null) {
+        if (!window.isNavMenuOpen) return false;
+        const category = CATS[_catIdx]?.id || '';
+        let cards = [];
+        let selected = null;
+        if (category === 'profile' && _profileSubView === 'gaming') {
+            cards = _contentItems.filter(item => item?.matches?.('.nav-achievement-game') && item.offsetWidth > 0 && item.offsetHeight > 0);
+            selected = cards.find(item => descriptor?.key && item.dataset.steamFocus === descriptor.key)
+                || _contentItems[_contentIdx]?.closest?.('.nav-achievement-game')
+                || cards[0];
+        } else if ((category === 'games' || category === 'media') &&
+                   (!descriptor?.category || descriptor.category === category)) {
+            cards = _contentItems.filter(item => item?.matches?.('.nav-vertical-card') && item.offsetWidth > 0 && item.offsetHeight > 0);
+            selected = cards.find(item => descriptor?.key && item.dataset.gameId === descriptor.key)
+                || _contentItems[_contentIdx]?.closest?.('.nav-vertical-card')
+                || cards[0];
+        }
+        if (!selected) return false;
+        const index = _contentItems.indexOf(selected);
+        if (index < 0) return false;
+        _topbarFocus = false;
+        _contentIdx = index;
+        _updateContentFocus();
+        selected.focus({ preventScroll: true });
+        selected.scrollIntoView?.({ behavior: 'instant', block: 'nearest' });
+        return document.activeElement === selected;
+    };
+
     // ── Expose ────────────────────────────────────────────────────────────────
     window.openNavMenu = open;
     window.closeNavMenu = close;

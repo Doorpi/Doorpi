@@ -160,6 +160,7 @@
             cancel: t('launchCancelBtn'),
             returningStore: t('launchReturningStore') || t('launchWaitingStore') || t('launchWaiting'),
             closingStore: t('launchClosingStore') || t('launchWaitingStore') || t('launchWaiting'),
+            closingGame: t('launchClosingGame') || t('launchWaitingGame') || t('launchWaiting'),
             kindGame: t('launchKindGame'),
             kindApp: t('launchKindApp'),
             kindStore: t('launchKindStore'),
@@ -200,6 +201,10 @@
             }
         }
 
+        function invalidatePendingHideCleanup() {
+            overlay._hideCleanupToken = Number(overlay._hideCleanupToken || 0) + 1;
+        }
+
         function setArtFallback() {
             artBox.innerHTML = `
           <svg class="game-art-placeholder" viewBox="0 0 24 24" fill="none"
@@ -215,6 +220,7 @@
         }
 
         function show(gameName, heroImage, gridImage, isRestore = false, launchKind = 'game') {
+            invalidatePendingHideCleanup();
             const text = getI18n();
             const waitingText = getWaitingText(text, launchKind);
             nameEl.textContent = gameName || '';
@@ -264,6 +270,7 @@
         }
 
         function showStoreTransition(data = {}) {
+            invalidatePendingHideCleanup();
             const text = getI18n();
             const mode = data.mode || 'returning';
             nameEl.textContent = data.name || '';
@@ -285,6 +292,7 @@
         }
 
         function showGpuRestarting(data = {}) {
+            invalidatePendingHideCleanup();
             if (overlay._waitTimer) {
                 clearTimeout(overlay._waitTimer);
                 overlay._waitTimer = 0;
@@ -342,6 +350,7 @@
         }
 
         function setError(gameName, reason) {
+            invalidatePendingHideCleanup();
             const text = getI18n();
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             cancelBtn.style.display = 'none';
@@ -358,6 +367,7 @@
         }
 
         function showExecutionLock(data = {}) {
+            invalidatePendingHideCleanup();
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             const hasActionableTarget = !!(data.id || data.url);
             if (!hasActionableTarget) {
@@ -460,11 +470,36 @@
             });
         }
 
+        function showGameClosing(data = {}) {
+            invalidatePendingHideCleanup();
+            if (overlay._waitTimer) {
+                clearTimeout(overlay._waitTimer);
+                overlay._waitTimer = 0;
+            }
+            hideExecutionLock();
+            clearSessionPair();
+            setLaunchContext('game');
+            nameEl.textContent = data.gameName || t('runningGameName');
+            statusEl.textContent = getI18n().closingGame;
+            if (bg) bg.style.backgroundImage = data.heroImage ? `url('${data.heroImage}')` : 'none';
+            setArt(data.gridImage || data.staticVertical || data.vertical || '');
+            setState('loading');
+            overlay.classList.remove('store-transition-visible', 'store-install-lock', 'gpu-updater-lock');
+            overlay.dataset.executionLockKey = '';
+            cancelBtn.style.display = 'none';
+            cancelBtn.style.opacity = '0';
+            overlay.style.pointerEvents = 'all';
+            overlay.style.zIndex = '30000';
+            overlay.classList.add('visible', 'doorpi-game-closing');
+        }
+
         function hide() {
+            const cleanupToken = Number(overlay._hideCleanupToken || 0) + 1;
+            overlay._hideCleanupToken = cleanupToken;
             if (overlay._waitTimer) clearTimeout(overlay._waitTimer);
             clearExecutionLockFocusTimers();
             cancelBtn.style.opacity = '0';
-            overlay.classList.remove('execution-lock-visible', 'store-transition-visible');
+            overlay.classList.remove('execution-lock-visible', 'store-transition-visible', 'doorpi-game-closing');
             overlay.style.zIndex = '';
             overlay.classList.remove('store-install-lock');
             overlay.classList.remove('gpu-updater-lock');
@@ -473,6 +508,7 @@
 
 
             setTimeout(() => {
+                if (overlay._hideCleanupToken !== cleanupToken) return;
                 cancelBtn.style.display = 'none';
                 if (document.activeElement === cancelBtn) {
                     cancelBtn.blur();
@@ -485,6 +521,7 @@
             overlay.classList.remove('visible');
 
             setTimeout(() => {
+                if (overlay._hideCleanupToken !== cleanupToken || overlay.classList.contains('visible')) return;
                 overlay.style.backdropFilter = '';
                 overlay.style.webkitBackdropFilter = '';
                 setState('loading');
@@ -494,7 +531,7 @@
             }, 400);
         }
 
-        return { show, showStoreTransition, showGpuRestarting, setRunning, setLaunchStatus, setError, hide, showExecutionLock, focusExecutionLockActions, hideExecutionLock };
+        return { show, showStoreTransition, showGpuRestarting, setRunning, setLaunchStatus, setError, hide, showExecutionLock, showGameClosing, focusExecutionLockActions, hideExecutionLock };
     })();
 
 

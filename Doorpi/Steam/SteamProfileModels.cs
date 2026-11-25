@@ -24,6 +24,13 @@ public sealed class SteamGameData
     public List<SteamAchievementData> Achievements { get; set; } = new();
 }
 
+public sealed record SteamImportProgressUpdate(
+    string Phase,
+    string Message,
+    int Current = 0,
+    int Total = 0,
+    int Percent = 0);
+
 public sealed class SteamAchievementData
 {
     public string Id { get; set; } = "";

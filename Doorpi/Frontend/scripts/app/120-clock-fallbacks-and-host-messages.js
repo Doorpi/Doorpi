@@ -5,6 +5,59 @@
     refreshClocks();
     setInterval(refreshClocks, 1000);
 
+    function _scheduleGameLaunchFocusRestore() {
+        window.resetDoorpiGamepadInputState?.();
+        const state = window._doorpiGameLaunchFocusState || { descriptor: null, restored: false };
+        window._doorpiGameLaunchFocusState = state;
+        if (state.restored) {
+            window._doorpiPendingGameReturnFocus = false;
+            return;
+        }
+        const overlay = document.getElementById('gameLaunchOverlay');
+        if (overlay?.classList.contains('visible') &&
+            overlay.classList.contains('execution-lock-visible')) {
+            window._doorpiPendingGameReturnFocus = true;
+            return;
+        }
+
+        window._doorpiPendingGameReturnFocus = false;
+        const token = Number(window._doorpiReturnFocusToken || 0) + 1;
+        window._doorpiReturnFocusToken = token;
+        const restore = (attempt = 0) => {
+            requestAnimationFrame(() => {
+                if (window._doorpiReturnFocusToken !== token || state.restored) return;
+                const currentOverlay = document.getElementById('gameLaunchOverlay');
+                if (currentOverlay?.classList.contains('visible') &&
+                    currentOverlay.classList.contains('execution-lock-visible')) {
+                    window._doorpiPendingGameReturnFocus = true;
+                    return;
+                }
+                const focused = window.isNavMenuOpen
+                    ? window._navMenuFocusGameReturnTarget?.(state.descriptor) === true
+                    : window.DoorpiNavigation?.focusRegion('home', 0) === true;
+                if (focused) {
+                    state.restored = true;
+                    return;
+                }
+                if (attempt < 20) setTimeout(() => restore(attempt + 1), 50);
+            });
+        };
+        restore();
+    }
+
+    function _restorePendingGameReturnFocus() {
+        if (window._doorpiPendingGameReturnFocus !== true) return;
+        const overlay = document.getElementById('gameLaunchOverlay');
+        if (overlay?.classList.contains('visible') &&
+            overlay.classList.contains('execution-lock-visible')) return;
+        if (window._doorpiGameReturnFocusTimer) return;
+        window._doorpiGameReturnFocusTimer = setTimeout(() => {
+            window._doorpiGameReturnFocusTimer = 0;
+            if (window._doorpiPendingGameReturnFocus === true)
+                _scheduleGameLaunchFocusRestore();
+        }, 200);
+    }
+
     /* Seção: Ponte com o host */
     // ── GERADOR DE FALLBACKS SVG ──────────────────────────────────────────
     window.generateFallbackSvg = function (name, type, iconBase64 = '', forceLetter = false) {
@@ -225,6 +278,13 @@
             }
             // app.js — handler de mensagens do C#
             else if (data.type === 'windowFocused') {
+                if (window._doorpiClosingGame === true) {
+                    window._isDoorpiFocused = true;
+                    window.isDoorpiFocused = true;
+                    window._isExternalAppRunning = true;
+                    window._stopSystemAudio();
+                    return;
+                }
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
                 window.isMediaAppActive = false;
@@ -261,7 +321,10 @@
                 window._isDoorpiFocused = true;
                 window.isDoorpiFocused = true;
 
-                if (!window._vkbIsOpen) {
+                if (!window._vkbIsOpen && data.focusCarousel === true) {
+                    window._doorpiPendingGameReturnFocus = true;
+                    _restorePendingGameReturnFocus();
+                } else if (!window._vkbIsOpen && data.focusCarousel !== false) {
                     scheduleDoorpiFocusRecovery();
                 }
 
@@ -292,9 +355,20 @@
                 window.setInlineScanStatus?.(true, t('inlineScanReadingFolder', folderName));
             }
             else if (data.type === 'runtimeSessionsChanged') {
-                window.DoorpiRuntimeState.running = Array.isArray(data.running) ? data.running : [];
+                const incomingSessions = Array.isArray(data.running) ? data.running : [];
+                const suppressStaleClosedGame = window._doorpiClosingGame === true ||
+                    Date.now() < (window._doorpiSuppressClosedGameRuntimeUntil || 0);
+                window.DoorpiRuntimeState.running = suppressStaleClosedGame
+                    ? incomingSessions.filter(entry => entry?.channel !== 'games' && entry?.kind !== 'game')
+                    : incomingSessions;
                 _syncWebAppConflictEntryFromRuntime();
                 refreshRuntimeCards();
+                if (window._doorpiClosingGame === true) {
+                    window._syncSystemAudioFromRuntime(true);
+                    _clearExecutionOverlayCloseTimer();
+                    _stopExecutionOverlayRefreshLoop();
+                    return;
+                }
                 const shouldMuteDoorpiAudio = _readDoorpiAudioMuteFlag(
                     data,
                     window.DoorpiRuntimeState.running.length > 0
@@ -319,6 +393,7 @@
                         window._executionOverlayVisualKey = '';
                         GameLaunchOverlay.hide();
                         _stopExecutionOverlayRefreshLoop();
+                        requestAnimationFrame(_restorePendingGameReturnFocus);
                     }, 450);
                 } else {
                     _stopExecutionOverlayRefreshLoop();
@@ -834,6 +909,16 @@
                 }, 180);
             }
             else if (data.type === 'gameLaunching') {
+                if (window._doorpiGameReturnFocusTimer) {
+                    clearTimeout(window._doorpiGameReturnFocusTimer);
+                    window._doorpiGameReturnFocusTimer = 0;
+                }
+                window._doorpiPendingGameReturnFocus = false;
+                window._doorpiGameLaunchFocusState = {
+                    descriptor: window._navMenuCaptureGameReturnFocus?.() || null,
+                    restored: false
+                };
+                window._doorpiSuppressClosedGameRuntimeUntil = 0;
                 window._isExternalAppRunning = true;
                 window.stopHomeFeatureTrailer?.({ resumeAudio: false });
                 window._stopSystemAudio();
@@ -880,6 +965,8 @@
                 }
             }
             else if (data.type === 'executionLock') {
+                if (window._doorpiClosingGame === true ||
+                    Date.now() < (window._doorpiSuppressClosedGameRuntimeUntil || 0)) return;
                 if (Date.now() < (window._doorpiOfficialReturnSuppressUntil || 0)) {
                     GameLaunchOverlay.hide();
                     return;
@@ -959,6 +1046,11 @@
             }
             else if (data.type === 'executionLockCleared') {
                 _clearExecutionOverlayCloseTimer();
+                if (window._doorpiClosingGame === true) {
+                    window._lastExecutionLockData = null;
+                    window._executionOverlayVisualKey = '';
+                    return;
+                }
                 // O monitor de GPU possui o ciclo de vida deste lock. Um clear
                 // generico pode chegar durante trocas de janela, mas somente o
                 // evento gpuUpdaterSessionEnded deve desmontar sua interface.
@@ -972,6 +1064,7 @@
                 // para EM EXECUÇÃO quando houver nova confirmação oficial do host.
                 window.isMediaAppActive = false;
                 GameLaunchOverlay.hide();
+                requestAnimationFrame(_restorePendingGameReturnFocus);
 
                 window._lastExecutionLockData = null;
                 window._executionOverlayVisualKey = '';
@@ -987,7 +1080,8 @@
                 window._executionOverlayVisualKey = '';
                 GameLaunchOverlay.hide();
                 _stopExecutionOverlayRefreshLoop();
-                scheduleDoorpiFocusRecovery();
+                requestAnimationFrame(_restorePendingGameReturnFocus);
+                // The native windowFocused event owns the single focus handoff.
             }
             else if (data.type === 'storeSessionReturnedToDoorpi') {
                 const addModal = document.getElementById('addGameContainer');
@@ -1023,7 +1117,186 @@
                 GameLaunchOverlay.setError(data.gameName, data.reason);
                 window._syncSystemAudioFromRuntime(shouldMuteDoorpiAudio);
             }
+            else if (data.type === 'gameCloseRequestedFromDoorpi') {
+                _clearExecutionOverlayCloseTimer();
+                window._doorpiFocusRecoveryToken = Number(window._doorpiFocusRecoveryToken || 0) + 1;
+                if (window._doorpiGameReturnFocusTimer) {
+                    clearTimeout(window._doorpiGameReturnFocusTimer);
+                    window._doorpiGameReturnFocusTimer = 0;
+                }
+                window._doorpiPendingGameReturnFocus = false;
+                window._doorpiReturnFocusToken = Number(window._doorpiReturnFocusToken || 0) + 1;
+                window._doorpiGameLaunchFocusState = { descriptor: null, restored: true };
+                window._doorpiClosingGame = true;
+                window._doorpiGameReturnFocusInProgress = false;
+                window.DoorpiRuntimeState.running = (window.DoorpiRuntimeState.running || [])
+                    .filter(entry => entry?.channel !== 'games' && entry?.kind !== 'game');
+                _syncWebAppConflictEntryFromRuntime();
+                refreshRuntimeCards();
+                window.isGameLaunchActive = true;
+                window._doorpiGameInputSuppressedUntil = performance.now() + 15000;
+                window.isMediaAppActive = true;
+                window._isExternalAppRunning = true;
+                window._stopSystemAudio();
+                window.resetDoorpiGamepadInputState?.();
+                const closeVisual = window._doorpiGetGameCloseVisualContext?.() || {};
+                const previousLock = window._lastExecutionLockData || {};
+                window._lastExecutionLockData = null;
+                window._executionOverlayVisualKey = '';
+                GameLaunchOverlay.showGameClosing?.({
+                    ...data,
+                    ...closeVisual,
+                    gridImage: data.gridImage || closeVisual.gridImage || previousLock.gridImage || '',
+                    heroImage: data.heroImage || closeVisual.heroImage || previousLock.heroImage || ''
+                });
+                _stopExecutionOverlayRefreshLoop();
+            }
+            else if (data.type === 'gameCloseCompletedFromDoorpi') {
+                window._doorpiClosingGame = false;
+                window._doorpiFocusRecoveryToken = Number(window._doorpiFocusRecoveryToken || 0) + 1;
+                window._doorpiOfficialReturnSuppressUntil = Date.now() + 1800;
+                window._doorpiGameInputSuppressedUntil = 0;
+                window.isGameLaunchActive = false;
+                window._doorpiGameReturnFocusInProgress = true;
+                window._lastExecutionLockData = null;
+                window._executionOverlayVisualKey = '';
+                window.DoorpiRuntimeState.running = (window.DoorpiRuntimeState.running || [])
+                    .filter(entry => entry?.channel !== 'games' && entry?.kind !== 'game');
+                _syncWebAppConflictEntryFromRuntime();
+                refreshRuntimeCards();
+                window.isMediaAppActive = _hasAnyRuntimeSession();
+                window._syncSystemAudioFromRuntime(window.isMediaAppActive);
+                window.resetDoorpiGamepadInputState?.();
+                GameLaunchOverlay.hide();
+                _stopExecutionOverlayRefreshLoop();
+                if (window.isMediaAppActive) {
+                    window._refreshExecutionOverlayFromRuntime?.();
+                    window._doorpiGameReturnFocusInProgress = false;
+                    return;
+                }
+                const activeElement = document.activeElement;
+                const closingOverlay = document.getElementById('gameLaunchOverlay');
+                const hasUsableFocus = activeElement &&
+                    activeElement !== document.body &&
+                    activeElement !== document.documentElement &&
+                    !closingOverlay?.contains(activeElement) &&
+                    typeof activeElement.focus === 'function' &&
+                    activeElement.offsetParent !== null;
+                if (hasUsableFocus) {
+                    // O usuário pode continuar navegando enquanto o processo
+                    // termina. Preserva o foco atual em vez de voltar ao card inicial.
+                    window._doorpiGameReturnFocusInProgress = false;
+                    return;
+                }
+                const restoreHomeFocus = (attempt = 0) => {
+                    requestAnimationFrame(() => {
+                        if (window._doorpiClosingGame || window.isMediaAppActive) {
+                            window._doorpiGameReturnFocusInProgress = false;
+                            return;
+                        }
+                        const currentFocus = document.activeElement;
+                        const currentOverlay = document.getElementById('gameLaunchOverlay');
+                        const hasCurrentFocus = currentFocus &&
+                            currentFocus !== document.body &&
+                            currentFocus !== document.documentElement &&
+                            !currentOverlay?.contains(currentFocus) &&
+                            typeof currentFocus.focus === 'function' &&
+                            currentFocus.offsetParent !== null;
+                        if (hasCurrentFocus) {
+                            window._doorpiGameReturnFocusInProgress = false;
+                            return;
+                        }
+                        const restoredCard = window._doorpiRestoreGameCloseReturnFocus?.() === true;
+                        const focused = restoredCard ||
+                            window.DoorpiNavigation?.focusRegion('home', 0) === true;
+                        if (focused) {
+                            window._doorpiGameReturnFocusInProgress = false;
+                            return;
+                        }
+                        if (attempt < 20) {
+                            setTimeout(() => restoreHomeFocus(attempt + 1), 50);
+                            return;
+                        }
+                        window.focusFeaturedCard?.();
+                        window._doorpiGameReturnFocusInProgress = false;
+                    });
+                };
+                setTimeout(() => restoreHomeFocus(), 220);
+            }
+            else if (data.type === 'gameProcessClosed') {
+                _clearExecutionOverlayCloseTimer();
+                window._doorpiFocusRecoveryToken = Number(window._doorpiFocusRecoveryToken || 0) + 1;
+                if (window._doorpiGameReturnFocusTimer) {
+                    clearTimeout(window._doorpiGameReturnFocusTimer);
+                    window._doorpiGameReturnFocusTimer = 0;
+                }
+                window._doorpiReturnFocusToken = Number(window._doorpiReturnFocusToken || 0) + 1;
+                window._doorpiPendingGameReturnFocus = false;
+                window._doorpiGameLaunchFocusState = { descriptor: null, restored: true };
+                window._doorpiGameReturnFocusInProgress = true;
+                window._doorpiClosingGame = false;
+                window._doorpiSuppressClosedGameRuntimeUntil = Date.now() + 1800;
+                window._doorpiOfficialReturnSuppressUntil = Date.now() + 1800;
+                window.DoorpiRuntimeState.running = (window.DoorpiRuntimeState.running || [])
+                    .filter(entry => entry?.channel !== 'games' && entry?.kind !== 'game');
+                _syncWebAppConflictEntryFromRuntime();
+                refreshRuntimeCards();
+                if (_hasAnyRuntimeSession()) {
+                    window.isMediaAppActive = true;
+                    window._refreshExecutionOverlayFromRuntime?.();
+                    window._doorpiGameReturnFocusInProgress = false;
+                    return;
+                }
+                window.isGameLaunchActive = false;
+                window._doorpiGameInputSuppressedUntil = 0;
+                window.isMediaAppActive = false;
+                window._lastExecutionLockData = null;
+                window._executionOverlayVisualKey = '';
+                window._syncSystemAudioFromRuntime(false);
+                GameLaunchOverlay.hideExecutionLock?.();
+                GameLaunchOverlay.hide();
+                _stopExecutionOverlayRefreshLoop();
+                window.resetDoorpiGamepadInputState?.();
+
+                if (window.isNavMenuOpen) window.closeNavMenu?.();
+                const restoreHomeCarousel = (attempt = 0) => {
+                    requestAnimationFrame(() => {
+                        const menuTransitioning = window.isNavMenuOpen ||
+                            document.body.classList.contains('nav-menu-closing');
+                        if (menuTransitioning && attempt < 30) {
+                            setTimeout(() => restoreHomeCarousel(attempt + 1), 50);
+                            return;
+                        }
+                        const currentFocus = document.activeElement;
+                        const launchOverlay = document.getElementById('gameLaunchOverlay');
+                        const hasCurrentHomeFocus = currentFocus &&
+                            currentFocus !== document.body &&
+                            currentFocus !== document.documentElement &&
+                            !launchOverlay?.contains(currentFocus) &&
+                            currentFocus.offsetParent !== null &&
+                            window.DoorpiNavigation?.getRegionId(currentFocus) != null;
+                        if (hasCurrentHomeFocus) {
+                            window._doorpiGameReturnFocusInProgress = false;
+                            return;
+                        }
+                        const focused = !menuTransitioning &&
+                            window.DoorpiNavigation?.focusRegion('home', 0) === true;
+                        if (focused) {
+                            window._doorpiGameReturnFocusInProgress = false;
+                            return;
+                        }
+                        if (attempt < 30) {
+                            setTimeout(() => restoreHomeCarousel(attempt + 1), 50);
+                            return;
+                        }
+                        window.focusFeaturedCard?.();
+                        window._doorpiGameReturnFocusInProgress = false;
+                    });
+                };
+                restoreHomeCarousel();
+            }
             else if (data.type === 'gameLaunchDone') {
+                if (window._doorpiClosingGame === true) return;
                 window.isGameLaunchActive = false;
                 window._doorpiGameInputSuppressedUntil = 0;
                 const hasGpuUpdaterSession = (window.DoorpiRuntimeState?.running || []).some(entry =>
@@ -1043,10 +1316,11 @@
                     !isExecutionLockVisible &&
                     !launchOverlay?.classList.contains('store-transition-visible')) {
                     GameLaunchOverlay.hide();
+                    requestAnimationFrame(_restorePendingGameReturnFocus);
                 }
-                if (!hasGpuUpdaterSession && !window._vkbIsOpen && !isExecutionLockVisible) {
-                    recoverGlobalFocus();
-                }
+                // Focus is restored by windowFocused after the native window is
+                // active. gameLaunchDone also arrives while the game is still
+                // running, so it must not move focus on its own.
             }
             else if (document.getElementById('doorpiExtensionsManager')?.style.display !== 'none' && document.getElementById('extensionUrlInput')) {
                 const input = document.getElementById('extensionUrlInput');

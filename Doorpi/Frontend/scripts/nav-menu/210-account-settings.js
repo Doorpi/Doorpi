@@ -163,10 +163,13 @@
                     </div>
 
                     <div class="nav-profile-sync nav-connected-account" data-provider="steam">
-                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span></div>
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span><button class="nav-icon-btn nav-steam-header-sync" id="navSteamSyncNow" data-steam-action="import" tabindex="-1" title="${_t('steam.syncNow')}" aria-label="${_t('steam.syncNow')}" hidden>↻ <span>${_t('steam.syncNow')}</span></button></div>
                         <p class="nav-connected-description"><span id="navSteamIdentity">${_t('steam.publicProfile')}</span></p>
                         <button class="nav-icon-btn nav-provider-manage" id="navSteamManage" tabindex="-1" > ${PLATFORM_ICONS.Steam}<span>${_t('steam.connect')}</span></button>
                         <span class="nav-profile-sync-status" id="navSteamConnectionState" role="status">${_t('steam.disconnected')}</span>
+                        <span class="nav-profile-sync-status nav-steam-sync-message" id="navSteamSyncMessage" role="status" aria-live="polite"></span>
+                        <progress id="navSteamProgress" max="100" value="0" hidden aria-label="${_t('steam.syncProgress')}"></progress>
+                        <small class="nav-steam-first-sync-hint" id="navSteamFirstSyncHint" hidden>${_t('steam.firstSyncHint')}</small>
                         <button class="nav-icon-btn nav-steam-manual" id="navSteamManual" tabindex="-1" aria-expanded="false" aria-controls="navSteamControls">${_t('steam.manual')}</button>
                         <div id="navSteamControls" class="nav-steam-controls" hidden>
                         <label class="nav-profile-field-label" for="navSteamManualKey">${_t('steam.keyLabel')}</label>
@@ -176,7 +179,6 @@
                         <label class="nav-profile-field-label" for="navSteamAccount">${_t('steam.accountLabel')}</label>
                         <input class="nav-profile-field-input" id="navSteamAccount" readonly tabindex="-1" placeholder="https://steamcommunity.com/id/seu-perfil" maxlength="2048" />
                         <span class="nav-profile-sync-status" id="navSteamStatus" role="status" aria-live="polite"></span>
-                        <progress id="navSteamProgress" max="100" hidden aria-label="${_t('steam.syncProgress')}"></progress>
                         <span class="nav-connected-description" id="navSteamTotals"></span>
                         <button class="nav-icon-btn" id="navSteamView" tabindex="-1" aria-expanded="false">${_t('steam.importedSummary')}</button>
                         <div id="navSteamData" class="nav-steam-preview" hidden></div>
@@ -184,7 +186,6 @@
                             <button class="nav-icon-btn" data-steam-action="getKey" tabindex="-1">${_t('steam.getKey')}</button>
                             <button class="nav-icon-btn" data-steam-action="pasteKey" tabindex="-1">${_t('steam.pasteKey')}</button>
                             <button class="nav-icon-btn" data-steam-action="pasteAccount" tabindex="-1">${_t('steam.pasteAccount')}</button>
-                            <button class="nav-icon-btn" data-steam-action="import" tabindex="-1">${_t('steam.import')}</button>
                             <button class="nav-icon-btn" data-steam-action="disconnect" tabindex="-1">${_t('steam.removeKey')}</button>
                         </div>
                         <small class="nav-connected-description">${_t('steam.keyNotice')}</small>
@@ -303,10 +304,19 @@
             if (status) status.textContent = steamState.message || _t('steam.configureHint');
             const progress = body.querySelector('#navSteamProgress');
             if (progress) {
-                progress.hidden = !steamState.busy;
-                const counts = String(steamState.message || '').match(/conquistas:\s*(\d+)\/(\d+)/i);
-                if (counts) { progress.max = Math.max(1, Number(counts[2])); progress.value = Number(counts[1]); }
-                else progress.removeAttribute('value');
+                progress.hidden = !steamState.busy && !steamState.pending;
+                progress.max = 100;
+                progress.value = Math.max(0, Math.min(100, Number(steamState.progressPercent) || 0));
+                progress.classList.toggle('is-pending', !steamState.busy && !!steamState.pending);
+            }
+            const syncMessage = body.querySelector('#navSteamSyncMessage');
+            if (syncMessage) syncMessage.textContent = steamState.busy
+                ? `${steamState.message || _t('steam.updating')}${steamState.progressTotal > 0 ? ` · ${steamState.progressCurrent || 0}/${steamState.progressTotal}` : ''}`
+                : steamState.pending ? steamState.message || _t('steam.resumeHint') : '';
+            const firstSyncHint = body.querySelector('#navSteamFirstSyncHint');
+            if (firstSyncHint) {
+                firstSyncHint.hidden = !steamState.firstSync || (!steamState.busy && !steamState.pending);
+                firstSyncHint.textContent = steamState.pending && !steamState.busy ? _t('steam.resumeHint') : _t('steam.firstSyncHint');
             }
             if (steamAccount && (steamState.account || (!steamAccount.value && steamState.steamId))) steamAccount.value = steamState.account || steamState.steamId;
             const totals = body.querySelector('#navSteamTotals');
@@ -342,6 +352,11 @@
             if (manage) manage.textContent = steamState.hasKey && steamState.account ? _t('steam.anotherAccount') : _t('steam.connect');
             const primary = body.querySelector('#navSteamManage');
             if (primary) primary.disabled = !!steamState.busy;
+            const syncNow = body.querySelector('#navSteamSyncNow');
+            if (syncNow) {
+                syncNow.hidden = !(steamState.hasKey && (steamState.account || steamState.steamId));
+                syncNow.disabled = !!steamState.busy;
+            }
             const connectionState = body.querySelector('#navSteamConnectionState');
             if (connectionState) connectionState.textContent = steamState.busy ? _t('steam.updating') : steamState.hasKey && (steamState.account || steamState.steamId) ? _t('steam.connected') : _t('steam.disconnected');
             if (connectionState && !steamState.busy && /não foi|não pôde|mudou|cancelad|inválid|restrit|privad|indispon|configure primeiro/i.test(steamState.message || '')) connectionState.textContent = steamState.message;
@@ -427,17 +442,18 @@
         const refreshArt = () => {
             const game = rankedArt();
             const preview = body.querySelector('.nav-editor-cover');
-            const source = user.CoverBase64 ? 'data:image/jpeg;base64,'+user.CoverBase64 : _profileBanner(game);
+            const source = user.CoverBase64 ? 'data:image/jpeg;base64,'+user.CoverBase64 : (user.CoverSourceUrl || _profileBanner(game));
             preview.onerror = () => {
                 const fallback = game && _profileGameArt(game);
                 preview.onerror = () => { preview.hidden = true; };
-                if (fallback && !user.CoverBase64 && fallback !== source) preview.src = fallback;
+                if (fallback && !user.CoverBase64 && !user.CoverSourceUrl && fallback !== source) preview.src = fallback;
                 else preview.hidden = true;
             };
             if (source) preview.src = source;
             preview.hidden = !source;
             for (const btn of body.querySelectorAll('[data-art-mode]')) {
-                const auto = btn.dataset.artPart === 'avatar' ? user.AvatarFromGame : !user.CoverBase64;
+                const auto = btn.dataset.artPart === 'avatar' ? user.AvatarFromGame :
+                    (user.CoverUsesMostPlayedGame ?? (!user.CoverBase64 && !user.CoverSourceUrl));
                 btn.setAttribute('aria-pressed', String((btn.dataset.artMode === 'game') === !!auto));
             }
         };
@@ -447,7 +463,8 @@
             const cover = button.dataset.artPart === 'cover';
             if (button.dataset.artMode === 'image') { pickImage(cover,button); return; }
             const game = rankedArt();
-            _setProfileArtwork(cover?'cover':'avatarGame',cover || !game ? '' : _profileGameArt(game));
+            _setProfileArtwork(cover?'cover':'avatarGame',cover || !game ? '' : _profileGameArt(game),
+                cover ? {useMostPlayedGame:true} : undefined);
             if (!cover && game) {
                 const image = document.createElement('img');
                 image.alt = '';
@@ -472,7 +489,7 @@
                 onApply: result => {
                     if (!returnFocus.isConnected || target !== window._doorpiCurrentUserId || revision !== _menuReloadToken) return;
                     if (cover) {
-                        _setProfileArtwork('cover',result.base64);
+                        _setProfileArtwork('cover',result.base64,{useMostPlayedGame:false,source:result.photoSource,sourceUrl:result.photoSourceUrl,steamGridAssetId:result.photoSteamGridAssetId});
                         refreshArt();
                         _showSavedFeedback();
                         return;
