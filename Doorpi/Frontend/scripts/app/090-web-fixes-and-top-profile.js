@@ -48,10 +48,10 @@
             const u = user || window._doorpiProfile || {};
             const avatar = btn.querySelector('.doorpi-avatar');
             const name = btn.querySelector('.top-profile-name');
-            const photo = u.AvatarFromGame && u.GameAvatarUrl || u.PhotoBase64;
+            const photo = u.AvatarFromGame && u.GameAvatarUrl || u.PhotoBase64 || u.PhotoSourceUrl;
             if (avatar) {
                 avatar.innerHTML = photo
-                    ? `<img src="${_normalizeUserPhotoSrc(photo)}" />`
+                    ? (window._doorpiProfilePhotoMarkup?.(u) || `<img src="${_normalizeUserPhotoSrc(photo)}" />`)
                     : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
             }
             if (avatar && !photo) avatar.innerHTML = fallbackUserIcon;

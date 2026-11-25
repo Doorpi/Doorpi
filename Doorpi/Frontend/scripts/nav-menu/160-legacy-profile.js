@@ -1,7 +1,9 @@
     function _renderLegacyProfile(body) {
         const prof = _menuData.user || {};
         const name = prof.Name || '—';
-        const photo = prof.PhotoBase64 || '';
+        const photo = prof.PhotoBase64 || prof.PhotoSourceUrl || '';
+        const photoMarkup = window._doorpiProfilePhotoMarkup?.(prof) ||
+            (photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉');
         const games = _menuData.games || [];
         const history = (_menuData.history || [])
             .filter(item => item?.Name && (Number(item.TotalPlaytimeMinutes) || 0) >= 1);
@@ -77,7 +79,7 @@
                 </button>
                 <div class="nav-profile-header">
                 <div class="nav-profile-avatar-large">
-                    ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
+                    ${photoMarkup}
                 </div>
                 <div class="nav-profile-info">
                     <h2 class="nav-profile-name">${name}</h2>

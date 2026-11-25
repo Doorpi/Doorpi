@@ -798,6 +798,9 @@
                 window._doorpiCurrentUserId = data.currentUserId || '';
                 window._doorpiUsersDataReady?.(window._doorpiUsers, window._doorpiCurrentUserId);
             }
+            else if (data.type === 'profilePhotoCloudUpdated') {
+                window._applyDoorpiCloudProfilePhoto?.(data);
+            }
             else if (data.type === 'userPinRejected') {
                 const shown = setUserPinError(t('pinPromptInvalid'), true);
                 if (!shown) {

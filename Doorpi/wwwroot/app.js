@@ -2835,10 +2835,10 @@
             const u = user || window._doorpiProfile || {};
             const avatar = btn.querySelector('.doorpi-avatar');
             const name = btn.querySelector('.top-profile-name');
-            const photo = u.AvatarFromGame && u.GameAvatarUrl || u.PhotoBase64;
+            const photo = u.AvatarFromGame && u.GameAvatarUrl || u.PhotoBase64 || u.PhotoSourceUrl;
             if (avatar) {
                 avatar.innerHTML = photo
-                    ? `<img src="${_normalizeUserPhotoSrc(photo)}" />`
+                    ? (window._doorpiProfilePhotoMarkup?.(u) || `<img src="${_normalizeUserPhotoSrc(photo)}" />`)
                     : (u?.Name ? u.Name.charAt(0).toUpperCase() : '•');
             }
             if (avatar && !photo) avatar.innerHTML = fallbackUserIcon;
@@ -5076,6 +5076,9 @@
                 window._doorpiCurrentUserId = data.currentUserId || '';
                 window._doorpiUsersDataReady?.(window._doorpiUsers, window._doorpiCurrentUserId);
             }
+            else if (data.type === 'profilePhotoCloudUpdated') {
+                window._applyDoorpiCloudProfilePhoto?.(data);
+            }
             else if (data.type === 'userPinRejected') {
                 const shown = setUserPinError(t('pinPromptInvalid'), true);
                 if (!shown) {
@@ -6373,8 +6376,59 @@
     }
 
     function avatarMarkup(user) {
-        return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
+        const image = window._doorpiProfilePhotoMarkup?.(user) ||
+            (user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : '');
+        return `<div class="doorpi-avatar">${image || `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
     }
+
+    window._applyDoorpiCloudProfilePhoto = function (data) {
+        const profileId = String(data?.profileId || '').toLowerCase();
+        if (!profileId) return;
+        const user = (window._doorpiUsers || []).find(item =>
+            String(item.Id || item.id || '').toLowerCase() === profileId);
+        if (user) {
+            if (Object.prototype.hasOwnProperty.call(data, 'photoBase64')) user.PhotoBase64 = data.photoBase64 || '';
+            user.PhotoSource = data.photoSource || '';
+            user.PhotoSourceUrl = data.photoSourceUrl || '';
+            user.PhotoSteamGridAssetId = Number(data.photoSteamGridAssetId) || 0;
+            user.PhotoCropX = Number(data.photoCropX) || 0;
+            user.PhotoCropY = Number(data.photoCropY) || 0;
+            user.PhotoZoom = Number(data.photoZoom) > 0 ? Number(data.photoZoom) : 1;
+            const card = document.querySelector(`.doorpi-user-card[data-user-id="${CSS.escape(profileId)}"] .doorpi-avatar`);
+            if (card) card.innerHTML = avatarMarkup(user).replace(/^<div class="doorpi-avatar">|<\/div>$/g, '');
+        }
+
+        const activeProfile = window._doorpiProfile;
+        if (String(activeProfile?.Id || activeProfile?.id || window._doorpiCurrentUserId || '').toLowerCase() === profileId) {
+            if (activeProfile) Object.assign(activeProfile, {
+                PhotoSource: data.photoSource || '',
+                PhotoSourceUrl: data.photoSourceUrl || '',
+                PhotoSteamGridAssetId: Number(data.photoSteamGridAssetId) || 0,
+                PhotoCropX: Number(data.photoCropX) || 0,
+                PhotoCropY: Number(data.photoCropY) || 0,
+                PhotoZoom: Number(data.photoZoom) > 0 ? Number(data.photoZoom) : 1
+            });
+            if (activeProfile && Object.prototype.hasOwnProperty.call(data, 'photoBase64'))
+                activeProfile.PhotoBase64 = data.photoBase64 || '';
+            window._applyDoorpiTopProfile?.(activeProfile);
+            const photoMarkup = window._doorpiProfilePhotoMarkup?.(activeProfile || {
+                PhotoBase64: data.photoBase64,
+                PhotoSourceUrl: data.photoSourceUrl
+            }) || '';
+            document.querySelectorAll('.nav-profile-avatar-large, #navProfilePhoto').forEach(element => {
+                element.innerHTML = photoMarkup;
+            });
+        }
+
+        const pinPrompt = document.getElementById('doorpiUserPinPrompt');
+        if (pinPrompt && String(pinPrompt.dataset.profileId || '').toLowerCase() === profileId) {
+            const avatar = pinPrompt.querySelector('.doorpi-pin-avatar');
+            if (avatar) avatar.innerHTML = window._doorpiProfilePhotoMarkup?.(user || {
+                PhotoBase64: data.photoBase64,
+                PhotoSourceUrl: data.photoSourceUrl
+            }) || '';
+        }
+    };
 
     function closeUserPinPrompt(options = {}) {
         window._vkbForceClose?.({
@@ -6453,6 +6507,7 @@
         const prompt = document.createElement('div');
         prompt.id = 'doorpiUserPinPrompt';
         prompt.className = 'doorpi-pin-panel';
+        prompt.dataset.profileId = String(user.Id || user.id || '');
         prompt.dataset.mode = 'pin';
         prompt.dataset.failedAttempts = '0';
         const fallbackPinAvatar = `
@@ -6460,8 +6515,8 @@
                 <circle cx="12" cy="8.2" r="3.6" stroke="currentColor" stroke-width="1.8"/>
                 <path d="M5.8 19.2c1-3.2 3.2-5 6.2-5s5.2 1.8 6.2 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
             </svg>`;
-        const pinAvatar = user.PhotoBase64
-            ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />`
+        const pinAvatar = user.PhotoBase64 || user.PhotoSourceUrl
+            ? (window._doorpiProfilePhotoMarkup?.(user) || `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />`)
             : fallbackPinAvatar;
         prompt.innerHTML = `
             <div class="doorpi-pin-box">
@@ -15105,7 +15160,9 @@ function renderFolderList(folders) {
     function _userSwitchAvatarHtml(user = {}) {
         const photo = user.PhotoBase64 || user.photoBase64 || '';
         const name = user.Name || user.name || '';
-        if (photo) return `<div class="logout-avatar"><img src="${escapeHtml(_normalizeUserPhotoSrc(photo))}" alt=""></div>`;
+        const image = window._doorpiProfilePhotoMarkup?.(user, '', '') ||
+            (photo ? `<img src="${escapeHtml(_normalizeUserPhotoSrc(photo))}" alt="">` : '');
+        if (image || user.PhotoSourceUrl) return `<div class="logout-avatar">${image}</div>`;
         const initial = (name || 'D').trim().charAt(0).toUpperCase() || 'D';
         return `<div class="logout-avatar logout-avatar-fallback">${escapeHtml(initial)}</div>`;
     }
@@ -15120,6 +15177,49 @@ function renderFolderList(folders) {
         return `data:image/png;base64,${value}`;
     }
     window._doorpiUserPhotoSrc = _normalizeUserPhotoSrc;
+
+    function _profilePhotoMarkup(user = {}, className = '', alt = '') {
+        const photo = user.PhotoBase64 || user.photoBase64 || '';
+        const localSrc = /^(https?:|blob:)/i.test(String(photo)) ? '' : _normalizeUserPhotoSrc(photo);
+        const remoteCandidate = user.AvatarFromGame
+            ? (/^https:\/\//i.test(String(photo)) ? photo : '')
+            : (user.PhotoSourceUrl || (/^https:\/\//i.test(String(photo)) ? photo : ''));
+        let remoteSrc = '';
+        try {
+            const parsed = new URL(String(remoteCandidate || ''));
+            if (parsed.protocol === 'https:') remoteSrc = parsed.href;
+        } catch { }
+
+        const src = remoteSrc && navigator.onLine ? remoteSrc : (localSrc || remoteSrc);
+        if (!src) return '';
+        const attr = value => String(value || '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[char]));
+        return `<img${className ? ` class="${attr(className)}"` : ''} src="${attr(src)}" alt="${attr(alt)}" data-doorpi-profile-photo="true" data-doorpi-photo-url="${attr(remoteSrc)}" data-doorpi-photo-local="${attr(localSrc)}">`;
+    }
+    window._doorpiProfilePhotoMarkup = _profilePhotoMarkup;
+
+    document.addEventListener('error', event => {
+        const image = event.target;
+        if (!(image instanceof HTMLImageElement) || image.dataset.doorpiProfilePhoto !== 'true') return;
+        const localSrc = image.dataset.doorpiPhotoLocal || '';
+        if (localSrc && image.src !== localSrc) {
+            image.src = localSrc;
+            return;
+        }
+        image.hidden = true;
+    }, true);
+
+    window.addEventListener('online', () => {
+        document.querySelectorAll('img[data-doorpi-profile-photo="true"][data-doorpi-photo-url]')
+            .forEach(image => {
+                const remoteSrc = image.dataset.doorpiPhotoUrl || '';
+                if (remoteSrc && image.src !== remoteSrc) {
+                    image.hidden = false;
+                    image.src = remoteSrc;
+                }
+            });
+    });
 
     function _ensureUserSwitchLogoutOverlay(mode = 'switch', user = {}) {
         const copy = _getUserSwitchOverlayCopy(mode);

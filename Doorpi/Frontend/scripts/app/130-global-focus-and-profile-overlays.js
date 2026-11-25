@@ -207,8 +207,59 @@
     }
 
     function avatarMarkup(user) {
-        return `<div class="doorpi-avatar">${user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
+        const image = window._doorpiProfilePhotoMarkup?.(user) ||
+            (user.PhotoBase64 ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />` : '');
+        return `<div class="doorpi-avatar">${image || `<svg viewBox="0 0 24 24" width="40" height="40" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`}</div>`;
     }
+
+    window._applyDoorpiCloudProfilePhoto = function (data) {
+        const profileId = String(data?.profileId || '').toLowerCase();
+        if (!profileId) return;
+        const user = (window._doorpiUsers || []).find(item =>
+            String(item.Id || item.id || '').toLowerCase() === profileId);
+        if (user) {
+            if (Object.prototype.hasOwnProperty.call(data, 'photoBase64')) user.PhotoBase64 = data.photoBase64 || '';
+            user.PhotoSource = data.photoSource || '';
+            user.PhotoSourceUrl = data.photoSourceUrl || '';
+            user.PhotoSteamGridAssetId = Number(data.photoSteamGridAssetId) || 0;
+            user.PhotoCropX = Number(data.photoCropX) || 0;
+            user.PhotoCropY = Number(data.photoCropY) || 0;
+            user.PhotoZoom = Number(data.photoZoom) > 0 ? Number(data.photoZoom) : 1;
+            const card = document.querySelector(`.doorpi-user-card[data-user-id="${CSS.escape(profileId)}"] .doorpi-avatar`);
+            if (card) card.innerHTML = avatarMarkup(user).replace(/^<div class="doorpi-avatar">|<\/div>$/g, '');
+        }
+
+        const activeProfile = window._doorpiProfile;
+        if (String(activeProfile?.Id || activeProfile?.id || window._doorpiCurrentUserId || '').toLowerCase() === profileId) {
+            if (activeProfile) Object.assign(activeProfile, {
+                PhotoSource: data.photoSource || '',
+                PhotoSourceUrl: data.photoSourceUrl || '',
+                PhotoSteamGridAssetId: Number(data.photoSteamGridAssetId) || 0,
+                PhotoCropX: Number(data.photoCropX) || 0,
+                PhotoCropY: Number(data.photoCropY) || 0,
+                PhotoZoom: Number(data.photoZoom) > 0 ? Number(data.photoZoom) : 1
+            });
+            if (activeProfile && Object.prototype.hasOwnProperty.call(data, 'photoBase64'))
+                activeProfile.PhotoBase64 = data.photoBase64 || '';
+            window._applyDoorpiTopProfile?.(activeProfile);
+            const photoMarkup = window._doorpiProfilePhotoMarkup?.(activeProfile || {
+                PhotoBase64: data.photoBase64,
+                PhotoSourceUrl: data.photoSourceUrl
+            }) || '';
+            document.querySelectorAll('.nav-profile-avatar-large, #navProfilePhoto').forEach(element => {
+                element.innerHTML = photoMarkup;
+            });
+        }
+
+        const pinPrompt = document.getElementById('doorpiUserPinPrompt');
+        if (pinPrompt && String(pinPrompt.dataset.profileId || '').toLowerCase() === profileId) {
+            const avatar = pinPrompt.querySelector('.doorpi-pin-avatar');
+            if (avatar) avatar.innerHTML = window._doorpiProfilePhotoMarkup?.(user || {
+                PhotoBase64: data.photoBase64,
+                PhotoSourceUrl: data.photoSourceUrl
+            }) || '';
+        }
+    };
 
     function closeUserPinPrompt(options = {}) {
         window._vkbForceClose?.({
@@ -287,6 +338,7 @@
         const prompt = document.createElement('div');
         prompt.id = 'doorpiUserPinPrompt';
         prompt.className = 'doorpi-pin-panel';
+        prompt.dataset.profileId = String(user.Id || user.id || '');
         prompt.dataset.mode = 'pin';
         prompt.dataset.failedAttempts = '0';
         const fallbackPinAvatar = `
@@ -294,8 +346,8 @@
                 <circle cx="12" cy="8.2" r="3.6" stroke="currentColor" stroke-width="1.8"/>
                 <path d="M5.8 19.2c1-3.2 3.2-5 6.2-5s5.2 1.8 6.2 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
             </svg>`;
-        const pinAvatar = user.PhotoBase64
-            ? `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />`
+        const pinAvatar = user.PhotoBase64 || user.PhotoSourceUrl
+            ? (window._doorpiProfilePhotoMarkup?.(user) || `<img src="${_normalizeUserPhotoSrc(user.PhotoBase64)}" />`)
             : fallbackPinAvatar;
         prompt.innerHTML = `
             <div class="doorpi-pin-box">

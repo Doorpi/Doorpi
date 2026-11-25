@@ -292,6 +292,8 @@ public sealed class ProfileSyncResult
     public bool ConflictPromptDeferred { get; init; }
 }
 
+public sealed record RemoteProfilePhotoPayload(CloudProfilePhotoV1 Photo, byte[]? Content);
+
 public sealed class ProfileConnectionStatus
 {
     public SyncStatus Status { get; init; }
