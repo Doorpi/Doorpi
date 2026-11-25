@@ -6,7 +6,7 @@ namespace Doorpi.ProfileSync;
 
 public static class ProfileSyncSnapshotFactory
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 7;
 
     public static CloudProfileV1 Create(
         UserProfile profile,
@@ -30,7 +30,7 @@ public static class ProfileSyncSnapshotFactory
         List<CloudMediaHistoryEntryV1> media = (mediaHistory ?? Array.Empty<MediaActivityHistoryEntry>())
             .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
                             !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
-                            entry.TotalPlaybackSeconds > 0)
+                            (entry.TotalPlaybackSeconds > 0 || entry.PermanentlyExcluded))
             .GroupBy(entry => NormalizeMediaKey(entry.AppId, entry.ContentTitle, entry.CreatorName), StringComparer.Ordinal)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
             .Select(group => CreateMedia(group.Key, group))
@@ -50,6 +50,8 @@ public static class ProfileSyncSnapshotFactory
             LastModifiedDeviceId = deviceId ?? "",
             TotalPlaytimeSeconds = SaturatingSum(games.Select(game => game.TotalPlaytimeSeconds)),
             TotalMediaPlaybackSeconds = SaturatingSum(media.Select(entry => entry.TotalPlaybackSeconds)),
+            CoverBase64 = profile.CoverBase64,
+            AvatarFromGame = profile.AvatarFromGame,
             ProfilePhoto = CreatePhoto(profile),
             Games = games,
             MediaHistory = media,
@@ -110,7 +112,8 @@ public static class ProfileSyncSnapshotFactory
             ShowcaseVerticalImageUrl = FirstNotBlank(ordered.Select(entry => entry.ShowcaseVerticalImageUrl)),
             HistoryHorizontalImageUrl = FirstNotBlank(ordered.Select(entry => entry.HistoryHorizontalImageUrl)),
             ProfileBannerImageUrl = FirstNotBlank(ordered.Select(entry => entry.ProfileBannerImageUrl)),
-            SteamGridGameId = ordered.Select(entry => entry.SteamGridGameId).FirstOrDefault(id => id > 0)
+            SteamGridGameId = ordered.Select(entry => entry.SteamGridGameId).FirstOrDefault(id => id > 0),
+            SteamAppId = ordered.Select(entry => entry.SteamAppId).FirstOrDefault(id => id > 0)
         };
     }
 
@@ -167,7 +170,10 @@ public static class ProfileSyncSnapshotFactory
             ArtworkRemoteUrl = artworkEntry?.ArtworkRemoteUrl ?? "",
             ArtworkSource = artworkEntry?.ArtworkSource ?? "",
             MetadataCapturedUtc = ToUtc(metadataCaptured),
-            TotalPlaybackSeconds = SaturatingSum(ordered.Select(entry => entry.TotalPlaybackSeconds)),
+            TotalPlaybackSeconds = ordered.Any(entry => entry.PermanentlyExcluded)
+                ? 0
+                : SaturatingSum(ordered.Select(entry => entry.TotalPlaybackSeconds)),
+            PermanentlyExcluded = ordered.Any(entry => entry.PermanentlyExcluded),
             LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
             DailyPlaybackDate = dailyPlaybackDate,
             DailyPlaybackSeconds = dailyPlaybackSeconds,
@@ -374,6 +380,7 @@ public static class ProfileSyncEngine
 
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
+        merged.Steam = MergeSteamProfiles(local.Steam, remote.Steam, conflictPaths);
         // Schema is a format capability, not editable user data. Prefer the newest
         // supported representation and never turn a v1 -> v2 migration into a
         // profile conflict.
@@ -398,6 +405,8 @@ public static class ProfileSyncEngine
             local.CreatedAtUtc?.ToUniversalTime(),
             remote.CreatedAtUtc?.ToUniversalTime(),
             "createdAtUtc", conflictPaths);
+        merged.CoverBase64 = MergeValue(baseline.CoverBase64, local.CoverBase64, remote.SchemaVersion >= 7 ? remote.CoverBase64 : local.CoverBase64, "cover", conflictPaths);
+        merged.AvatarFromGame = MergeValue(baseline.AvatarFromGame, local.AvatarFromGame, remote.SchemaVersion >= 7 ? remote.AvatarFromGame : local.AvatarFromGame, "avatarMode", conflictPaths);
         merged.ProfilePhoto = MergePhoto(
             baseline.ProfilePhoto,
             local.ProfilePhoto,
@@ -493,6 +502,7 @@ public static class ProfileSyncEngine
         // escolha para edicoes concorrentes que nao podem ser inferidas com seguranca.
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
+        merged.Steam = MergeSteamProfiles(local.Steam, remote.Steam, conflictPaths);
         merged.SchemaVersion = Math.Max(local.SchemaVersion, remote.SchemaVersion);
         merged.ProfileId = local.ProfileId ?? "";
         merged.ProfileName = MergeLegacyValue(
@@ -506,6 +516,11 @@ public static class ProfileSyncEngine
             remote.SchemaVersion >= 3 ? remote.ApplicationHistoryEnabled : local.ApplicationHistoryEnabled,
             "applicationHistoryEnabled", conflictPaths);
         merged.CreatedAtUtc = Earliest(local.CreatedAtUtc, remote.CreatedAtUtc);
+        if (remote.SchemaVersion >= 7)
+        {
+            merged.CoverBase64 = MergeLegacyOptionalValue(local.CoverBase64, remote.CoverBase64, "cover", conflictPaths);
+            merged.AvatarFromGame = MergeLegacyValue(local.AvatarFromGame, remote.AvatarFromGame, "avatarMode", conflictPaths);
+        }
         merged.ProfilePhoto = MergeLegacyPhoto(local.ProfilePhoto, remote.ProfilePhoto, conflictPaths);
 
         Dictionary<string, CloudGameHistoryEntryV1> localGames = ToGameDictionary(local.Games);
@@ -658,6 +673,7 @@ public static class ProfileSyncEngine
         HashSet<string> conflictPaths)
     {
         string prefix = $"games.{key}.";
+        if (local.SteamAppId > 0 && remote.SteamAppId > 0 && local.SteamAppId != remote.SteamAppId) conflictPaths.Add(prefix + "steamAppId");
         DateTimeOffset? localLastPlayed = NormalizeDate(local.LastPlayedUtc);
         DateTimeOffset? remoteLastPlayed = NormalizeDate(remote.LastPlayedUtc);
         int latestSide = CompareNullableDate(localLastPlayed, remoteLastPlayed);
@@ -666,7 +682,10 @@ public static class ProfileSyncEngine
             GameKey = key,
             Name = MergeValue(baseline.Name ?? "", local.Name ?? "", remote.Name ?? "",
                 prefix + "name", conflictPaths),
-            TotalPlaytimeSeconds = MergeAccumulatedPlaytime(
+            SteamAppId = local.SteamAppId > 0 ? local.SteamAppId : remote.SteamAppId,
+            TotalPlaytimeSeconds = local.SteamAppId > 0 || remote.SteamAppId > 0
+                ? Math.Max(local.TotalPlaytimeSeconds, remote.TotalPlaytimeSeconds)
+                : MergeAccumulatedPlaytime(
                 baseline.TotalPlaytimeSeconds,
                 local.TotalPlaytimeSeconds,
                 remote.TotalPlaytimeSeconds),
@@ -711,6 +730,7 @@ public static class ProfileSyncEngine
         HashSet<string> conflictPaths)
     {
         string prefix = $"games.{key}.";
+        if (local.SteamAppId > 0 && remote.SteamAppId > 0 && local.SteamAppId != remote.SteamAppId) conflictPaths.Add(prefix + "steamAppId");
         int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
         return new CloudGameHistoryEntryV1
         {
@@ -719,6 +739,7 @@ public static class ProfileSyncEngine
             TotalPlaytimeSeconds = Math.Max(
                 Math.Max(0, local.TotalPlaytimeSeconds),
                 Math.Max(0, remote.TotalPlaytimeSeconds)),
+            SteamAppId = local.SteamAppId > 0 ? local.SteamAppId : remote.SteamAppId,
             LastSessionSeconds = latestSide > 0
                 ? Math.Max(0, local.LastSessionSeconds)
                 : latestSide < 0
@@ -812,6 +833,7 @@ public static class ProfileSyncEngine
         int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
         CloudMediaHistoryEntryV1 latest = latestSide < 0 ? remote : local;
         (string DailyDate, long DailySeconds) daily = MergeDailyPlayback(baseline, local, remote);
+        bool permanentlyExcluded = local.PermanentlyExcluded || remote.PermanentlyExcluded;
         return new CloudMediaHistoryEntryV1
         {
             MediaKey = key,
@@ -831,18 +853,19 @@ public static class ProfileSyncEngine
             ArtworkRemoteUrl = FirstNotBlank(latest.ArtworkRemoteUrl, local.ArtworkRemoteUrl, remote.ArtworkRemoteUrl),
             ArtworkSource = FirstNotBlank(latest.ArtworkSource, local.ArtworkSource, remote.ArtworkSource),
             MetadataCapturedUtc = Latest(baseline.MetadataCapturedUtc, Latest(local.MetadataCapturedUtc, remote.MetadataCapturedUtc)),
-            TotalPlaybackSeconds = MergeAccumulatedPlaytime(
+            PermanentlyExcluded = permanentlyExcluded,
+            TotalPlaybackSeconds = permanentlyExcluded ? 0 : MergeAccumulatedPlaytime(
                 baseline.TotalPlaybackSeconds,
                 local.TotalPlaybackSeconds,
                 remote.TotalPlaybackSeconds),
-            LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
-            DailyPlaybackDate = daily.DailyDate,
-            DailyPlaybackSeconds = daily.DailySeconds,
-            SessionCount = MergeAccumulatedCount(baseline.SessionCount, local.SessionCount, remote.SessionCount),
-            LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
-            DurationSeconds = Math.Max(0, latest.DurationSeconds),
-            FirstPlayedUtc = Earliest(baseline.FirstPlayedUtc, Earliest(local.FirstPlayedUtc, remote.FirstPlayedUtc)),
-            LastPlayedUtc = Latest(baseline.LastPlayedUtc, Latest(local.LastPlayedUtc, remote.LastPlayedUtc))
+            LastSessionSeconds = permanentlyExcluded ? 0 : Math.Max(0, latest.LastSessionSeconds),
+            DailyPlaybackDate = permanentlyExcluded ? "" : daily.DailyDate,
+            DailyPlaybackSeconds = permanentlyExcluded ? 0 : daily.DailySeconds,
+            SessionCount = permanentlyExcluded ? 0 : MergeAccumulatedCount(baseline.SessionCount, local.SessionCount, remote.SessionCount),
+            LastPositionSeconds = permanentlyExcluded ? 0 : Math.Max(0, latest.LastPositionSeconds),
+            DurationSeconds = permanentlyExcluded ? 0 : Math.Max(0, latest.DurationSeconds),
+            FirstPlayedUtc = permanentlyExcluded ? null : Earliest(baseline.FirstPlayedUtc, Earliest(local.FirstPlayedUtc, remote.FirstPlayedUtc)),
+            LastPlayedUtc = permanentlyExcluded ? null : Latest(baseline.LastPlayedUtc, Latest(local.LastPlayedUtc, remote.LastPlayedUtc))
         };
     }
 
@@ -853,6 +876,7 @@ public static class ProfileSyncEngine
     {
         int latestSide = CompareNullableDate(local.LastPlayedUtc, remote.LastPlayedUtc);
         CloudMediaHistoryEntryV1 latest = latestSide < 0 ? remote : local;
+        bool permanentlyExcluded = local.PermanentlyExcluded || remote.PermanentlyExcluded;
         (string DailyDate, long DailySeconds) daily = MergeDailyPlayback(
             new CloudMediaHistoryEntryV1(), local, remote);
         return new CloudMediaHistoryEntryV1
@@ -874,15 +898,16 @@ public static class ProfileSyncEngine
             ArtworkRemoteUrl = FirstNotBlank(latest.ArtworkRemoteUrl, local.ArtworkRemoteUrl, remote.ArtworkRemoteUrl),
             ArtworkSource = FirstNotBlank(latest.ArtworkSource, local.ArtworkSource, remote.ArtworkSource),
             MetadataCapturedUtc = Latest(local.MetadataCapturedUtc, remote.MetadataCapturedUtc),
-            TotalPlaybackSeconds = Math.Max(Math.Max(0, local.TotalPlaybackSeconds), Math.Max(0, remote.TotalPlaybackSeconds)),
-            LastSessionSeconds = Math.Max(0, latest.LastSessionSeconds),
-            DailyPlaybackDate = daily.DailyDate,
-            DailyPlaybackSeconds = daily.DailySeconds,
-            SessionCount = Math.Max(Math.Max(0, local.SessionCount), Math.Max(0, remote.SessionCount)),
-            LastPositionSeconds = Math.Max(0, latest.LastPositionSeconds),
-            DurationSeconds = Math.Max(0, latest.DurationSeconds),
-            FirstPlayedUtc = Earliest(local.FirstPlayedUtc, remote.FirstPlayedUtc),
-            LastPlayedUtc = Latest(local.LastPlayedUtc, remote.LastPlayedUtc)
+            PermanentlyExcluded = permanentlyExcluded,
+            TotalPlaybackSeconds = permanentlyExcluded ? 0 : Math.Max(Math.Max(0, local.TotalPlaybackSeconds), Math.Max(0, remote.TotalPlaybackSeconds)),
+            LastSessionSeconds = permanentlyExcluded ? 0 : Math.Max(0, latest.LastSessionSeconds),
+            DailyPlaybackDate = permanentlyExcluded ? "" : daily.DailyDate,
+            DailyPlaybackSeconds = permanentlyExcluded ? 0 : daily.DailySeconds,
+            SessionCount = permanentlyExcluded ? 0 : Math.Max(Math.Max(0, local.SessionCount), Math.Max(0, remote.SessionCount)),
+            LastPositionSeconds = permanentlyExcluded ? 0 : Math.Max(0, latest.LastPositionSeconds),
+            DurationSeconds = permanentlyExcluded ? 0 : Math.Max(0, latest.DurationSeconds),
+            FirstPlayedUtc = permanentlyExcluded ? null : Earliest(local.FirstPlayedUtc, remote.FirstPlayedUtc),
+            LastPlayedUtc = permanentlyExcluded ? null : Latest(local.LastPlayedUtc, remote.LastPlayedUtc)
         };
     }
 
@@ -1057,6 +1082,7 @@ public static class ProfileSyncEngine
         => new()
         {
             GameKey = game.GameKey ?? "",
+            SteamAppId = game.SteamAppId,
             Name = game.Name ?? "",
             TotalPlaytimeSeconds = Math.Max(0, game.TotalPlaytimeSeconds),
             LastSessionSeconds = Math.Max(0, game.LastSessionSeconds),
@@ -1089,6 +1115,7 @@ public static class ProfileSyncEngine
             ArtworkSource = entry.ArtworkSource ?? "",
             MetadataCapturedUtc = entry.MetadataCapturedUtc?.ToUniversalTime(),
             TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
+            PermanentlyExcluded = entry.PermanentlyExcluded,
             LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
             DailyPlaybackDate = entry.DailyPlaybackDate ?? "",
             DailyPlaybackSeconds = Math.Max(0, entry.DailyPlaybackSeconds),
@@ -1111,7 +1138,7 @@ public static class ProfileSyncEngine
            string.Equals(left.ShowcaseVerticalImageUrl ?? "", right.ShowcaseVerticalImageUrl ?? "", StringComparison.Ordinal) &&
            string.Equals(left.HistoryHorizontalImageUrl ?? "", right.HistoryHorizontalImageUrl ?? "", StringComparison.Ordinal) &&
            string.Equals(left.ProfileBannerImageUrl ?? "", right.ProfileBannerImageUrl ?? "", StringComparison.Ordinal) &&
-           left.SteamGridGameId == right.SteamGridGameId;
+           left.SteamGridGameId == right.SteamGridGameId && left.SteamAppId == right.SteamAppId;
 
     private static bool MediaContentEquals(
         CloudMediaHistoryEntryV1 left,
@@ -1134,6 +1161,7 @@ public static class ProfileSyncEngine
            string.Equals(left.ArtworkSource ?? "", right.ArtworkSource ?? "", StringComparison.Ordinal) &&
            NormalizeDate(left.MetadataCapturedUtc) == NormalizeDate(right.MetadataCapturedUtc) &&
            left.TotalPlaybackSeconds == right.TotalPlaybackSeconds &&
+           left.PermanentlyExcluded == right.PermanentlyExcluded &&
            left.LastSessionSeconds == right.LastSessionSeconds &&
            string.Equals(left.DailyPlaybackDate ?? "", right.DailyPlaybackDate ?? "", StringComparison.Ordinal) &&
            left.DailyPlaybackSeconds == right.DailyPlaybackSeconds &&
@@ -1233,12 +1261,24 @@ public static class ProfileSyncEngine
         return left > long.MaxValue - right ? long.MaxValue : left + right;
     }
 
+    private static Doorpi.Steam.SteamProfileData? MergeSteamProfiles(Doorpi.Steam.SteamProfileData? local, Doorpi.Steam.SteamProfileData? remote, HashSet<string> conflicts)
+    {
+        if (local != null && remote != null && local.SteamId != remote.SteamId)
+        {
+            conflicts.Add("steam");
+            return local;
+        }
+        return Doorpi.Steam.SteamProfileMerge.Merge(local, remote);
+    }
+
     public static ProfileSyncComparison Compare(CloudProfileV1 local, CloudProfileV1 remote)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(remote);
 
         var differences = new List<ProfileDifference>();
+        if (Doorpi.Steam.SteamProfileMerge.Fingerprint(local.Steam) != Doorpi.Steam.SteamProfileMerge.Fingerprint(remote.Steam))
+            differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.SteamProfile, Path = "steam", LocalSummary = local.Steam?.DisplayName ?? "Não importado", RemoteSummary = remote.Steam?.DisplayName ?? "Não importado" });
         AddValueDifference(differences, ProfileDifferenceKind.SchemaVersion, "schemaVersion",
             local.SchemaVersion, remote.SchemaVersion);
         AddValueDifference(differences, ProfileDifferenceKind.ProfileName, "profileName",
@@ -1252,6 +1292,14 @@ public static class ProfileSyncEngine
         AddValueDifference(differences, ProfileDifferenceKind.CreatedAt, "createdAtUtc",
             local.CreatedAtUtc, remote.CreatedAtUtc, FormatDate);
 
+        if (remote.SchemaVersion >= 7)
+        {
+            if (local.CoverBase64 != remote.CoverBase64)
+                differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.ProfilePhoto, Path = "cover",
+                    LocalSummary = string.IsNullOrEmpty(local.CoverBase64) ? "Automática" : "Personalizada",
+                    RemoteSummary = string.IsNullOrEmpty(remote.CoverBase64) ? "Automática" : "Personalizada" });
+            AddValueDifference(differences, ProfileDifferenceKind.ProfilePhoto, "avatarFromGame", local.AvatarFromGame, remote.AvatarFromGame);
+        }
         string localPhoto = PhotoFingerprint(local.ProfilePhoto);
         string remotePhoto = PhotoFingerprint(remote.ProfilePhoto);
         if (!string.Equals(localPhoto, remotePhoto, StringComparison.Ordinal))
@@ -1372,6 +1420,8 @@ public static class ProfileSyncEngine
             local.ProfileBannerImageUrl, remote.ProfileBannerImageUrl, FormatArtwork);
         AddGameValueDifference(differences, ProfileDifferenceKind.GameSteamGridReference, key, gameName, "steamGridGameId",
             local.SteamGridGameId, remote.SteamGridGameId, FormatArtworkReference);
+        AddGameValueDifference(differences, ProfileDifferenceKind.GameSteamGridReference, key, gameName, "steamAppId",
+            local.SteamAppId, remote.SteamAppId, FormatArtworkReference);
     }
 
     private static void CompareMedia(
@@ -1426,7 +1476,7 @@ public static class ProfileSyncEngine
     private static Dictionary<string, CloudMediaHistoryEntryV1> ToMediaDictionary(
         IEnumerable<CloudMediaHistoryEntryV1>? entries)
         => (entries ?? Array.Empty<CloudMediaHistoryEntryV1>())
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.MediaKey) && entry.TotalPlaybackSeconds > 0)
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.MediaKey) && (entry.TotalPlaybackSeconds > 0 || entry.PermanentlyExcluded))
             .GroupBy(entry => entry.MediaKey, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 

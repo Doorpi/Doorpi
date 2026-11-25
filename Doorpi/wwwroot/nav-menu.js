@@ -1128,6 +1128,8 @@ window.isNavMenuOpen = false;
 
         if (!changed && !forceReload) return;
         ++_menuReloadToken;
+        _steamProfileView = { profileId:'', requested:false, games:[] };
+        ++_steamAchievementRequest;
 
         _menuData.games = [];
         _menuData.gamesTotal = null;
@@ -1627,7 +1629,7 @@ window.isNavMenuOpen = false;
         });
         body.querySelector('#setSystemUpdates')?.addEventListener('click', () => {
             _systemSubView = 'updates';
-            _systemUpdatesSubView = 'doorpi';
+            _systemUpdatesSubView = 'hub';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
@@ -2092,6 +2094,126 @@ window.isNavMenuOpen = false;
         if (!_storagePrograms) postToHost?.({ action:'requestStoragePrograms' });
     }
 
+    function _navStorageProgramsForDrive(drives, drive) {
+        const allPrograms = Array.isArray(_storagePrograms?.programs) ? _storagePrograms.programs : [];
+        const selectedRoot = String(drive?.root || '').toUpperCase();
+        const primaryRoot = String(drives[0]?.root || '').toUpperCase();
+        const programs = allPrograms.filter(program => {
+            const root = String(program.installRoot || '').toUpperCase();
+            return root ? root === selectedRoot : selectedRoot === primaryRoot;
+        }).sort((a, b) => Number(b.sizeBytes || 0) - Number(a.sizeBytes || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+        return _storageView === 'programs' ? filterStorageProgramsByName(programs, _storageProgramQuery) : programs;
+    }
+
+    function _navStorageProgramListMarkup(programs) {
+        if (!programs.length) {
+            const message = _storagePrograms?.error || (!_storagePrograms
+                ? 'Carregando programas do Windows…'
+                : _storageProgramQuery.trim()
+                    ? _t('storageNoProgramMatches', 'Nenhum programa encontrado com esse nome.')
+                    : 'Nenhum programa identificado neste disco.');
+            return `<div class="nav-storage-empty">${_esc(message)}</div>`;
+        }
+        return programs.map(program => {
+            const expanded = program.id === _storageSelectedProgramId;
+            const status = _storageUninstallStatus?.programId === program.id ? _storageUninstallStatus.message : '';
+            const phase = _storageUninstallStatus?.programId === program.id ? _storageUninstallStatus.status : '';
+            const uninstallerActive = phase === 'started';
+            const processing = phase === 'preparing' || phase === 'direct';
+            const actionLabel = !program.canUninstall ? 'Indisponível'
+                : uninstallerActive ? 'Retornar'
+                : phase === 'direct' ? 'Remoção solicitada'
+                : processing ? 'Solicitando…' : 'Desinstalar';
+            const inline = expanded ? `<div class="nav-storage-v3-inline"><div class="nav-storage-v3-inline-copy"><div class="nav-storage-v3-inline-facts"><span>Tamanho · ${_esc(_storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${_esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${_esc(program.version)}</span>` : ''}</div><span>${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</span></div><div class="nav-storage-program-actions"><button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Cancelar</button><button class="nav-storage-program-action" id="navStorageConfirmUninstall" data-can-uninstall="${program.canUninstall}" tabindex="-1" ${program.canUninstall && !processing ? '' : 'disabled'}>${actionLabel}</button></div><span class="nav-storage-program-status" ${status ? '' : 'hidden'}>${_esc(status)}</span></div>` : '';
+            return `<div class="nav-storage-v3-program-row"><button class="nav-storage-program ${expanded ? 'is-selected' : ''}" data-storage-program="${_esc(program.id)}" tabindex="-1" aria-expanded="${expanded}"><span class="nav-storage-program-mark">${_storageProgramArtwork(program)}</span><span class="nav-storage-program-copy"><strong>${_esc(program.name || 'Programa')}</strong><small>${_esc(program.publisher || 'Programa do Windows')}</small></span><span class="nav-storage-program-intent"><span class="nav-storage-program-size">${_esc(_storageSizeText(program.sizeBytes, '—'))}</span><span class="nav-storage-program-uninstall">${expanded ? 'Opções abertas' : 'Opções  ›'}</span></span></button>${inline}</div>`;
+        }).join('');
+    }
+
+    function _syncNavStorageFocusItems(body) {
+        _contentItems = [
+            body.querySelector('#setBackSystemStorage'),
+            body.querySelector('[data-nav-storage-detail-scroll]'),
+            ...body.querySelectorAll('.nav-storage-drive-card'),
+            body.querySelector('#navStorageRefresh'),
+            ...body.querySelectorAll('.nav-storage-v3-category'),
+            body.querySelector('#navStorageOpenPrograms'),
+            body.querySelector('#navStorageProgramSearch'),
+            ...body.querySelectorAll('.nav-storage-program'),
+            body.querySelector('#navStorageCancelUninstall'),
+            body.querySelector('#navStorageConfirmUninstall')
+        ].filter(Boolean);
+        _contentItems.forEach(element => {
+            if (element.id === 'navStorageProgramSearch') return;
+            element.onmouseenter = () => {
+                if (document.activeElement?.id === 'navStorageProgramSearch' ||
+                    body.querySelector('#navStorageProgramSearch.vkb-active')) return;
+                _topbarFocus = false;
+                _contentIdx = _contentItems.indexOf(element);
+                _updateContentFocus();
+            };
+        });
+    }
+
+    function _wireNavStorageProgramActions(body) {
+        body.querySelectorAll('.nav-storage-program').forEach(button => button.addEventListener('click', () => {
+            const id = button.dataset.storageProgram || '';
+            _storageSelectedProgramId = _storageSelectedProgramId === id ? '' : id;
+            _storageView = 'programs';
+            _renderSettingsSystemStorage(body, _storageSelectedProgramId ? '#navStorageConfirmUninstall' : `[data-storage-program="${CSS.escape(id)}"]`);
+        }));
+        body.querySelector('#navStorageCancelUninstall')?.addEventListener('click', () => {
+            const id = _storageSelectedProgramId;
+            _storageSelectedProgramId = '';
+            _storageView = 'programs';
+            _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(id)}"]`);
+        });
+        body.querySelector('#navStorageConfirmUninstall')?.addEventListener('click', () => {
+            if (!_storageSelectedProgramId) return;
+            if (_storageUninstallStatus?.programId === _storageSelectedProgramId && _storageUninstallStatus?.status === 'started') {
+                postToHost?.({ action:'returnToStorageUninstaller', programId:_storageSelectedProgramId });
+                return;
+            }
+            _storageUninstallStatus = { programId:_storageSelectedProgramId, status:'preparing', message:'Solicitando a remoção ao Windows…' };
+            postToHost?.({ action:'uninstallStorageProgram', programId:_storageSelectedProgramId });
+            const message = body.querySelector('.nav-storage-program-status');
+            if (message) { message.hidden = false; message.textContent = _storageUninstallStatus.message; }
+            const action = body.querySelector('#navStorageConfirmUninstall');
+            if (action) { action.textContent = 'Solicitando…'; action.disabled = true; }
+        });
+    }
+
+    function _patchNavStoragePrograms(body, resetScroll = false) {
+        const list = body?.querySelector('#navStorageProgramList');
+        const search = body?.querySelector('#navStorageProgramSearch');
+        if (_storageView !== 'programs' || !list || !search) return false;
+
+        const drives = Array.isArray(_storageStatus?.drives) ? _storageStatus.drives : [];
+        const drive = drives.find(item => item.root === _storageSelectedRoot) || drives[0];
+        _storageSelectedRoot = drive?.root || '';
+        const programs = _navStorageProgramsForDrive(drives, drive);
+        if (_storageSelectedProgramId && !programs.some(program => program.id === _storageSelectedProgramId))
+            _storageSelectedProgramId = '';
+
+        const previous = _contentItems[_contentIdx];
+        const focusInList = list.contains(document.activeElement);
+        const focusSelector = focusInList ? _storageCurrentFocusSelector() : '';
+        const scrollTop = resetScroll ? 0 : list.scrollTop;
+        const programBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
+        body.querySelector('[data-nav-storage-program-count]').textContent = `${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}`;
+        body.querySelector('[data-nav-storage-program-total]').textContent = `${_storageSizeText(programBytes, 'Tamanho não informado')} identificados`;
+        list.innerHTML = _navStorageProgramListMarkup(programs);
+        list.scrollTop = scrollTop;
+        _wireNavStorageProgramActions(body);
+        _syncNavStorageFocusItems(body);
+
+        const target = focusInList
+            ? (focusSelector && list.querySelector(focusSelector)) || list.querySelector('.nav-storage-program') || search
+            : previous;
+        _contentIdx = Math.max(0, _contentItems.indexOf(target?.disabled ? search : target));
+        if (focusInList) _updateContentFocus();
+        return true;
+    }
+
     function _renderSettingsSystemStorage(body, preferredSelector = '') {
         if (!document.getElementById('nav-system-storage-v3-styles')) {
             const styles = document.createElement('style');
@@ -2129,9 +2251,12 @@ window.isNavMenuOpen = false;
                 .nav-storage-v3-inline{padding:13px 14px 14px 68px;border-top:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 22px}.nav-storage-v3-inline-copy{display:grid;gap:7px;color:rgba(255,255,255,.5);font-size:.7rem;line-height:1.45}.nav-storage-v3-inline-facts{display:flex;flex-wrap:wrap;gap:7px 18px;color:rgba(255,255,255,.68)}.nav-storage-v3-inline .nav-storage-program-actions{min-width:330px;align-self:center}.nav-storage-v3-inline .nav-storage-program-action{min-height:52px;padding:0 20px;font-size:.82rem;font-weight:690;transition:background-color .12s ease,color .12s ease,border-color .12s ease,transform .12s ease}.nav-storage-v3-inline .nav-storage-program-action.nav-focused-el{background:#fff;color:#0b1020;border-color:#fff;outline:3px solid rgba(255,255,255,.42);outline-offset:3px;box-shadow:0 12px 26px rgba(0,0,0,.3);transform:translateY(-2px)}.nav-storage-v3-inline .nav-storage-program-status{grid-column:1/-1}
                 .nav-storage-v3-node{flex:0 0 auto;padding:clamp(20px,1.55vw,30px) clamp(22px,1.8vw,34px);border:1px solid rgba(255,255,255,.07);border-radius:9px;background:rgba(255,255,255,.025);display:grid;gap:14px}.nav-storage-v3-node-head{display:flex;justify-content:space-between;gap:22px;align-items:center}.nav-storage-v3-node-head strong{font-size:clamp(1.08rem,1.12vw,1.42rem);font-weight:620}.nav-storage-v3-node-head span{font-size:clamp(1rem,1.02vw,1.28rem);font-weight:650}.nav-storage-v3-node-children{padding:12px 0 0 20px;border-top:1px solid rgba(255,255,255,.08);border-left:1px solid rgba(255,255,255,.12);display:grid;gap:10px}.nav-storage-v3-node-child{min-height:34px;display:flex;align-items:center;justify-content:space-between;gap:20px;color:rgba(255,255,255,.66);font-size:clamp(.94rem,.94vw,1.18rem);line-height:1.4}.nav-storage-v3-node-child strong{color:rgba(255,255,255,.84)}
                 .nav-storage-v3-detail{padding:clamp(24px,2.4vw,44px);display:flex;flex-direction:column;gap:20px}.nav-storage-v3-detail-hero{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:22px}.nav-storage-v3-detail-hero .nav-storage-program-detail-art{width:96px;height:96px;border-radius:18px}.nav-storage-v3-detail-hero h3{margin:5px 0 6px;font-size:clamp(1.8rem,2.6vw,3.2rem);font-weight:430}.nav-storage-v3-detail-hero p{margin:0;color:rgba(255,255,255,.54);font-size:.8rem}.nav-storage-v3-facts{max-width:760px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid rgba(255,255,255,.1)}.nav-storage-v3-facts span{padding:14px 16px 14px 0;border-bottom:1px solid rgba(255,255,255,.1);display:grid;gap:5px;color:rgba(255,255,255,.43);font-size:.67rem;text-transform:uppercase;letter-spacing:.07em}.nav-storage-v3-facts strong{color:rgba(255,255,255,.88);font-size:.78rem;text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nav-storage-v3-detail-note{max-width:760px;color:rgba(255,255,255,.54);font-size:.76rem;line-height:1.55}.nav-storage-v3-detail .nav-storage-program-actions{margin-top:auto;max-width:760px}.nav-storage-v3-detail .nav-storage-program-status{max-width:760px}
+                .nav-storage-v3-directory.nav-storage-programs-view{grid-template-rows:auto auto minmax(0,1fr)}
+                .nav-storage-program-search{width:min(100%,420px);min-height:46px;padding:0 14px;border:1px solid rgba(255,255,255,.16);border-radius:7px;background:rgba(255,255,255,.05);color:#fff;color-scheme:dark;font:inherit}
+                .nav-storage-program-search:focus,.nav-storage-program-search.nav-focused-el{outline:2px solid #fff;outline-offset:2px}
                 @media(max-width:1250px){.nav-storage-v3-free strong{font-size:3.5rem}}
                 @media(max-height:820px){.nav-storage-v3-overview,.nav-storage-v3-directory,.nav-storage-v3-detail{padding:14px 18px}.nav-storage-v3-category{min-height:50px}.nav-storage-v3-remove{min-height:56px}.nav-storage-v3-detail-hero .nav-storage-program-detail-art{width:72px;height:72px}.nav-storage-v3-detail-hero{grid-template-columns:72px minmax(0,1fr);gap:16px}.nav-storage-v3-detail-hero h3{font-size:1.7rem}}
-            `;
+`;
             document.head.appendChild(styles);
         }
 
@@ -2145,13 +2270,7 @@ window.isNavMenuOpen = false;
         if (!categories.some(item => item.key === _storageSelectedCategoryKey))
             _storageSelectedCategoryKey = categories[0]?.key || '';
         const category = categories.find(item => item.key === _storageSelectedCategoryKey) || categories[0] || null;
-        const allPrograms = Array.isArray(_storagePrograms?.programs) ? _storagePrograms.programs : [];
-        const selectedRoot = String(drive?.root || '').toUpperCase();
-        const primaryRoot = String(drives[0]?.root || '').toUpperCase();
-        const programs = allPrograms.filter(program => {
-            const root = String(program.installRoot || '').toUpperCase();
-            return root ? root === selectedRoot : selectedRoot === primaryRoot;
-        }).sort((a, b) => Number(b.sizeBytes || 0) - Number(a.sizeBytes || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+        const programs = _navStorageProgramsForDrive(drives, drive);
         if (_storageSelectedProgramId && !programs.some(program => program.id === _storageSelectedProgramId))
             _storageSelectedProgramId = '';
         const selectedProgram = programs.find(program => program.id === _storageSelectedProgramId) || null;
@@ -2165,13 +2284,6 @@ window.isNavMenuOpen = false;
         }).join('');
         const categoryButtons = categories.map(item => `<button class="nav-storage-v3-category is-${_esc(item.key || 'other')}" data-storage-category="${_esc(item.key || '')}" tabindex="-1"><span class="nav-storage-v3-category-dot"></span><span class="nav-storage-v3-category-copy"><strong>${_esc(item.label || item.key || '')}</strong><small>${_esc(_storageStateLabel(item.state))}</small></span><span class="nav-storage-v3-category-value"><strong>${_esc(_storageSizeText(item.sizeBytes, '0 B'))}</strong><small>›</small></span></button>`).join('');
         const programBytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
-        const programButtons = programs.map(program => {
-            const expanded = program.id === _storageSelectedProgramId;
-            const status = _storageUninstallStatus?.programId === program.id ? _storageUninstallStatus.message : '';
-            const uninstallerActive = _storageUninstallStatus?.programId === program.id && _storageUninstallStatus?.status === 'started';
-            const inline = expanded ? `<div class="nav-storage-v3-inline"><div class="nav-storage-v3-inline-copy"><div class="nav-storage-v3-inline-facts"><span>Tamanho · ${_esc(_storageSizeText(program.sizeBytes, 'Não informado'))}</span><span>Unidade · ${_esc(program.installRoot || 'Não informada')}</span>${program.version ? `<span>Versão · ${_esc(program.version)}</span>` : ''}</div><span>${program.canUninstall ? (uninstallerActive ? 'Use Retornar para trazer o desinstalador novamente ao primeiro plano.' : 'O Windows pode remover este item diretamente ou abrir sua ferramenta oficial de desinstalação.') : 'Este programa não informou uma ação de desinstalação ao Windows.'}</span></div><div class="nav-storage-program-actions"><button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Cancelar</button><button class="nav-storage-program-action" id="navStorageConfirmUninstall" data-can-uninstall="${program.canUninstall}" tabindex="-1" ${program.canUninstall ? '' : 'disabled'}>${program.canUninstall ? (uninstallerActive ? 'Retornar' : 'Desinstalar') : 'Indisponível'}</button></div><span class="nav-storage-program-status" ${status ? '' : 'hidden'}>${_esc(status)}</span></div>` : '';
-            return `<div class="nav-storage-v3-program-row"><button class="nav-storage-program ${expanded ? 'is-selected' : ''}" data-storage-program="${_esc(program.id)}" tabindex="-1" aria-expanded="${expanded}"><span class="nav-storage-program-mark">${_storageProgramArtwork(program)}</span><span class="nav-storage-program-copy"><strong>${_esc(program.name || 'Programa')}</strong><small>${_esc(program.publisher || 'Programa do Windows')}</small></span><span class="nav-storage-program-intent"><span class="nav-storage-program-size">${_esc(_storageSizeText(program.sizeBytes, '—'))}</span><span class="nav-storage-program-uninstall">${expanded ? 'Opções abertas' : 'Opções  ›'}</span></span></button>${inline}</div>`;
-        }).join('');
 
         let mainMarkup = '';
         if (_storageView === 'overview') {
@@ -2187,17 +2299,15 @@ window.isNavMenuOpen = false;
             const status = _storageUninstallStatus?.programId === selectedProgram?.id ? _storageUninstallStatus.message : '';
             mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-detail">${selectedProgram ? `<div class="nav-storage-v3-detail-hero"><span class="nav-storage-program-detail-art">${_storageProgramArtwork(selectedProgram, true)}</span><div><span class="nav-storage-kicker">Programa selecionado</span><h3>${_esc(selectedProgram.name || 'Programa')}</h3><p>${_esc(selectedProgram.publisher || 'Editor não informado')}${selectedProgram.version ? ` · versão ${_esc(selectedProgram.version)}` : ''}</p></div></div><div class="nav-storage-v3-facts"><span>Tamanho<strong>${_esc(_storageSizeText(selectedProgram.sizeBytes, 'Não informado'))}</strong></span><span>Unidade<strong>${_esc(selectedProgram.installRoot || 'Não informada')}</strong></span><span>Desinstalação<strong>${selectedProgram.canUninstall ? 'Disponível' : 'Indisponível'}</strong></span></div><div class="nav-storage-program-message nav-storage-program-status" ${status ? '' : 'hidden'}>${_esc(status)}</div><p class="nav-storage-v3-detail-note">${selectedProgram.canUninstall ? 'O desinstalador oficial será aberto em primeiro plano. O controle passará a operar o mouse até você retornar ao Doorpi.' : 'Este programa não informou um desinstalador ao Windows.'}</p><div class="nav-storage-program-actions"><button class="nav-storage-program-action" id="navStorageCancelUninstall" tabindex="-1">Voltar à lista</button><button class="nav-storage-program-action is-danger" id="navStorageConfirmUninstall" tabindex="-1" ${selectedProgram.canUninstall ? '' : 'disabled'}>${selectedProgram.canUninstall ? 'Abrir desinstalador' : 'Indisponível'}</button></div>` : '<div class="nav-storage-empty">O programa selecionado não está mais disponível.</div>'}</section></main>`;
         } else {
-            mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-directory"><header class="nav-storage-v3-directory-head"><div><span class="nav-storage-kicker">Remover programas</span><h3>Programas nesta unidade</h3><p>Selecione um item para abrir seus detalhes.</p></div><div class="nav-storage-v3-stats"><strong>${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</strong><span>${_esc(_storageSizeText(programBytes, 'Tamanho não informado'))} identificados</span></div></header><div class="nav-storage-v3-list nav-storage-program-list" id="navStorageProgramList">${programButtons || `<div class="nav-storage-empty">${_esc(_storagePrograms?.error || (_storagePrograms ? 'Nenhum programa identificado neste disco.' : 'Carregando programas do Windows…'))}</div>`}</div></section></main>`;
+            mainMarkup = `<main class="nav-storage-v3"><section class="nav-storage-v3-panel nav-storage-v3-directory nav-storage-programs-view"><header class="nav-storage-v3-directory-head"><div><span class="nav-storage-kicker">Remover programas</span><h3>Programas nesta unidade</h3><p>Selecione um item para abrir seus detalhes.</p></div><div class="nav-storage-v3-stats"><strong data-nav-storage-program-count aria-live="polite">${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}</strong><span data-nav-storage-program-total>${_esc(_storageSizeText(programBytes, 'Tamanho não informado'))} identificados</span></div></header>
+                <input id="navStorageProgramSearch" class="nav-storage-program-search" data-storage-program-search type="search" autocomplete="off" spellcheck="false" aria-label="${_esc(_t('storageSearchPrograms', 'Buscar programa pelo nome'))}" placeholder="${_esc(_t('storageSearchPrograms', 'Buscar programa pelo nome'))}" value="${_esc(_storageProgramQuery)}" />
+                <div class="nav-storage-v3-list nav-storage-program-list" id="navStorageProgramList">${_navStorageProgramListMarkup(programs)}</div></section></main>`;
         }
 
         const backLabel = _storageView === 'program-detail' ? 'Remover programas' : _storageView === 'overview' ? _t('navBack', 'Voltar') : 'Uso do disco';
         body.innerHTML = `<div class="nav-settings-subheader"><button class="nav-back-btn" id="setBackSystemStorage" tabindex="-1">‹ ${backLabel}</button><h2>${_storageView === 'programs' ? 'Remover programas' : _storageView === 'category' ? _esc(category?.label || 'Armazenamento') : _storageView === 'program-detail' ? _esc(selectedProgram?.name || 'Programa') : 'Armazenamento'}</h2></div>${mainMarkup}`;
 
-        const rebuildItems = () => {
-            _contentItems = [body.querySelector('#setBackSystemStorage'), body.querySelector('[data-nav-storage-detail-scroll]'), ...Array.from(body.querySelectorAll('.nav-storage-drive-card')), body.querySelector('#navStorageRefresh'), ...Array.from(body.querySelectorAll('.nav-storage-v3-category')), body.querySelector('#navStorageOpenPrograms'), ...Array.from(body.querySelectorAll('.nav-storage-program')), body.querySelector('#navStorageCancelUninstall'), body.querySelector('#navStorageConfirmUninstall')].filter(Boolean);
-            _contentItems.forEach(element => element.addEventListener('mouseenter', () => { _topbarFocus = false; _contentIdx = _contentItems.indexOf(element); _updateContentFocus(); }, { once:false }));
-        };
-        rebuildItems();
+        _syncNavStorageFocusItems(body);
         const target = preferredSelector ? body.querySelector(preferredSelector) : null;
         _contentIdx = target ? Math.max(0, _contentItems.indexOf(target)) : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
         const list = body.querySelector('.nav-storage-v3-list');
@@ -2223,35 +2333,26 @@ window.isNavMenuOpen = false;
         }));
         body.querySelector('#navStorageOpenPrograms')?.addEventListener('click', () => {
             _storageSelectedProgramId = '';
+            _storageProgramQuery = '';
             _storageView = 'programs';
             postToHost?.({ action:'requestStoragePrograms' });
-            _renderSettingsSystemStorage(body, '.nav-storage-program');
+            _renderSettingsSystemStorage(body, '#navStorageProgramSearch');
         });
-        body.querySelectorAll('.nav-storage-program').forEach(button => button.addEventListener('click', () => {
-            const id = button.dataset.storageProgram || '';
-            _storageSelectedProgramId = _storageSelectedProgramId === id ? '' : id;
-            _storageView = 'programs';
-            _renderSettingsSystemStorage(body, _storageSelectedProgramId ? '#navStorageConfirmUninstall' : `[data-storage-program="${CSS.escape(id)}"]`);
-        }));
-        body.querySelector('#navStorageCancelUninstall')?.addEventListener('click', () => {
-            const id = _storageSelectedProgramId;
-            _storageSelectedProgramId = '';
-            _storageView = 'programs';
-            _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(id)}"]`);
-        });
-        body.querySelector('#navStorageConfirmUninstall')?.addEventListener('click', () => {
-            if (!_storageSelectedProgramId) return;
-            if (_storageUninstallStatus?.programId === _storageSelectedProgramId && _storageUninstallStatus?.status === 'started') {
-                postToHost?.({ action:'returnToStorageUninstaller', programId:_storageSelectedProgramId });
-                return;
-            }
-            _storageUninstallStatus = { programId:_storageSelectedProgramId, status:'preparing', message:'Solicitando a remoção ao Windows…' };
-            postToHost?.({ action:'uninstallStorageProgram', programId:_storageSelectedProgramId });
-            const message = body.querySelector('.nav-storage-program-status');
-            if (message) { message.hidden = false; message.textContent = _storageUninstallStatus.message; }
-            const action = body.querySelector('#navStorageConfirmUninstall');
-            if (action) { action.textContent = 'Solicitando…'; action.disabled = true; }
-        });
+        _wireNavStorageProgramActions(body);
+        const programSearch = body.querySelector('#navStorageProgramSearch');
+        if (programSearch) {
+            programSearch._doorpiVkbCallbacks = { onEnter() {}, onCancel() {} };
+            programSearch.addEventListener('focus', () => {
+                _topbarFocus = false;
+                _contentIdx = _contentItems.indexOf(programSearch);
+                _contentItems.forEach(item => item.classList.toggle('nav-focused-el', item === programSearch));
+            });
+            programSearch.addEventListener('click', () => window._vkbOpen?.(programSearch));
+            programSearch.addEventListener('input', () => {
+                _storageProgramQuery = programSearch.value;
+                _patchNavStoragePrograms(body, true);
+            });
+        }
 
         if (!_storageStatus) postToHost?.({ action:'requestStorageStatus', forceRefresh:false });
         if ((_storageView === 'programs' || _storageView === 'program-detail') && !_storagePrograms)
@@ -2274,6 +2375,8 @@ window.isNavMenuOpen = false;
         const body = document.querySelector('.nav-content-body');
         const drives = Array.isArray(_storageStatus?.drives) ? _storageStatus.drives : [];
         const drive = drives.find(item => item.root === _storageSelectedRoot) || drives[0];
+        if (_storageView === 'programs' && body?.querySelector('#navStorageProgramSearch'))
+            return (drive?.root || '') === _storageSelectedRoot || _patchNavStoragePrograms(body);
         if (!body || !drive) return false;
         if (_storageView === 'overview') {
             const total = Math.max(1, Number(drive.totalBytes || 0));
@@ -2343,6 +2446,7 @@ window.isNavMenuOpen = false;
         _storagePrograms = status || { programs:[] };
         if (window.isNavMenuOpen && _settingsSubView === 'system' && _systemSubView === 'storage') {
             const body = document.querySelector('.nav-content-body');
+            if (_patchNavStoragePrograms(body)) return;
             const focusSelector = _storageView === 'program-detail'
                 ? '#navStorageConfirmUninstall'
                 : _storageView === 'programs' && _storageSelectedProgramId
@@ -2654,7 +2758,7 @@ window.isNavMenuOpen = false;
     }
 
     function _renderSettingsSystemUpdatesV2(body) {
-        const active = _systemUpdatesSubView || 'doorpi';
+        const active = _systemUpdatesSubView || 'hub';
         if (active !== 'doorpi') _releaseNotesScrollActive = false;
         const doorpiActive = active === 'doorpi';
         const windowsActive = active === 'windows';
@@ -2710,21 +2814,86 @@ window.isNavMenuOpen = false;
                 .nav-release-entry-version { margin-left:8px; color:rgba(255,255,255,.46); font-size:.78rem; font-weight:650; }
                 .nav-release-entry ul { display:grid; gap:8px; margin:10px 0 0; padding:0 0 0 20px; color:rgba(255,255,255,.66); font-size:.9rem; line-height:1.48; }
                 @media(max-width:1050px){ .nav-update-actions{grid-template-columns:1fr}.nav-update-overview{grid-template-columns:1fr}.nav-update-meta{justify-items:start;padding:0 0 0 20px} }
-            `;
+
+.nav-updates-shell .nav-update-panel { border:0; border-radius:0; background:none; padding:1rem 0; }
+.nav-updates-shell .nav-update-heading { padding:0; border:0; }
+.nav-updates-shell .nav-update-actions { grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),max-content)); }
+.nav-updates-shell .nav-update-actions .nav-suggestion-card { display:flex; justify-content:center; min-height:3em; padding:.7em 1.25em; border-radius:3px; }
+.nav-updates-shell .nav-update-actions .nav-suggestion-card::after { display:none; }
+.nav-updates-shell .nav-system-tab.nav-focused-el { outline:2px solid var(--doorpi-shell-focus); outline-offset:-2px; border-color:transparent; }
+.nav-updates-shell .nav-release-notes { padding:0 1.25rem 1rem; border:0; background:rgba(255,255,255,.045); border-radius:3px; }
+.nav-updates-shell .nav-release-notes-head { position:static; background:none; }
+.nav-updates-shell .nav-release-entry ul { max-width:72ch; color:var(--doorpi-shell-ink); }
+
+.nav-update-directory { width:min(100%,82rem); display:grid; gap:0; }
+.nav-update-directory[hidden] { display:none; }
+.nav-update-directory .nav-system-tab {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(11rem,auto) 1.25rem;
+    gap:clamp(16px,2vw,30px);
+    align-items:center;
+    min-height:clamp(78px,9vh,104px);
+    padding:14px clamp(16px,1.5vw,24px);
+    border:0;
+    border-bottom:1px solid var(--doorpi-shell-edge);
+    border-radius:0;
+    background:transparent;
+    color:var(--doorpi-shell-ink);
+    text-align:left;
+    transition:background-color .14s ease, outline-color .14s ease;
+}
+.nav-update-source-copy { min-width:0; display:grid; gap:5px; }
+.nav-update-directory .nav-system-tab strong { font-size:clamp(1rem,1.1vw,1.2rem); font-weight:590; }
+.nav-update-directory .nav-system-tab small { display:block; max-width:66ch; color:var(--doorpi-shell-muted); font-size:clamp(.78rem,.82vw,.9rem); font-weight:450; line-height:1.35; white-space:normal; }
+.nav-update-source-state { justify-self:end; color:var(--doorpi-shell-muted); font-size:clamp(.76rem,.8vw,.88rem); line-height:1.3; text-align:right; }
+.nav-update-directory .nav-system-tab::after { content:'›'; justify-self:end; color:var(--doorpi-shell-muted); font-size:1.5rem; line-height:1; }
+.nav-update-directory .nav-system-tab.nav-focused-el { outline:2px solid var(--doorpi-shell-focus); outline-offset:-2px; background:var(--doorpi-shell-focus-fill); }
+.nav-update-directory .nav-system-tab.nav-focused-el :is(.nav-update-source-state,.nav-update-source-copy small),
+.nav-update-directory .nav-system-tab.nav-focused-el::after { color:var(--doorpi-shell-ink); }
+.nav-updates-header { margin-bottom:clamp(18px,2.4vh,30px); }
+.nav-updates-header .nav-back-btn { padding:8px 15px; border-radius:5px; }
+.nav-updates-header .nav-back-btn.nav-focused-el { outline:2px solid var(--doorpi-shell-focus); outline-offset:2px; transform:none; }
+.nav-updates-shell .nav-update-view { width:min(100%,88rem); }
+.nav-updates-shell .nav-update-panel { width:100%; }
+.nav-updates-shell .nav-update-overview { grid-template-columns:minmax(0,1fr) auto; }
+.nav-updates-shell .nav-update-meta { white-space:normal; text-align:right; }
+.nav-updates-shell #gpuUpdateActionsGrid { display:grid; grid-template-columns:minmax(0,1fr); width:100%; }
+.nav-updates-shell .nav-gpu-app-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%,30rem),1fr)); gap:clamp(16px,1.5vw,24px); }
+.nav-updates-shell .nav-gpu-app-card { display:grid; grid-template-rows:auto 1fr; min-height:0; padding:0; gap:0; overflow:hidden; border-radius:8px; }
+.nav-updates-shell .nav-gpu-app-art { width:100%; height:auto; min-height:0; aspect-ratio:16/9; border:0; border-radius:0; box-shadow:none; }
+.nav-updates-shell .nav-gpu-app-art img { width:min(46%,220px); height:min(64%,220px); object-fit:contain; }
+.nav-updates-shell .nav-gpu-app-copy { padding:1rem clamp(16px,1.4vw,24px) 1.1rem; }
+.nav-updates-shell .nav-gpu-app-name { font-size:clamp(1rem,1vw,1.15rem); }
+.nav-updates-shell .nav-gpu-app-cover { transform:none; filter:none; background-size:contain; }
+.nav-updates-shell .nav-gpu-app-card.nav-focused-el { outline:2px solid var(--doorpi-shell-focus); outline-offset:2px; transform:translateY(-2px); }
+.nav-updates-shell .nav-gpu-app-add { grid-column:1 / -1; grid-template-columns:88px minmax(0,1fr); grid-template-rows:1fr; align-items:center; min-height:0; padding:12px 16px; border-style:solid; }
+.nav-updates-shell .nav-gpu-app-add .nav-gpu-app-art { width:88px; aspect-ratio:1; min-height:0; border-radius:6px; }
+.nav-updates-shell .nav-gpu-app-add .nav-gpu-app-copy { padding:0 clamp(8px,1vw,16px); }
+.nav-updates-shell .nav-gpu-app-add .nav-gpu-app-fallback { width:48px; height:48px; border-radius:6px; background:rgba(255,255,255,.86); color:#111723; }
+@media(max-width:1050px) {
+    .nav-update-directory .nav-system-tab { grid-template-columns:minmax(0,1fr) auto 1rem; gap:12px; }
+    .nav-update-source-copy { grid-column:1; }
+    .nav-update-source-state { grid-column:2; }
+    .nav-update-directory .nav-system-tab::after { grid-column:3; }
+    .nav-update-directory .nav-system-tab small { max-width:46ch; }
+    .nav-updates-shell .nav-update-overview { grid-template-columns:1fr; }
+    .nav-updates-shell .nav-update-meta { justify-items:start; padding:0; text-align:left; }
+}
+`;
             document.head.appendChild(s);
         }
 
         body.innerHTML = `
-        <div class="nav-settings-subheader">
+        <div class="nav-settings-subheader nav-updates-header">
             <button class="nav-back-btn" id="setBackSystemUpdates" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>${_t('updatesTitle', 'Atualizações')}</h2>
+            <h2>${active === 'hub' ? _t('updatesTitle') : gpuActive ? _t('videoCardTitle') : windowsActive ? 'Windows' : 'Doorpi'}</h2>
         </div>
 
         <div class="nav-updates-shell">
-            <div class="nav-system-tabs">
-                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1"><strong>Doorpi</strong><small id="updatesTabDoorpiState">Sistema e componentes</small></button>
-                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1"><strong>Windows</strong><small id="updatesTabWindowsState">Sistema operacional</small></button>
-                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1"><strong>${_t('videoCardTitle', 'Placa de vídeo')}</strong><small id="updatesTabGpuState">Drivers e atualizadores</small></button>
+            <div class="nav-update-directory" ${active === 'hub' ? '' : 'hidden'}>
+                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1"><span class="nav-update-source-copy"><strong>Doorpi</strong><small>${_t('quickDoorpiDesc')}</small></span><span class="nav-update-source-state" id="updatesTabDoorpiState">${_t('updateUnchecked')}</span></button>
+                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1"><span class="nav-update-source-copy"><strong>Windows</strong><small>${_t('quickWindowsDesc')}</small></span><span class="nav-update-source-state" id="updatesTabWindowsState">${_t('updateUnchecked')}</span></button>
+                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1"><span class="nav-update-source-copy"><strong>${_t('videoCardTitle', 'Placa de vídeo')}</strong><small>${_t('quickGpuDesc')}</small></span><span class="nav-update-source-state" id="updatesTabGpuState">${_t('updateUnchecked')}</span></button>
             </div>
 
             <section class="nav-update-view" data-update-panel="doorpi" ${doorpiActive ? '' : 'hidden'}>
@@ -2742,14 +2911,12 @@ window.isNavMenuOpen = false;
             <div class="nav-suggestions-grid nav-update-actions" id="navUpdateActionsGrid">
                 <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('checkDoorpi', 'Verificar Doorpi')}</div>
-                    <span class="nav-suggestion-card-text">${_t('checkDoorpiDesc', 'Consulta atualizações do Doorpi, Updater e changelog.')}</span>
                 </button>
                 <button class="nav-suggestion-card nav-update-primary" id="navCardStartUpdate" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('updateDoorpi', 'Atualizar Doorpi')}</div>
-                    <span class="nav-suggestion-card-text">${_t('updateDoorpiDesc', 'Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessário.')}</span>
                 </button>
             </div>
-            <section class="nav-release-notes" id="systemUpdateChangelog" role="region" aria-label="Notas da versão"></section>
+            <section class="nav-release-notes" id="systemUpdateChangelog" role="button" tabindex="-1" aria-label="${_esc(_t('sysUpdateReleaseNotes'))}"></section>
             </section>
 
             <section class="nav-update-view" data-update-panel="windows" ${windowsActive ? '' : 'hidden'}>
@@ -2762,7 +2929,7 @@ window.isNavMenuOpen = false;
                     </div>
                     <div class="nav-update-meta" id="windowsUpdateMeta"></div>
                 </div>
-                <div class="nav-update-list" id="windowsUpdateList"></div>
+
             </div>
 
             <div class="nav-windows-guidance">
@@ -2772,21 +2939,18 @@ window.isNavMenuOpen = false;
             <div class="nav-suggestions-grid nav-update-actions" id="windowsUpdateActionsGrid">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('checkWindows', 'Verificar Windows')}</div>
-                    <span class="nav-suggestion-card-text">${_t('checkWindowsDesc', 'Consulta o Windows Update e lista os pacotes encontrados.')}</span>
                 </button>
                 <button class="nav-suggestion-card nav-update-primary" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('windowsUpdateInstall', 'Baixar e instalar')}</div>
-                    <span class="nav-suggestion-card-text">${_t('windowsUpdateInstallDesc', 'Usa a API do Windows Update para baixar e instalar em segundo plano.')}</span>
                 </button>
                 <button class="nav-suggestion-card nav-update-primary" id="navCardRestartWindows" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('restartNow', 'Reiniciar agora')}</div>
-                    <span class="nav-suggestion-card-text">${_t('windowsRestartDesc', 'Reinicia o computador para concluir atualizações pendentes.')}</span>
                 </button>
                 <button class="nav-suggestion-card visible" id="navCardOpenWindowsUpdate" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('quickOpenWindowsUpdate', 'Abrir Windows Update')}</div>
-                    <span class="nav-suggestion-card-text">${_t('windowsOpenNativeDesc', 'Abre a tela nativa do Windows com mouse e teclado pelo controle.')}</span>
                 </button>
             </div>
+                <div class="nav-update-list" id="windowsUpdateList"></div>
             </section>
 
             <section class="nav-update-view" data-update-panel="gpu" ${gpuActive ? '' : 'hidden'}>
@@ -2802,12 +2966,13 @@ window.isNavMenuOpen = false;
                 <div class="nav-update-list" id="gpuAdapterList"></div>
             </div>
 
+            <h3 class="nav-update-section-title">${_t('updateDriverTools')}</h3>
+            <div class="nav-suggestions-grid nav-update-actions" id="gpuUpdateActionsGrid"></div>
             <div class="nav-gpu-guidance">
                 <p><strong>${_t('gpuUpdaterAdminNoticeTitle', 'Permiss\u00e3o tempor\u00e1ria.')}</strong> ${_t('gpuUpdaterAdminNoticeText', 'Se o Windows pedir permiss\u00e3o, autorize o assistente do Doorpi para controlar instaladores elevados.')}</p>
                 <p><strong>${_t('gpuUpdaterSessionNoticeTitle', 'Durante a atualiza\u00e7\u00e3o.')}</strong> ${_t('gpuUpdaterSessionNoticeText', 'N\u00e3o feche nem minimize o atualizador. Ao final, o Doorpi ser\u00e1 reiniciado para restaurar o renderizador.')}</p>
             </div>
 
-            <div class="nav-suggestions-grid nav-update-actions" id="gpuUpdateActionsGrid"></div>
             </section>
         </div>`;
 
@@ -2818,13 +2983,21 @@ window.isNavMenuOpen = false;
             '#updatesTabGpu',
             '#navCardCheckUpdates',
             '#navCardStartUpdate',
+            '#systemUpdateChangelog',
             '#navCardCheckWindowsUpdates',
             '#navCardStartWindowsUpdate',
             '#navCardRestartWindows',
             '#navCardOpenWindowsUpdate',
             '#gpuUpdateActionsGrid .nav-gpu-app-card'
         ]);
+        if (active === 'hub') _contentIdx = 1;
 
+        const notes = body.querySelector('#systemUpdateChangelog');
+        notes.onclick = () => {
+            _releaseNotesScrollActive = notes.scrollHeight > notes.clientHeight && !_releaseNotesScrollActive;
+            notes.classList.toggle('is-scroll-active', _releaseNotesScrollActive);
+            notes.focus({ preventScroll: true });
+        };
         window._updateBootModeUI = refreshItems;
         refreshItems();
         _updateSystemUpdateUI();
@@ -2835,13 +3008,17 @@ window.isNavMenuOpen = false;
         if (typeof postToHost === 'function') postToHost({ action: 'requestGpuUpdateStatus' });
 
         body.querySelector('#setBackSystemUpdates')?.addEventListener('click', () => {
-            _returnFromSystemDetail();
+            if (active === 'hub') { _returnFromSystemDetail(); return; }
+            _systemUpdatesSubView = 'hub';
+            _contentIdx = ['doorpi','windows','gpu'].indexOf(active) + 1;
+            _renderContent('settings');
+            _updateContentFocus();
         });
         body.querySelectorAll('[data-updates-tab]').forEach(btn => {
             btn.addEventListener('click', () => {
                 _releaseNotesScrollActive = false;
                 _systemUpdatesSubView = btn.dataset.updatesTab || 'doorpi';
-                _contentIdx = _systemUpdatesSubView === 'gpu' ? 3 : (_systemUpdatesSubView === 'windows' ? 2 : 1);
+                _contentIdx = 0;
                 _renderContent('settings');
                 _updateContentFocus();
             });
@@ -3189,7 +3366,7 @@ window.isNavMenuOpen = false;
     } catch (_) {}
     let _systemSubView = null;
     let _settingsReturnToRoot = false;
-    let _systemUpdatesSubView = 'doorpi';
+    let _systemUpdatesSubView = 'hub';
     let _releaseNotesScrollActive = false;
     let _sharingFocusAppId = '';
     let _sharingSubView = 'apps';
@@ -3230,6 +3407,7 @@ window.isNavMenuOpen = false;
     let _wifiUpdateStatus = null;
     let _storageStatus = null;
     let _storagePrograms = null;
+    let _storageProgramQuery = '';
     let _storageView = 'overview';
     let _storageSelectedRoot = '';
     let _storageSelectedCategoryKey = 'applications';
@@ -4830,6 +5008,35 @@ window.isNavMenuOpen = false;
         display: none;
     }
 }
+
+.nav-category-track {
+    flex: none;
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 170ms ease-out;
+}
+.nav-category-clip { min-height: 0; overflow: clip; }
+.nav-cat-list { transition: opacity 120ms ease-out, transform 160ms ease-out; }
+.nav-content-focused .nav-category-track { grid-template-rows: 0fr; pointer-events: none; }
+.nav-content-focused .nav-cat-list { opacity: 0; transform: translateY(-5px); }
+#navMenuOverlay.nav-content-focused .nav-content:not(:has(.profile-standard)) { padding-top: clamp(44px, 6vh, 84px); }
+.nav-content:not(:has(.profile-standard)) { transition: padding-top 170ms ease-out; }
+.nav-category-shortcut {
+    position: absolute; z-index: 3; top: 2rem; left: 50%; transform: translateX(-50%);
+    display: inline-flex; align-items: center; justify-content: space-between;
+    width: 6rem; height: 24px; padding: 0 .2rem; cursor: pointer;
+    border: 0; background: transparent; color: #d2d7df;
+    opacity: 0; visibility: hidden; transition: opacity 130ms ease-out;
+}
+.nav-category-shortcut kbd {
+    font: 600 clamp(10px, .72vw, 14px)/1.15 system-ui;
+    padding: 1px 3px; border: 1px solid #ffffff40; border-radius: 4px 4px 2px 2px;
+}
+.nav-content-focused .nav-category-shortcut { opacity: .78; visibility: visible; }
+@media (prefers-reduced-motion: reduce) {
+    .nav-category-track, .nav-cat-list, .nav-category-shortcut,
+    .nav-content:not(:has(.profile-standard)) { transition: none; }
+}
 `;
         document.head.appendChild(s);
     })();
@@ -4844,9 +5051,14 @@ window.isNavMenuOpen = false;
         _overlay.innerHTML = `
             <canvas id="navMenuBg"></canvas>
             <div class="nav-layout">
-                <div class="nav-topbar" id="navTopbar">
-                    <div class="nav-cat-list" id="navCatList"></div>
+                <div class="nav-category-track">
+                    <div class="nav-category-clip">
+                        <div class="nav-topbar" id="navTopbar">
+                            <div class="nav-cat-list" id="navCatList"></div>
+                        </div>
+                    </div>
                 </div>
+                <button class="nav-category-shortcut" type="button" tabindex="-1" aria-label="${_esc(_t("tabsHint"))}"><kbd>LB</kbd><kbd>RB</kbd></button>
                 <div class="nav-content" id="navContent">
                     <div class="nav-content-header" id="navHeaderWrap">
                         <h2 class="nav-content-title" id="navContentTitle"></h2>
@@ -4858,6 +5070,7 @@ window.isNavMenuOpen = false;
 
         document.body.appendChild(_overlay);
 
+        _overlay.querySelector('.nav-category-shortcut').onclick = () => _setTopbarFocus(true);
         _buildCatList();
     }
 
@@ -4882,6 +5095,7 @@ window.isNavMenuOpen = false;
     // ── Seleção de categoria ──────────────────────────────────────────────────
     function _selectCat(idx) {
         if (_navMenuPhase === 'closing') return;
+        _profileCardReturn = null;
         if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'sound' && Number(idx) !== _catIdx) {
             window.DoorpiSoundUI?.closeDrawer?.('settings');
         }
@@ -5043,6 +5257,621 @@ window.isNavMenuOpen = false;
         close();
     }
 
+    // Fixed silhouettes, shared by the profile shelf, game rows and trophy details.
+    function _trophySvg(tier) {
+        const platinum = '<path fill="#244794" d="m3 11 12 6L24 3l9 14 12-6-5 21-12 5v3l7 2v3H13v-3l7-2v-3L8 32Z"/><path fill="#528cfa" d="m3 11 12 6 9-14 9 14 12-6-9 15-12 9-12-9Z"/><path fill="#3568ca" d="m3 11 12 6 9 18-12-9Z"/><path fill="#87b7ff" d="m24 3 9 14-9 18Z"/><path fill="#a8d2ff" d="m24 3-7 17-2-3Z M45 11l-9 15-7 4Z"/><path fill="#759bc9" d="m8 32 16 4 16-4-12 5h-8Z"/><path fill="#46668d" d="m20 40 4-2 4 2 7 2H13Z"/><path fill="#a3c2e6" d="M13 42h22v1H13Z"/>';
+        const cups = {
+            iron:'<path d="M12 8h24l-3 13q-2 7-7 9v7l6 3v3H16v-3l6-3v-7q-5-2-7-9Z"/><path fill="#b6c0c6" d="M12 8h24l-1 3H13Z"/>',
+            bronze:'<path fill="none" stroke="currentColor" stroke-width="3" d="M12 12H5q0 11 12 12m19-12h7q0 11-12 12"/><path d="M10 7h28l-2 12q-2 9-10 12v5l7 4v3H15v-3l7-4v-5q-8-3-10-12Z"/><path fill="#e8b18b" d="M10 7h28l-1 3H11Z"/>',
+            silver:'<path fill="none" stroke="currentColor" stroke-width="3" d="M13 11Q2 6 5 17q2 6 12 7m18-13q11-5 8 6-2 6-12 7"/><path d="M12 5h24q-1 18-10 23v7l5 3 3 1v4H14v-4l3-1 5-3v-7Q13 23 12 5Z"/><path fill="#f0f5fc" d="M14 7h5q0 9 3 16-6-5-8-16Z"/><path fill="#8392a6" d="M14 40h20v3H14Z"/>',
+            gold:'<path fill="none" stroke="currentColor" stroke-width="3.5" d="M10 11C-1 7 3 24 16 24m22-13c11-4 7 13-6 13"/><path d="M9 6h30l-2 12q-2 9-11 12v4l6 3v2h4v5H12v-5h4v-2l6-3v-4q-9-3-11-12Z"/><path fill="#ffe5a0" d="M9 6h30l-1 3H10Zm4 5h5q0 8 4 14-7-3-9-14Z"/><path fill="#a8762f" d="M12 41h24v3H12Z"/>'
+        };
+        const shape = tier==='platinum'?platinum:cups[tier] || cups.iron;
+        return '<svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true">'+shape+'</svg>';
+    }
+    // Steam presentation owns only transient view data. Persistence stays in the host.
+    let _steamProfileView = { profileId:'', requested:false, games:[] };
+    let _steamAchievementRequest = 0;
+    let _steamAchievementGame = 0;
+    let _steamAchievementOffset = 0;
+    let _steamAchievementDetail = null;
+    // Resolve only visible images that failed. Share each public store lookup across cards.
+    const steamHeaderCache = new Map();
+    function acceptSteamHeader(data) {
+        steamHeaderCache.set(data.appId, { image: data.image, at: Date.now() });
+        if (!data.image) return;
+        document.querySelectorAll('img[data-steam-header]').forEach(img => {
+            if (Number(img.dataset.steamHeader) === data.appId && img.src !== data.image) img.src = data.image;
+        });
+    }
+    document.addEventListener('error', event => {
+        const img = event.target;
+        if (!(img instanceof HTMLImageElement)) return;
+        if (img.closest('.nav-trophy-art')) {
+            const url = new URL(img.src);
+            if (url.hostname === 'cdn.cloudflare.steamstatic.com') {
+                url.hostname = 'cdn.fastly.steamstatic.com';
+                img.src = url.href;
+            } else {
+                img.remove();
+            }
+            return;
+        }
+        const match = /^https:\/\/cdn\.cloudflare\.steamstatic\.com\/steam\/apps\/(\d+)\/header\.jpg$/.exec(img.src);
+        if (img.dataset.steamHeader) return;
+        const id = Number(match?.[1] || img.closest('[data-steam-game]')?.dataset.steamGame);
+        if (!Number.isSafeInteger(id) || id <= 0) return;
+        img.dataset.steamHeader = String(id);
+        const cached = steamHeaderCache.get(id);
+        if (cached?.image && cached.image !== img.src) img.src = cached.image;
+        else if (!cached || Date.now() - cached.at > 300000) {
+            steamHeaderCache.set(id, { at: Date.now() });
+            postToHost?.({ action: 'steamGameHeader', appId: id });
+        }
+    }, true);
+    function _steamConnectPayload() {
+        const keys=['export','exporting','identifying','saving','unavailable','captureError','changed','openError','title'];
+        return {action:'steamConnect',texts:Object.fromEntries(keys.map(key=>[key,_t('steam.'+key)]))};
+    }
+    function _steamView() {
+        const profileId = String(window._doorpiCurrentUserId || _menuData.user?.Id || '');
+        if (_steamProfileView.profileId !== profileId) {
+            _steamProfileView = { profileId, requested:false, games:[] };
+            _steamAchievementGame = 0; _steamAchievementOffset = 0; _steamAchievementDetail = null;
+            ++_steamAchievementRequest;
+        }
+        if (profileId && !_steamProfileView.requested) {
+            _steamProfileView.requested = true;
+            postToHost?.({ action:'steamProfileStatus' });
+        }
+        return _steamProfileView;
+    }
+    const _steamMedalNames = () => Object.fromEntries(['gold','silver','bronze','iron'].map(key=>[key,_t('steam.'+key)]));
+    function _setProfileArtwork(part,value) {
+        const user = _menuData.user;
+        if (!user.Id || user.Id !== window._doorpiCurrentUserId) return;
+        if (part === 'avatarGame' && value && !/^https:\/\/[^"<>\s]+$/i.test(value)) value = '';
+        if (part === 'avatarGame' && user.AvatarFromGame && user.GameAvatarUrl === value) return;
+        const patch = part === 'cover' ? {CoverBase64:value} : {AvatarFromGame:true,GameAvatarUrl:value};
+        Object.assign(user,patch);
+        if (window._doorpiProfile?.Id === user.Id) Object.assign(window._doorpiProfile,patch);
+        postToHost({action:'setProfileArtwork',userId:user.Id,part,value});
+        if (part === 'avatarGame') window._applyDoorpiTopProfile?.(user);
+    }
+    function _profileIdentityMarkup() {
+        const user = _menuData.user || {};
+        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64;
+        const src = photo && (window._doorpiUserPhotoSrc?.(photo) || 'data:image/png;base64,'+photo);
+        return `<div class="nav-unified-avatar">${src?'<img alt="" src="'+_esc(src)+'">':'◎'}</div>
+            <div class="nav-unified-name"><h2>${_esc(user.Name || 'Doorpi')}</h2></div>
+            <dl class="nav-profile-record"></dl>
+            <section class="nav-profile-favorites"><h3>${_esc(_t('navMostPlayedGames'))}</h3><ol></ol></section>`;
+    }
+    function _bindProfileFavorites(body, library, fmtSeconds, onRanked) {
+        const list = body.querySelector('.nav-profile-favorites ol');
+        list.refreshFavorites = () => {
+            const state = _steamView();
+            const ranked = _profileGameRows(library,{...state,gameOrder:'hours'});
+            onRanked?.(ranked,state);
+            const record = body.querySelector('.nav-profile-record');
+            const minutes = ranked.reduce((sum,game)=>sum+game.minutes,0);
+            const librarySize = _menuData.gamesTotal ?? _menuData.games?.length ?? 0;
+            const [label,value] = minutes > 0 ? ['navGamingTime',fmtSeconds(minutes*60)] : ['navProfileLibrarySize',librarySize.toLocaleString()];
+            record.innerHTML = `<div><dt>${_esc(_t(label))}</dt><dd>${_esc(value)}</dd></div>`;
+            const games = ranked.filter(game=>game.minutes>0).slice(0,3);
+            const user = _menuData.user;
+            const gameArt = games.length ? _profileGameArt(games[0]) : '';
+            if (user.AvatarFromGame && gameArt && gameArt !== user.GameAvatarUrl) {
+                _setProfileArtwork('avatarGame',gameArt);
+                const avatar = body.querySelector('.nav-unified-avatar');
+                const img = document.createElement('img');
+                img.src = gameArt;
+                img.alt = '';
+                avatar?.replaceChildren(img);
+            }
+            list.parentElement.querySelector('.nav-profile-cover')?.remove();
+            if (user.CoverBase64) {
+                const cover = document.createElement('img');
+                cover.alt = '';
+                cover.className = 'nav-profile-cover';
+                cover.src = 'data:image/jpeg;base64,' + user.CoverBase64;
+                list.before(cover);
+            }
+            list.replaceChildren(...games.map((game,index)=>{
+                const item = document.createElement('li');
+                const title = document.createElement('strong');
+                const time = document.createElement('small');
+                title.textContent = game.name;
+                time.textContent = fmtSeconds(game.minutes*60);
+                const art = _profileGameArt(game);
+                if (art) {
+                    const img = document.createElement('img');
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    img.decoding = 'async';
+                    img.onerror = () => { if (!img.dataset.steamHeader) img.remove(); };
+                    img.src = art;
+                    item.append(img);
+                    if (index===0 && !user.CoverBase64) {
+                        const cover = img.cloneNode();
+                        cover.src = _profileBanner(game);
+                        cover.className = 'nav-profile-cover';
+                        cover.onerror = () => {
+                            cover.onerror = () => cover.remove();
+                            cover.src = art;
+                        };
+                        list.before(cover);
+                    }
+                }
+                item.append(title,time);
+                return item;
+            }));
+        };
+        list.refreshFavorites();
+    }
+    function _steamSummaryMarkup(showPlatinum=true) {
+        const state = _steamView();
+        const value = count => count == null ? '—' : Math.max(0,Number(count)||0).toLocaleString();
+        return `<div class="nav-achievement-summary" title="${_t('steam.medalsNote')}" aria-label="${_t('steam.steamAchievements')}">
+            ${showPlatinum?`<span class="nav-medal nav-medal-platinum" title="${_t('steam.platinumTitle')}">${_trophySvg('platinum')}<strong>${value(state.completedGames)}</strong><small>${_t('steam.platinum')}</small></span>`:''}
+            ${Object.entries(_steamMedalNames()).map(([key,name])=>`<span class="nav-medal nav-medal-${key}" title="${name}"><i>${_trophySvg(key)}</i><strong>${value(state.medals?.[key])}</strong><small>${name}</small></span>`).join('')}</div>`;
+    }
+
+    function _steamTier(percent) {
+        if (percent == null || !Number.isFinite(Number(percent)) || percent < 0 || percent > 100) return 'unknown';
+        return percent<=5?'gold':percent<=15?'silver':percent<=30?'bronze':'iron';
+    }
+    function _steamMedal(percent) {
+        const key = _steamTier(percent);
+        if (key === 'unknown') return _t('steam.medalUnknown');
+        return _steamMedalNames()[key]+' · '+Number(percent).toLocaleString(undefined,{maximumFractionDigits:2})+_t('steam.players');
+    }
+    function _requestSteamAchievements(appId, offset = 0) {
+        _steamAchievementGame = appId;
+        _steamAchievementOffset = offset;
+        if (!offset) _steamAchievementDetail = null;
+        const pendingId = ++_steamAchievementRequest;
+        if (_steamAchievementDetail) _steamAchievementDetail.pending = true;
+        postToHost?.({ action:'steamProfileAchievements', appId, offset, requestId:String(pendingId) });
+        const request = _steamAchievementRequest, profile = _steamView().profileId;
+        setTimeout(()=>{
+            if(request!==_steamAchievementRequest || profile!==_steamView().profileId || (_steamAchievementDetail && !_steamAchievementDetail.pending)) return;
+            _acceptSteamPresentation({type:'steamProfileAchievements',profileId:profile,requestId:String(request),appId,items:[],error:_t('steam.loadError')});
+        },8000);
+    }
+    function _acceptSteamPresentation(data) {
+        const state = _steamView();
+        if (!state.profileId || String(data.profileId) !== state.profileId) return;
+        if (data.type === 'steamProfileStatus') {
+            for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message'])
+                if (data[key] != null) state[key] = data[key];
+            if (Array.isArray(data.achievementIndex)) state.games = [...data.achievementIndex].sort((a,b) => b.unlocked-a.unlocked || b.total-a.total || a.Name.localeCompare(b.Name));
+            if (Array.isArray(data.achievementIndex) && !state.games.some(game => game.AppId === _steamAchievementGame)) {
+                if (_steamAchievementGame) state.openGame = null;
+                _steamAchievementGame = 0;
+                _steamAchievementDetail = null;
+                ++_steamAchievementRequest;
+            }
+            document.querySelector('.nav-profile-favorites ol')?.refreshFavorites?.();
+            if (data.busy || !Array.isArray(data.achievementIndex)) return;
+            document.querySelector('[data-profile-gaming-time]')?.refreshGamingTime?.();
+        } else {
+            if (data.requestId !== String(_steamAchievementRequest) || data.appId !== _steamAchievementGame) return;
+            if (_steamAchievementOffset && _steamAchievementDetail) {
+                if (!_steamAchievementDetail.pending) return;
+                _steamAchievementDetail.pending = false;
+                _steamAchievementDetail.items.push(...(data.items || []));
+                _steamAchievementDetail.error = data.error;
+                if (data.total != null) _steamAchievementDetail.total = data.total;
+                const list = document.querySelector('.nav-achievement-detail-list');
+                if (list && data.items?.length && !data.error) {
+                    const cards = data.items.map((item,index) => _steamTrophyCard(item,_steamAchievementOffset+index)).join('');
+                    list.insertAdjacentHTML('beforeend',cards);
+                    for (const card of Array.from(list.children).slice(-data.items.length)) {
+                        _bindSteamFocus(card,_contentItems.length);
+                        _contentItems.push(card);
+                    }
+                    return;
+                }
+                if (!data.items?.length && !data.error) _steamAchievementDetail.total = _steamAchievementDetail.items.length;
+            } else _steamAchievementDetail = data;
+        }
+        if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile' && _profileSubView === 'gaming') {
+            const sortDialog = document.querySelector('.nav-profile-sort-dialog[open]');
+            if (sortDialog) {
+                sortDialog.dataset.refreshOnClose = 'true';
+                return;
+            }
+            const active = document.activeElement;
+            const enterTrophies = active?.dataset.enterTrophies === data.requestId && data.type === 'steamProfileAchievements' && data.items?.length;
+            const focusKey = enterTrophies ? 'trophy-0' : active?.dataset.steamFocus;
+            const gameScroll = document.querySelector('.nav-achievement-game-list')?.scrollTop || 0;
+            const detailScroll = document.querySelector('.nav-achievement-detail-list')?.scrollTop || 0;
+            _renderContent('profile');
+            const games = document.querySelector('.nav-achievement-game-list'), details = document.querySelector('.nav-achievement-detail-list');
+            if(games) games.scrollTop = gameScroll;
+            if(details) details.scrollTop = detailScroll;
+            if (!_topbarFocus) {
+                const index = _contentItems.findIndex(item => item.dataset.steamFocus === focusKey);
+                if (index >= 0) _contentIdx = index;
+                _contentIdx = Math.max(0,Math.min(_contentIdx,_contentItems.length-1));
+                _updateContentFocus();
+            }
+        }
+    }
+    function trophyImage(item, appId) {
+        if (item.IconUrl) {
+            try {
+                const url = new URL(item.IconUrl);
+                if (url.protocol === 'https:' && (url.hostname.endsWith('.steamstatic.com') || ['media.steampowered.com','steamcdn-a.akamaihd.net'].includes(url.hostname))) return url.href;
+            } catch {}
+        }
+        return /^[a-f0-9]{40}\.(jpg|png)$/i.test(item.IconFile || '')
+            ? 'https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/'+Number(appId)+'/'+item.IconFile : '';
+    }
+    function _steamTrophyCard(item,index) {
+        const tier = _steamTier(item.GlobalUnlockPercent);
+        const src = trophyImage(item, _steamAchievementGame);
+        const art = src ? '<img loading="'+(index < 6 ? 'eager' : 'lazy')+'" decoding="async" alt="" src="'+_esc(src)+'">' : '';
+        const date = item.Unlocked && item.UnlockTimeUnix > 0 ? ' · '+new Date(item.UnlockTimeUnix*1000).toLocaleDateString() : '';
+        return `<article class="nav-achievement-item nav-medal-${tier}${item.Unlocked?' is-unlocked':''}" tabindex="-1" data-steam-focus="trophy-${index}">
+            <span class="nav-trophy-art">${_trophySvg(tier)}${art}</span>
+            <small>${_steamMedal(item.GlobalUnlockPercent)}</small><h4>${_esc(item.Name)}</h4>
+            ${item.Description ? '<p>'+_esc(item.Description)+'</p>' : ''}
+            <small>${_t(item.Unlocked?'steam.unlocked':'steam.locked')}${date}</small></article>`;
+    }
+    function _loadMoreTrophies() {
+        const detail = _steamAchievementDetail;
+        if (detail && !detail.pending && !detail.error && detail.items.length < detail.total)
+            _requestSteamAchievements(_steamAchievementGame,detail.items.length);
+    }
+    function _bindSteamFocus(item,index) {
+        item.addEventListener('mouseenter',() => {
+            _contentIdx=index;
+            _setTopbarFocus(false);
+        });
+    }
+    function _profileGameRows(library,state) {
+        const rows = new Map();
+        for (const game of state.games) {
+            const key = 'steam:'+game.AppId;
+            rows.set(key,{key, name:game.Name, minutes:game.PlaytimeMinutes || 0, lastPlayed:(game.LastPlayedUnix || 0)*1000, steam:game});
+        }
+        for (const [key,item] of library) {
+            const row = rows.get(key) || {key,name:item.Name};
+            row.minutes = Math.max(row.minutes || 0,Number(item.TotalPlaytimeMinutes) || 0);
+            row.lastPlayed = Math.max(row.lastPlayed || 0,Date.parse(item.LastPlayed) || 0);
+            row.banner = item.ProfileBannerLocalImage || item.ProfileBannerImageUrl;
+            row.art = item.GridHorizontalStaticImage || item.HistoryHorizontalLocalImage || item.GridHorizontalImage || item.HistoryHorizontalImageUrl || item.GridStaticImage || item.GridImage;
+            const historyMatch = (_menuData.history || []).find(history =>
+                history?.Name && String(history.Name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase() ===
+                    String(item.Name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase());
+            if (historyMatch) {
+                row.historyId = historyMatch.Id || '';
+                row.historyName = historyMatch.Name;
+            }
+            rows.set(key,row);
+        }
+        const score = row => {
+            if (state.gameOrder === 'recent') return row.lastPlayed;
+            if (state.gameOrder === 'hours') return row.minutes;
+            return row.steam?.unlocked || 0;
+        };
+        return [...rows.values()].sort((a,b) => score(b)-score(a) || b.minutes-a.minutes || a.name.localeCompare(b.name));
+    }
+    function _gameProgress(row) {
+        const game = row.steam;
+        if (!game?.total) return _t('steam.noTrophies');
+        return _t('steam.progress','',game.unlocked,game.total)+' · '+_t('steam.remaining','',game.total-game.unlocked);
+    }
+    function _gameTiers(game) {
+        if (!game?.total) return '';
+        const tiers = Object.entries(_steamMedalNames());
+        if (game.total === game.unlocked) tiers.unshift(['platinum',_t('steam.platinum')]);
+        return tiers.map(([tier,label]) => `<span class="nav-game-tier nav-medal-${tier}" title="${label}" aria-label="${label} · ${tier==='platinum'?1:game.medals?.[tier]??'—'}">${_trophySvg(tier)}<b>${tier==='platinum'?1:game.medals?.[tier]??'—'}</b></span>`).join('');
+    }
+    function _profileBanner(row) {
+        return row?.banner || (row?.steam ? 'https://cdn.cloudflare.steamstatic.com/steam/apps/'+Number(row.steam.AppId)+'/library_hero.jpg' : row && _profileGameArt(row));
+    }
+    function _profileGameArt(row) {
+        return row.art || (row.steam ? 'https://cdn.cloudflare.steamstatic.com/steam/apps/'+Number(row.steam.AppId)+'/header.jpg' : '');
+    }
+    function _profileGameRow(row,index,fmtSeconds) {
+        const game = row.steam;
+        const art = _profileGameArt(row);
+        return `<button class="nav-achievement-game" data-game-row="${index}" ${game?'data-steam-game="'+Number(game.AppId)+'"':''} ${row.historyName?`data-history-game-name="${_esc(row.historyName)}" data-history-game-id="${_esc(row.historyId || '')}"`:''} data-steam-focus="${_esc(row.key)}" tabindex="-1">
+            <span class="nav-profile-game-art" aria-hidden="true"><i>${_esc(row.name.trim().slice(0,2).toLocaleUpperCase())}</i>${art?'<img loading="lazy" alt="" src="'+_esc(art)+'">':''}</span>
+            <span class="nav-profile-game-title"><strong>${_esc(row.name)}</strong><small>${row.minutes?fmtSeconds(row.minutes*60):_t('steam.zeroHours')}</small></span>
+            <span class="nav-game-progress" aria-label="${_gameProgress(row)}" title="${_gameProgress(row)}">${game?.total?`<b>${Math.floor(game.unlocked/game.total*100)}%</b><progress aria-hidden="true" max="${game.total}" value="${game.unlocked}"></progress>`:'—'}</span>
+            <span class="nav-game-tier-list">${_gameTiers(game)}</span></button>`;
+    }
+    function _renderProfileGames(body,library,fmtSeconds,entry) {
+        const gamesFirst = entry === 'games';
+        const compact = gamesFirst || entry === 'cards' || entry === 'standard';
+        const state = _steamView();
+        const rows = _profileGameRows(library,state);
+        const selected = rows.find(row=>row.key===state.openGame);
+        const tabs = [...(gamesFirst?[]:[['overview','navProfileOverview']]),['gaming','navGames'],['film-series','navFilmsSeries'],['streaming','navStreamingVideos'],['music','navMusic']];
+        const detail = selected?.steam ? _steamAchievementDetail : null;
+        const items = detail?.items || [];
+        const orders = [['earned','steam.achievements'],['recent','steam.recentOrder'],['hours','steam.hoursOrder']];
+        const sortOptions = `<div class="nav-game-sort" role="group" aria-label="${_t('steam.sortBy')}">
+            ${orders.map(([key,label])=>`<button type="button" tabindex="-1" data-game-order="${key}" ${compact?'':'data-steam-focus="order-'+key+'"'} aria-pressed="${(state.gameOrder || 'earned')===key}">${_t(label)}</button>`).join('')}</div>`;
+        const sortBar = compact ? `<button class="nav-profile-sort-trigger" type="button" tabindex="-1" aria-haspopup="dialog"><kbd>Y</kbd> ${_esc(_t('steam.sortBy'))}</button>
+            <dialog class="nav-profile-sort-dialog" aria-label="${_esc(_t('steam.sortBy'))}"><h3>${_esc(_t('steam.sortBy'))}</h3>${sortOptions}</dialog>` : sortOptions;
+        const back = '<button class="nav-back-btn" data-steam-focus="back" tabindex="-1">‹ '+_t('navGames')+'</button>';
+        const content = selected ? `<section class="nav-achievement-details">
+            <header>${back}<div><h3>${_esc(selected.name)}</h3><p>${_gameProgress(selected)}${selected.steam?.total?' · '+_t(selected.steam.unlocked ? 'steam.earnedByRarity' : 'steam.rarestFirst'):''}</p></div><span class="nav-game-tier-list">${_gameTiers(selected.steam)}</span></header>
+            <div class="nav-achievement-detail-list nav-profile-grid" aria-label="${_t('steam.list')}">
+            ${items.map(_steamTrophyCard).join('') || '<p class="nav-achievement-empty" role="status">'+_esc(detail?.error || (selected.steam?.total && !detail?_t('steam.loading'):_t('steam.noTrophies')))+'</p>'}</div>
+            ${items.length && detail.error?'<p role="status">'+_esc(detail.error)+'</p>':''}</section>`
+            : `<section class="nav-achievement-games"><header><div><h3>${_t('steam.yourGames')}</h3></div>${compact?'':_steamSummaryMarkup()}${sortBar}
+            ${!state.steamId?'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>':''}</header>
+            <div class="nav-achievement-game-list nav-profile-grid">${rows.map((row,i)=>_profileGameRow(row,i,fmtSeconds)).join('') || '<p class="nav-achievement-empty">'+_t('navGameHistoryEmpty')+'</p>'}</div></section>`;
+        body.innerHTML = `<div class="nav-unified-profile nav-achievements-profile${entry==='standard'?' profile-standard':''}">
+            <header class="nav-unified-identity">${_profileIdentityMarkup()}${compact?'<button class="nav-unified-edit" data-steam-focus="edit" tabindex="-1">'+_esc(_t('navEditProfileBtn'))+'</button>':''}</header>
+            <nav class="nav-unified-tabs" aria-label="${_t('navProfileSections')}">${tabs.map(([id,label])=>`<button class="nav-unified-tab${id==='gaming'?' is-active':''}" data-profile-tab="${id}" data-steam-focus="tab-${id}" tabindex="-1">${_t(label)}</button>`).join('')}</nav>
+            ${content}</div>`;
+        _bindProfileFavorites(body,library,fmtSeconds);
+        _contentItems = [...body.querySelectorAll('[data-steam-focus]:not([data-steam-focus=edit])')];
+        const editButton = body.querySelector('[data-steam-focus=edit]');
+        if (editButton) _contentItems.push(editButton);
+        _contentItems.forEach(_bindSteamFocus);
+        editButton?.addEventListener('click',_openProfileEditor);
+        const dialog = body.querySelector('.nav-profile-sort-dialog');
+        const trigger = body.querySelector('.nav-profile-sort-trigger');
+        if (trigger) trigger.onclick = () => {
+            if (dialog.open) return;
+            dialog.showModal();
+            const place = () => {
+                const anchor = trigger.getBoundingClientRect();
+                const gap = 8;
+                const below = anchor.bottom + gap;
+                const top = below + dialog.offsetHeight <= innerHeight - gap ? below : anchor.top - dialog.offsetHeight - gap;
+                dialog.style.top = Math.max(gap, top) + 'px';
+                dialog.style.left = Math.max(gap, Math.min(anchor.right - dialog.offsetWidth, innerWidth - dialog.offsetWidth - gap)) + 'px';
+            };
+            place();
+            const tracking = new AbortController();
+            window.addEventListener('resize', place, {signal:tracking.signal});
+            dialog.addEventListener('close', () => tracking.abort(), {once:true});
+            dialog.querySelector('[aria-pressed=true]').focus();
+        };
+        const focus = key => {
+            _contentIdx = Math.max(0,_contentItems.findIndex(item=>item.dataset.steamFocus===key));
+            _setTopbarFocus(false);
+        };
+        dialog?.addEventListener('close',()=>{
+            if (!dialog.isConnected || !dialog.dataset.refreshOnClose) return;
+            const key = _contentItems[_contentIdx]?.dataset.steamFocus;
+            state.gameScroll = body.querySelector('.nav-achievement-game-list')?.scrollTop || 0;
+            _renderContent('profile');
+            if (!_topbarFocus) focus(key);
+        });
+        const closeDetail = () => {
+            state.openGame = null;
+            _steamAchievementGame = 0; _steamAchievementDetail = null; ++_steamAchievementRequest;
+        };
+        body.querySelectorAll('[data-profile-tab]').forEach(button=>button.onclick=()=>{
+            _profileCardReturn = null;
+            closeDetail();
+            _profileSubView = button.dataset.profileTab==='overview'?null:button.dataset.profileTab;
+            _contentIdx = Math.max(0,_contentItems.indexOf(button));
+            _renderContent('profile'); _setTopbarFocus(false);
+        });
+        const games = body.querySelector('.nav-achievement-game-list');
+        if (games) games.scrollTop = state.gameScroll || 0;
+        body.querySelectorAll('[data-game-row]').forEach(button=>button.onclick=()=>{
+            const row = rows[Number(button.dataset.gameRow)];
+            state.gameScroll = games.scrollTop;
+            state.openGame = row.key;
+            if (row.steam?.total) _requestSteamAchievements(row.steam.AppId);
+            _renderContent('profile');
+            focus('back');
+            _contentItems[_contentIdx].dataset.enterTrophies = String(_steamAchievementRequest);
+        });
+        const backButton = body.querySelector('[data-steam-focus=back]');
+        if (backButton) backButton.onclick = () => {
+            closeDetail();
+            _renderContent('profile'); focus(selected.key);
+            const item = _contentItems[_contentIdx];
+            if (item.matches('[data-game-row]')) _revealInsideScrollContainer(item,item.parentElement);
+        };
+        body.querySelectorAll('[data-game-order]').forEach(button=>button.onclick=()=>{
+            state.gameOrder = button.dataset.gameOrder;
+            state.gameScroll = 0;
+            dialog?.close();
+            _renderContent('profile'); focus(compact ? body.querySelector('[data-game-row]')?.dataset.steamFocus || 'tab-gaming' : button.dataset.steamFocus);
+        });
+        body.querySelector('[data-steam-focus=connect]')?.addEventListener('click',()=>{
+            _initialAccountSection='connections'; _settingsSubView='account'; _preserveSettingsSubViewOnce=true; _selectCat(CATS.findIndex(cat=>cat.id==='settings')); _setTopbarFocus(false);
+        });
+        const list = body.querySelector('.nav-achievement-detail-list');
+        list?.addEventListener('scroll', () => {
+            if (list.isConnected && list.scrollHeight-list.clientHeight-list.scrollTop < list.clientHeight/2) _loadMoreTrophies();
+        }, {passive:true});
+        let previewTimer;
+        games?.addEventListener('focusin', event => {
+            clearTimeout(previewTimer);
+            const row = event.target.closest('[data-steam-game]');
+            if (!row) return;
+            previewTimer = setTimeout(() => {
+                if (!row.isConnected || document.activeElement !== row) return;
+                const id = Number(row.dataset.steamGame);
+                const game = state.games.find(game => game.AppId === id);
+                for (const item of game?.previewIcons || []) {
+                    const src = trophyImage(item, id);
+                    if (src) new Image().src = src;
+                }
+            }, 220);
+        });
+        (games||list)?.addEventListener('load', event => {
+            if (event.target.tagName === 'IMG') event.target.hidden = false;
+        }, true);
+        (games||list)?.addEventListener('error', event => {
+            if (event.target.tagName === 'IMG' && !event.target.closest('.nav-trophy-art')) event.target.hidden = true;
+        }, true);
+    }
+    function _navigateSteamAchievements(key, repeat) {
+        const active = _contentItems[_contentIdx];
+        const back = document.querySelector('[data-steam-focus=back]');
+        if ((key==='Escape' || key==='Backspace') && back) { back.click(); return true; }
+        if (!active || !key.startsWith('Arrow')) return false;
+        const direction = key.slice(5).toUpperCase();
+        const tabs = _contentItems.filter(item=>item.dataset.profileTab);
+        const edit = _contentItems.find(item=>item.dataset.steamFocus==='edit');
+        const content = _contentItems.filter(item=>!item.dataset.profileTab && item!==edit);
+        let target;
+        if (active===edit) {
+            if (direction==='UP') _setTopbarFocus(true);
+            if (direction==='DOWN') target=tabs.find(item=>item.classList.contains('is-active'));
+        } else if (tabs.includes(active)) {
+            if (direction==='UP') { if(edit){_contentIdx=_contentItems.indexOf(edit);_updateContentFocus();}else _setTopbarFocus(true); return true; }
+            target = direction==='DOWN'?(content.find(item=>item.dataset.gameOrder && item.getAttribute('aria-pressed')==='true') || content[0]):findSpatialCandidate(tabs,active,direction);
+        } else if (active.hasAttribute('data-game-row')) {
+            const games = active.parentElement.children;
+            const index = Number(active.dataset.gameRow);
+            const columns = getComputedStyle(active.parentElement).gridTemplateColumns.split(' ').length;
+            if (direction==='LEFT' && index%columns>0) target=games[index-1];
+            if (direction==='RIGHT' && index%columns<columns-1) target=games[index+1];
+            if (direction==='UP') target=games[index-columns] || content.find(item=>item.dataset.gameOrder && item.getAttribute('aria-pressed')==='true') || content.find(item=>item.dataset.steamFocus==='connect') || tabs.find(item=>item.classList.contains('is-active'));
+            if (direction==='DOWN' && Math.floor(index/columns)<Math.floor((games.length-1)/columns))
+                target=games[Math.min(index+columns,games.length-1)];
+        } else if (active.matches('.nav-achievement-item') && (direction==='UP' || direction==='DOWN')) {
+            const grid = active.parentElement;
+            const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+            const index = Number(active.dataset.steamFocus.slice('trophy-'.length));
+            if (direction==='UP') target = grid.children[index-columns] || back;
+            else if (Math.floor(index/columns) < Math.floor((grid.childElementCount-1)/columns))
+                target = grid.children[Math.min(index+columns,grid.childElementCount-1)];
+            if (direction==='DOWN' && index+2*columns>=grid.childElementCount) _loadMoreTrophies();
+        } else {
+            target = findSpatialCandidate(content,active,direction);
+            if (!target && direction==='UP') target = back && active!==back ? back : tabs.find(item=>item.dataset.profileTab==='gaming');
+            if (!target && direction==='DOWN' && !active.matches('[data-game-row],.nav-achievement-item'))
+                target=content.find(item=>item.matches('[data-game-row],.nav-achievement-item'));
+            if (active.matches('.nav-achievement-item') && _contentIdx>=_contentItems.length-5) _loadMoreTrophies();
+        }
+        if (target) {
+            _contentIdx=_contentItems.indexOf(target);
+            _updateContentFocus();
+            const list=target.closest('.nav-profile-grid');
+            if(list) {
+                const rapid = (direction==='UP' || direction==='DOWN') && (repeat || _libraryRapidNavigation);
+                _revealInsideScrollContainer(target,list,12,rapid);
+            }
+        }
+        return true;
+    }
+    let _profileCardReturn = null;
+    function _profileMediaPicture(id,highlight) {
+        const app = String(highlight.appId || '').toLowerCase();
+        const native = ['youtube','twitch','kick','netflix','primevideo','crunchyroll','max','appletv','disneyplus'].includes(app)
+            ? 'https://app.local/native-assets/'+app+'/grid-horizontal.'+(['youtube','kick'].includes(app)?'jpg':'png') : '';
+        const sources = [...new Set([...(highlight.artChain || []),highlight.art,highlight.hubBackdrop,native].filter(Boolean))];
+        const glyph = id==='film-series' ? '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4l3 5m3-5 3 5"/>'
+            : id==='music' ? '<path d="M9 18V6l10-2v12M9 8l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="16" cy="16" rx="3" ry="2"/>'
+            : '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="m10 9 5 3-5 3z"/>';
+        return `<span class="profile-media-picture"><svg viewBox="0 0 24 24" aria-hidden="true">${glyph}</svg>
+            ${sources.length?'<img alt="" loading="lazy" decoding="async" data-media-sources="'+_esc(JSON.stringify(sources))+'">':''}</span>`;
+    }
+    function _returnToProfileCard() {
+        if (!_profileCardReturn || _profileSubView !== _profileCardReturn.tab) return false;
+        const {id} = _profileCardReturn;
+        _profileCardReturn = null;
+        _profileSubView = null;
+        _renderContent('profile');
+        _contentIdx = Math.max(0,_contentItems.findIndex(item=>item.dataset.profileCard===id));
+        _setTopbarFocus(false);
+        return true;
+    }
+    function _renderProfileCards(body, tabs, library, fmtSeconds, today, media, trackingEnabled, adaptive) {
+        const labels = new Map(tabs);
+        const image = src => src ? '<img loading="lazy" decoding="async" alt="" src="'+_esc(src)+'">' : '';
+        const card = (id,title,content) => `<button type="button" tabindex="-1" class="nav-profile-card" data-profile-card="${id}">
+            <span class="profile-card-body">${content}</span><strong class="profile-card-label">${_esc(title)}</strong></button>`;
+        const highlights = media.filter(([,highlight])=>highlight);
+        const mediaCards = (adaptive || highlights.length ? highlights : [media[0]]).map(([id,highlight])=>{
+            const content = highlight
+                ? (adaptive?_profileMediaPicture(id,highlight):image(highlight.art)) + '<strong>'+_esc(highlight.title)+'</strong><small>'+_esc(highlight.meta)+'</small>'
+                : '<small>'+_esc(_t(trackingEnabled?'navNoCategoryActivity':'navHistoryPausedHint'))+'</small>';
+            return card(id,labels.get(id),content);
+        }).join('');
+        const activity = adaptive ? '' : today.slice(0,3).map(row=>`<li>${image(row.artChain?.[0])}<span>${_esc(row.title)}</span><small>${_esc(fmtSeconds(row.seconds))}</small></li>`).join('');
+        body.innerHTML = `<div class="nav-unified-profile${adaptive?' profile-standard':''}">
+            <header class="nav-unified-identity">${_profileIdentityMarkup()}
+                <button class="nav-unified-edit" id="btnEditProfileHub" tabindex="-1">${_esc(_t('navEditProfileBtn'))}</button></header>
+            <nav class="nav-unified-tabs" aria-label="${_esc(_t('navProfileSections'))}">
+                ${tabs.map(([id,label])=>`<button type="button" tabindex="-1" data-profile-tab="${id}" class="nav-unified-tab${id==='overview'?' is-active':''}">${_esc(label)}</button>`).join('')}</nav>
+            <div class="profile-card-scroll"><div class="profile-card-grid">
+                ${card('trophies',_t('steam.achievements'),'')}${card('gaming',_t('navMostPlayedGames'),'')}${mediaCards}
+            </div>${adaptive ? `<p class="profile-card-empty" hidden>${_esc(_t('navProfileSummaryEmpty'))}</p>` : `<section class="profile-card-activity"><h3>${_esc(_t('navTodayActivity'))}</h3>
+            ${activity?'<ul>'+activity+'</ul>':'<small>'+_esc(_t(trackingEnabled?'navNoActivityToday':'navHistoryPausedHint'))+'</small>'}</section>`}</div></div>`;
+        const buttons = [...body.querySelectorAll('[data-profile-tab]')];
+        const cards = [...body.querySelectorAll('[data-profile-card]')];
+        const edit = body.querySelector('#btnEditProfileHub');
+        _contentItems = [...buttons,...cards,edit];
+        _contentItems.forEach(item=>item.onmouseenter=()=>{
+            const index = _contentItems.indexOf(item);
+            if (index < 0) return;
+            _contentIdx = index;
+            _setTopbarFocus(false);
+        });
+        buttons.forEach((button,index)=>button.onclick=()=>{
+            if (button.dataset.profileTab==='overview') return;
+            _profileSubView = button.dataset.profileTab;
+            _renderProfileWithTransition('forward',index);
+        });
+        cards.forEach(button=>button.onclick=()=>{
+            const id = button.dataset.profileCard==='trophies' ? 'gaming' : button.dataset.profileCard;
+            _profileCardReturn = {id:button.dataset.profileCard,tab:id};
+            buttons.find(tab=>tab.dataset.profileTab===id)?.click();
+        });
+        edit.onclick = _openProfileEditor;
+        body.querySelector('.profile-card-scroll').addEventListener('error',event=>{
+            if (event.target.tagName==='IMG' && !event.target.hasAttribute('data-media-sources')) event.target.hidden=true;
+        },true);
+        body.querySelectorAll('img[data-media-sources]').forEach(img=>{
+            const sources = JSON.parse(img.dataset.mediaSources);
+            const advance = () => {
+                if (sources.length) img.src=sources.shift();
+                else img.hidden=true;
+            };
+            img.addEventListener('error',advance);
+            advance();
+        });
+        _bindProfileFavorites(body,library,fmtSeconds,(ranked,state)=>{
+            const previous = _contentItems[_contentIdx];
+            const hadFocus = previous === document.activeElement;
+            const top = ranked.filter(game=>game.minutes>0).slice(0,3);
+            const libraryPreview = adaptive && !top.length
+                ? (_menuData.games || []).filter(item=>item?.Name).slice(0,3).map(item=>({
+                    name:item.Name,art:item.GridHorizontalStaticImage || item.GridHorizontalImage || item.GridStaticImage || item.GridImage
+                })) : [];
+            const games = top.length ? top : libraryPreview;
+            cards[1].lastElementChild.textContent = _t(libraryPreview.length?'navProfileLibrarySize':'navMostPlayedGames');
+            cards[1].firstElementChild.innerHTML = games.map(game=>`<span class="profile-card-game">${image(_profileGameArt(game))}<span>${adaptive?'<strong>'+_esc(game.name)+'</strong>':_esc(game.name)}${game.minutes ? '<small>'+fmtSeconds(game.minutes*60)+'</small>' : ''}</span></span>`).join('')
+                || '<small>'+_esc(_t('navGameHistoryEmpty'))+'</small>';
+            const known = Number.isSafeInteger(state.achievementCount);
+            if (!adaptive) {
+                cards[0].firstElementChild.innerHTML = '<span class="profile-card-cup">'+_trophySvg('gold')+'</span>'
+                + (known?'<b>'+state.achievementCount.toLocaleString()+'</b>'+_steamSummaryMarkup()
+                    : '<small>'+_esc(_t('steam.noTrophies'))+'</small>');
+                return;
+            }
+            if (known && state.achievementCount>0) {
+                cards[0].firstElementChild.innerHTML = _steamSummaryMarkup(state.completedGames>0);
+                cards[0].lastElementChild.textContent = _t('navProfileAchievementTotal','',state.achievementCount);
+            }
+            cards[0].hidden = !(known && state.achievementCount>0);
+            cards[1].hidden = !games.length;
+            const visible = cards.filter(button=>!button.hidden);
+            body.querySelector('.profile-card-empty').hidden = visible.length>0;
+            _contentItems = [...buttons,...visible,edit];
+            _contentIdx = Math.max(0,_contentItems.indexOf(previous));
+            if (hadFocus && previous.hidden) _updateContentFocus();
+        });
+    }
     // ── Renderização Central ──────────────────────────────────────────────────
     function _clearProfileOverviewCarousel() {
         if (!_profileOverviewCarouselTimer) return;
@@ -5061,6 +5890,7 @@ window.isNavMenuOpen = false;
         _profileTabTransitionDirection = direction;
         const hadTopbarFocus = _topbarFocus;
         const update = () => {
+            if (!window.isNavMenuOpen || CATS[_catIdx]?.id !== 'profile') return;
             _renderContent('profile');
             _contentIdx = Math.max(0, Math.min(_contentItems.length - 1, focusIndex));
             if (!hadTopbarFocus) {
@@ -5103,6 +5933,8 @@ window.isNavMenuOpen = false;
             _profileOverviewAdvance = null;
         }
         _overlay?.classList.toggle('settings-ambient-active', id === 'settings');
+        const header = document.getElementById('navHeaderWrap');
+        if (id === 'settings' && header) header.style.display = _settingsSubView === 'account' ? 'none' : 'block';
         body.classList.toggle('profile-showcase-active', id === 'profile' && _profileSubView !== 'history');
         body.classList.toggle('settings-home-active', id === 'settings' && !_settingsSubView);
         body.classList.toggle('theme-settings-active', id === 'settings' && _settingsSubView === 'themes');
@@ -5228,17 +6060,63 @@ window.isNavMenuOpen = false;
         document.head.appendChild(style);
     }
 
+    function _openProfileEditor() {
+        _catIdx = CATS.findIndex(cat => cat.id === 'settings');
+        _settingsSubView = 'account';
+        document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
+        _updateTopbarFocusVisual();
+        _contentIdx = 0;
+        const headerWrap = document.getElementById('navHeaderWrap');
+        if (headerWrap) headerWrap.style.display = 'block';
+        document.getElementById('navContentTitle').textContent = CATS[_catIdx].label;
+        document.getElementById('navContentSub').textContent = _subtitle('settings');
+        _renderContent('settings');
+        const back = document.getElementById('setBack');
+        if (back) back.dataset.returnToProfile = 'true';
+        _setTopbarFocus(false);
+    }
+
+    function _profileLibraryRanking(games) {
+        // Reconcile each game first, then sum the unique games for the profile.
+        const gameTotals = new Map();
+        const identities = new Map();
+        const nameKey = item => String(item.Name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+        const steamId = item => Number(item.SteamAppId) || Number(String(item.LaunchUrl || '').match(/^steam:\/\/(?:run|rungameid)\/(\d+)/i)?.[1]) || 0;
+        for (const item of [...(_menuData.history || []), ...games]) if (steamId(item)) {
+            const key = nameKey(item), id = steamId(item);
+            identities.set(key, identities.has(key) && identities.get(key) !== id ? null : id);
+        }
+        for (const item of [...(_menuData.history || []), ...games]) {
+            if (!item?.Name || !(Number(item.TotalPlaytimeMinutes) >= 1)) continue;
+            const id = steamId(item) || identities.get(nameKey(item));
+            const key = id ? `steam:${id}` : `name:${nameKey(item)}`;
+            const previous = gameTotals.get(key);
+            if (!previous || Number(item.TotalPlaytimeMinutes) > Number(previous.TotalPlaytimeMinutes)) gameTotals.set(key, item);
+        }
+        return {gameTotals, identities, steamId, nameKey};
+    }
+
     function _renderProfile(body) {
         _ensureUnifiedProfileStyles();
+        // Read the visual package's preferred entry before building an expensive overview.
+        const probe = document.createElement('div');
+        probe.className = 'nav-unified-profile';
+        body.append(probe);
+        const entry = getComputedStyle(probe).getPropertyValue('--profile-entry').trim() || 'standard';
+        const gamesFirst = entry === 'games';
+        probe.remove();
+        if (gamesFirst && !_profileSubView) {
+            _profileSubView = 'gaming';
+            _steamView().openGame = null;
+        }
         const prof = _menuData.user || {};
         const games = _menuData.games || [];
-        const gameHistory = (_menuData.history || []).filter(item => item?.Name && Number(item.TotalPlaytimeMinutes) >= 1);
-        const mediaHistory = (_menuData.mediaHistory || []).filter(item => item?.ContentTitle && Number(item.TotalPlaybackSeconds) >= 1);
+        const {gameTotals, identities, steamId, nameKey} = _profileLibraryRanking(games);
+        const gameHistory = [...gameTotals.values()];
+        const mediaHistory = (_menuData.mediaHistory || []).filter(item => item?.ContentTitle && !item.PermanentlyExcluded && Number(item.TotalPlaybackSeconds) >= 1);
         const mediaApps = _menuData.media || [];
         const tab = ['gaming', 'film-series', 'streaming', 'music'].includes(_profileSubView) ? _profileSubView : 'overview';
         const trackingEnabled = prof.ApplicationHistoryEnabled !== false && prof.applicationHistoryEnabled !== false;
-        const name = prof.Name || 'Doorpi';
-        const photo = prof.PhotoBase64 || '';
 
         const fmtSeconds = value => {
             const total = Math.max(0, Math.round(Number(value) || 0));
@@ -5248,6 +6126,28 @@ window.isNavMenuOpen = false;
             if (!hours) return `${minutes} min`;
             return `${hours}h ${String(minutes).padStart(2, '0')}min`;
         };
+        const gamingTime = () => {
+            const minutes = new Map([...gameTotals].map(([id,game])=>[id,Number(game.TotalPlaytimeMinutes)||0]));
+            for (const game of _steamView().games) {
+                const id = 'steam:'+game.AppId;
+                minutes.set(id,Math.max(minutes.get(id)||0,game.PlaytimeMinutes||0));
+            }
+            return fmtSeconds([...minutes.values()].reduce((sum,value)=>sum+value,0)*60);
+        };
+        if (_profileSubView === 'gaming') {
+            const library = new Map(gameTotals);
+            for (const item of [...games,...(_menuData.history || [])]) {
+                if (!item?.Name) continue;
+                const id = steamId(item) || identities.get(nameKey(item));
+                const key = id ? 'steam:'+id : 'name:'+nameKey(item);
+                const entry = library.get(key);
+                if (!entry) library.set(key,item);
+                else if ((Date.parse(item.LastPlayed)||0) > (Date.parse(entry.LastPlayed)||0))
+                    library.set(key,{...entry,LastPlayed:item.LastPlayed});
+            }
+            _renderProfileGames(body,library,fmtSeconds,entry);
+            return;
+        }
         const relDate = value => {
             const time = new Date(value || 0).getTime();
             if (!Number.isFinite(time) || time <= 0) return '';
@@ -5321,7 +6221,6 @@ window.isNavMenuOpen = false;
             const fallbacks = encodeURIComponent(JSON.stringify(candidates.slice(1)));
             return `${fallback}<img${imageClass ? ` class="${_esc(imageClass)}"` : ''} src="${_esc(candidates[0])}" data-art-fallbacks="${_esc(fallbacks)}"${lazy ? ' loading="lazy" decoding="async"' : ''} alt="" />`;
         };
-        const gameMinutes = gameHistory.reduce((sum, item) => sum + (Number(item.TotalPlaytimeMinutes) || 0), 0);
         const mediaSeconds = mediaHistory.reduce((sum, item) => sum + (Number(item.TotalPlaybackSeconds) || 0), 0);
         const films = mediaHistory.filter(item => item.Category === 'film-series');
         const streams = mediaHistory.filter(item => item.Category === 'live' || item.Category === 'video');
@@ -5461,7 +6360,8 @@ window.isNavMenuOpen = false;
             seconds:group.seconds,
             date:group.latest?.LastPlayed,
             artChain:mediaArtChain(group.latest),
-            platform:appName(group.latest?.AppId)
+            platform:appName(group.latest?.AppId),
+            source:group.latest
         }));
         const streamRows = [...streams.reduce((map, item) => {
             const title = String(item.CreatorName || item.ContentTitle || appName(item.AppId)).trim();
@@ -5479,20 +6379,12 @@ window.isNavMenuOpen = false;
             ...item,
             sub:[...item.platforms].join(' · '),
             platform:appName(item.latest?.AppId),
+            source:item.latest,
             artChain:mediaArtChain(item.latest)
         }));
         const musicRows = mediaRows(music);
 
-        if (tab === 'gaming') {
-            if (gameHighlight) hero = { ...gameHighlight, kicker:_t('navStatMostPlayed','Mais jogado') };
-            rows = gameRows.sort((a,b) => b.seconds - a.seconds);
-            sectionTitle = _t('navMostPlayedGames', 'Mais jogados');
-            stats = [
-                [_t('navStatGames','Jogos na biblioteca'), String(games.length)],
-                [_t('navStatTime','Tempo jogado'), fmtSeconds(gameMinutes * 60)],
-                [_t('navLastPlayed','Último jogado'), latestGame?.Name || '--', true]
-            ];
-        } else if (tab === 'film-series') {
+        if (tab === 'film-series') {
             if (filmHighlight) hero = filmHighlight;
             rows = filmRows.sort((a,b) => b.seconds - a.seconds);
             sectionTitle = _t('navMostWatchedTitles', 'Mais assistidos');
@@ -5536,7 +6428,7 @@ window.isNavMenuOpen = false;
             const latestMediaToday = isToday(latestMedia?.LastPlayed) ? latestMedia : null;
             const latestIsMedia = new Date(latestMediaToday?.LastPlayed || 0) > new Date(latestGameToday?.LastPlayed || 0);
             stats = [
-                [_t('navGamingTime','Tempo em jogos'), fmtSeconds(gameMinutes * 60)],
+                [_t('navGamingTime'), gamingTime()],
                 [_t('navWatchTime','Tempo assistido'), fmtSeconds(mediaSeconds)],
                 [_t('navLastActivity','Última atividade'), (latestIsMedia ? mediaActivityLabel(latestMediaToday) : latestGameToday?.Name) || '--', true]
             ];
@@ -5552,14 +6444,20 @@ window.isNavMenuOpen = false;
             else element.style.removeProperty('--twitch-channel-backdrop');
         };
         const tabs = [
-            ['overview', _t('navProfileOverview','Visão geral')],
+            ...(gamesFirst ? [] : [['overview', _t('navProfileOverview','Visão geral')]]),
             ['gaming', _t('navGames','Jogos')],
             ['film-series', _t('navFilmsSeries','Filmes e séries')],
             ['streaming', _t('navStreamingVideos','Ao vivo e vídeos')],
             ['music', _t('navMusic','Música')]
         ];
+        if ((entry === 'cards' || entry === 'standard') && tab === 'overview') {
+            _renderProfileCards(body, tabs, gameTotals, fmtSeconds, rows, [
+                ['film-series', filmHighlight], ['streaming', streamHighlight], ['music', musicHighlight]
+            ], trackingEnabled, entry === 'standard');
+            return;
+        }
         const rowHtml = rows.map((item, index) => `
-            <div class="nav-unified-row${index === 0 ? ' is-current' : ''}" data-profile-recent-index="${index}" role="option" aria-selected="${index === 0 ? 'true' : 'false'}">
+            <div class="nav-unified-row${index === 0 ? ' is-current' : ''}" data-profile-recent-index="${index}"${item.source ? ` data-media-history="true" data-media-history-app-id="${_esc(item.source.AppId)}" data-media-history-title="${_esc(item.source.ContentTitle)}" data-media-history-creator="${_esc(item.source.CreatorName || '')}" data-media-history-category="${_esc(item.source.Category || '')}" data-media-history-series-title="${_esc(item.source.SeriesTitle || '')}"` : ''} role="option" aria-selected="${index === 0 ? 'true' : 'false'}">
                 <span class="nav-unified-row-art">${artImage(item.artChain, true, item.platform)}</span>
                 <span class="nav-unified-row-copy"><strong>${_esc(item.title)}</strong><small>${_esc(item.sub || '')}</small></span>
                 <span class="nav-unified-row-time"><strong>${fmtSeconds(item.seconds)}</strong><small>${relDate(item.date)}</small></span>
@@ -5573,20 +6471,25 @@ window.isNavMenuOpen = false;
             : ` is-entering-${_profileTabTransitionDirection}`;
 
         body.innerHTML = `
-            <div class="nav-unified-profile${profileEntryClass}" style="--profile-accent:${accent}">
+            <div class="nav-unified-profile${entry==='standard'?' profile-standard':''}${profileEntryClass}" style="--profile-accent:${accent}">
                 <header class="nav-unified-identity">
-                    <div class="nav-unified-avatar">${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" alt="" />` : '◎'}</div>
-                    <div class="nav-unified-name"><h2>${_esc(name)}</h2></div>
+                    ${_profileIdentityMarkup()}
                     <button class="nav-unified-edit" id="btnEditProfileHub" tabindex="-1">${_t('navEditProfileBtn','Editar perfil')}</button>
                 </header>
                 <nav class="nav-unified-tabs" aria-label="${_t('navProfileSections','Seções do perfil')}">${tabs.map(([id,label]) => `<button class="nav-unified-tab${tab === id ? ' is-active' : ''}" data-profile-tab="${id}" tabindex="-1">${label}</button>`).join('')}</nav>
                 <div class="nav-unified-main">
                     <section class="nav-unified-hero${hero.isEmpty ? ' is-empty' : ''}${heroCarouselEnabled ? ' is-carousel' : ''}${hero.channelHub ? ' is-twitch-channel' : ''}"${heroCarouselEnabled ? ` id="btnProfileHero" role="button" aria-label="${_esc(_profileOverviewCarouselPaused ? _t('navPlayHighlights','Retomar troca automática') : _t('navPauseHighlights','Pausar troca automática'))}" tabindex="-1"` : ''}>${artImage(hero.artChain?.length ? hero.artChain : [hero.art].filter(Boolean), false, hero.appId ? appName(hero.appId) : _t('navGames','Jogos'), hero.channelHub ? 'is-channel-avatar' : '')}<div class="nav-unified-hero-copy"><span class="nav-unified-kicker">${_esc(hero.kicker)}</span><h3>${_esc(hero.title)}</h3><span class="nav-unified-hero-meta">${_esc(hero.meta)}</span></div>${heroPager}</section>
-                    <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong>${tab === 'gaming' && gameHistory.length ? `<button class="nav-unified-journey" id="btnGameHistory" tabindex="-1">${_t('navGameHistoryBtn','Ver jornada')}</button>` : ''}</div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
+                    <aside class="nav-unified-recent"${rows.length ? ` id="btnProfileRecent" role="listbox" aria-label="${_esc(sectionTitle)}" tabindex="-1"` : ''}><div class="nav-unified-section-head"><strong>${sectionTitle}</strong></div><div class="nav-unified-list">${rowHtml || `<div class="nav-unified-empty">${tab === 'overview' && trackingEnabled ? _t('navNoActivityToday','Nenhuma atividade hoje.') : trackingEnabled || tab === 'gaming' ? _t('navNoCategoryActivity','Nenhuma atividade nesta categoria ainda.') : _t('navHistoryPausedHint','A coleta está pausada nas configurações do perfil.')}</div>`}</div></aside>
                 </div>
                 <footer class="nav-unified-stats">${stats.map(([label,value,compact]) => `<div class="nav-unified-stat${compact ? ' is-compact' : ''}"><small>${label}</small><strong>${_esc(value)}</strong></div>`).join('')}</footer>
             </div>`;
 
+        if (tab === 'overview') {
+            const time = body.querySelector('.nav-unified-stat strong');
+            time.dataset.profileGamingTime = '';
+            time.refreshGamingTime = () => {time.textContent = gamingTime();};
+        }
+        _bindProfileFavorites(body,gameTotals,fmtSeconds);
         applyChannelBackdrop(body.querySelector('.nav-unified-hero'), hero);
 
         const bindArtFallback = image => {
@@ -5604,11 +6507,9 @@ window.isNavMenuOpen = false;
         const heroButton = body.querySelector('#btnProfileHero');
         const recent = body.querySelector('#btnProfileRecent');
         const edit = body.querySelector('#btnEditProfileHub');
-        const journey = body.querySelector('#btnGameHistory');
         if (heroButton) _contentItems.push(heroButton);
         if (recent) _contentItems.push(recent);
         if (edit) _contentItems.push(edit);
-        if (journey) _contentItems.push(journey);
         if (recent) {
             const recentRows = [...recent.querySelectorAll('.nav-unified-row')];
             const recentList = recent.querySelector('.nav-unified-list');
@@ -5635,6 +6536,13 @@ window.isNavMenuOpen = false;
             };
             recent._profileRecentStep = direction => selectRecent(recentIndex + direction);
             recent._profileRecentAtStart = () => recentIndex <= 0;
+            recent._profileRecentActive = () => recentRows[recentIndex] || null;
+            recentRows.forEach(row => row.addEventListener('contextmenu', event => {
+                if (!row.dataset.mediaHistory) return;
+                event.preventDefault();
+                const rect = row.getBoundingClientRect();
+                window._ctxMenuOpen?.(row, rect.right + 2, rect.top);
+            }));
         }
         if (heroButton) {
             let requestedHeroIndex = _profileOverviewHeroIndex;
@@ -5796,6 +6704,8 @@ window.isNavMenuOpen = false;
             _profileOverviewAdvance = null;
         }
         body.querySelectorAll('.nav-unified-tab').forEach(button => button.addEventListener('click', () => {
+            if (button.dataset.profileTab === tab) return;
+            _profileCardReturn = null;
             const currentTabIndex = tabs.findIndex(([id]) => id === tab);
             const nextTabIndex = tabs.findIndex(([id]) => id === button.dataset.profileTab);
             const direction = nextTabIndex < currentTabIndex ? 'back' : 'forward';
@@ -5803,25 +6713,7 @@ window.isNavMenuOpen = false;
             _contentIdx = nextTabIndex;
             _renderProfileWithTransition(direction, nextTabIndex);
         }));
-        edit?.addEventListener('click', () => {
-            _catIdx = CATS.findIndex(cat => cat.id === 'settings');
-            _settingsSubView = 'accountHub';
-            document.querySelectorAll('.nav-cat-item').forEach((el, i) => el.classList.toggle('active', i === _catIdx));
-            _updateTopbarFocusVisual();
-            _contentIdx = 0;
-            const headerWrap = document.getElementById('navHeaderWrap');
-            if (headerWrap) headerWrap.style.display = 'block';
-            document.getElementById('navContentTitle').textContent = CATS[_catIdx].label;
-            document.getElementById('navContentSub').textContent = _subtitle('settings');
-            _renderContent('settings');
-            _setTopbarFocus(false);
-        });
-        journey?.addEventListener('click', () => {
-            _profileSubView = 'history';
-            _contentIdx = 0;
-            _renderContent('profile');
-            _setTopbarFocus(false);
-        });
+        edit?.addEventListener('click', _openProfileEditor);
         if (tab === 'overview') {
             overviewHighlights.forEach((item, index) => {
                 if (index === _profileOverviewHeroIndex) return;
@@ -6140,6 +7032,8 @@ window.isNavMenuOpen = false;
     }
 
     function _findHistoryItem(element) {
+        const id = element?.dataset?.historyGameId || '';
+        if (id) return (_menuData.history || []).find(entry => String(entry?.Id || '') === id) || null;
         const name = element?.dataset?.historyGameName || '';
         return (_menuData.history || []).find(entry =>
             String(entry?.Name || '').localeCompare(name, undefined, { sensitivity: 'base' }) === 0);
@@ -6175,9 +7069,10 @@ window.isNavMenuOpen = false;
         _contentItems = [back];
 
         back?.addEventListener('click', () => {
-            _profileSubView = null;
+            _profileSubView = 'gaming';
             _contentIdx = 0;
             _renderContent('profile');
+            _contentIdx = Math.max(0,_contentItems.findIndex(item=>item.id==='btnGameHistory'));
             _setTopbarFocus(false);
         });
 
@@ -6194,6 +7089,7 @@ window.isNavMenuOpen = false;
                 row.tabIndex = -1;
                 row.className = 'nav-profile-history-row';
                 row.dataset.historyGameName = item.Name;
+                if (item.Id) row.dataset.historyGameId = item.Id;
                 row.innerHTML = `
                     <span class="nav-profile-history-art">
                         ${image ? `<img src="${_esc(image)}" alt="" />` : icon ? `<img class="is-icon" src="${_esc(icon)}" alt="" />` : ''}
@@ -6224,6 +7120,10 @@ window.isNavMenuOpen = false;
     }
 
     // ── Novo Hub de Configurações ─────────────────────────────────────────────
+    const svgControls = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="M8 6.5h8c2.6 0 4.1 1.6 4.7 4.3l1 4.5c.6 2.8-1.8 4.2-3.7 2.4L15.5 15h-7L6 17.7c-1.9 1.8-4.3.4-3.7-2.4l1-4.5C3.9 8.1 5.4 6.5 8 6.5Z"/>
+        <path d="M6.5 10.8h3m-1.5-1.5v3"/><g fill="currentColor" stroke="none"><circle cx="15.5" cy="11.7" r=".9"/><circle cx="18" cy="9.9" r=".9"/></g>
+    </svg>`;
     function _renderSettingsLegacy(body) {
         if (_settingsSubView === 'accountHub') { _renderSettingsAccountHub(body); return; }
         if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
@@ -6236,7 +7136,6 @@ window.isNavMenuOpen = false;
         if (_settingsSubView === 'sound') { _renderSettingsSound(body); return; }
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
         const svgSys = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
-        const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
         const svgExt = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`;
 
         body.innerHTML = `
@@ -6312,7 +7211,6 @@ window.isNavMenuOpen = false;
         }
 
         const svgUser = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
-        const svgControls = window.DoorpiControls?.controllerIcon?.('nav-settings-controller-svg') || `<svg viewBox="0 0 24 18" fill="currentColor" fill-opacity=".34" stroke="currentColor" stroke-width="1.4"><path d="M4 5h16c2.3 0 3.8 2.4 3 4.5l-1.5 4a2 2 0 0 1-3.2.8L16 12H8l-2.3 2.3a2 2 0 0 1-3.2-.8l-1.5-4C.2 7.4 1.7 5 4 5Z"/></svg>`;
         const svgDevices = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.2" width="9.4" height="13.6" rx="2.1"/><circle cx="7.7" cy="14.1" r="2.15"/><circle cx="7.7" cy="9.1" r=".72" fill="currentColor" stroke="none"/><path d="M16.5 6.2v11.6l3.6-3.6-3.6-2.2 3.6-2.2-3.6-3.6Z"/></svg>`;
         const svgPower = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>`;
         const svgStorage = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="8" ry="3.5"/><path d="M4 5.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/><path d="M4 11.5v6c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-6"/></svg>`;
@@ -6448,8 +7346,8 @@ window.isNavMenuOpen = false;
             _settingsReturnToRoot = true;
             _settingsSubView = 'system';
             _systemSubView = detail;
-            if (detail === 'updates') _systemUpdatesSubView = 'doorpi';
-            _contentIdx = 0;
+            if (detail === 'updates') _systemUpdatesSubView = 'hub';
+            _contentIdx = detail === 'updates' ? 1 : 0;
             _renderContent('settings');
             _updateContentFocus();
         };
@@ -6522,37 +7420,16 @@ window.isNavMenuOpen = false;
         const startBtn = document.getElementById('navCardStartUpdate');
 
         const hasUpdate = !!(status.doorpiUpdateAvailable || status.updaterUpdateAvailable);
-        const isChecking = status.status === 'checking';
-        const isError = status.status === 'error';
-        const isNotConfigured = status.status === 'not-configured';
+        const busy = ['checking','downloading','installing'].includes(status.status);
         const tabState = document.getElementById('updatesTabDoorpiState');
 
-        if (tabState) {
-            tabState.textContent = status.forceUpdate
-                ? 'Atualização obrigatória'
-                : isChecking
-                    ? 'Verificando agora'
-                    : hasUpdate
-                        ? 'Atualização disponível'
-                        : isError
-                            ? 'Falha na verificação'
-                            : isNotConfigured
-                                ? 'Configuração necessária'
-                                : 'Sistema atualizado';
-        }
-
+        const phase = { checking:'quickChecking', downloading:'windowsUpdateDownloading', installing:'windowsUpdateInstalling',
+            error:'quickError', 'not-configured':'updateSetupNeeded' }[status.status];
+        const stateLabel = phase ? _t(phase) : status.forceUpdate ? _t('updateRequired') : hasUpdate ? _t('quickAvailable') :
+            _t(status.lastCheckedAt ? 'quickUpdated' : 'updateUnchecked');
+        if (tabState) tabState.textContent = stateLabel;
         if (badge) {
-            badge.textContent = status.forceUpdate
-                ? 'OBRIGATORIA'
-                : isChecking
-                    ? 'VERIFICANDO'
-                    : hasUpdate
-                        ? 'DISPONÍVEL'
-                        : isError
-                            ? 'ERRO'
-                            : isNotConfigured
-                                ? 'CONFIGURAR'
-                                : 'ATUALIZADO';
+            badge.textContent = stateLabel;
             badge.dataset.state = status.status || 'idle';
         }
 
@@ -6567,11 +7444,11 @@ window.isNavMenuOpen = false;
         }
 
         if (versions) {
-            const remoteDoorpi = status.remoteDoorpiVersion ? ` -> ${status.remoteDoorpiVersion}` : '';
-            const remoteUpdater = status.remoteUpdaterVersion ? ` -> ${status.remoteUpdaterVersion}` : '';
+            const remoteDoorpi = status.doorpiUpdateAvailable && status.remoteDoorpiVersion ? ` → ${_esc(status.remoteDoorpiVersion)}` : '';
+            const remoteUpdater = status.updaterUpdateAvailable && status.remoteUpdaterVersion ? ` → ${_esc(status.remoteUpdaterVersion)}` : '';
             versions.innerHTML = `
-                <span>Doorpi ${status.localDoorpiVersion || '--'}${remoteDoorpi}</span>
-                <span>Updater ${status.localUpdaterVersion || '--'}${remoteUpdater}</span>
+                <span>Doorpi ${_esc(status.localDoorpiVersion || '—')}${remoteDoorpi}</span>
+                ${status.updaterUpdateAvailable ? `<span>Updater ${_esc(status.localUpdaterVersion || '—')}${remoteUpdater}</span>` : ''}
             `;
         }
 
@@ -6596,6 +7473,7 @@ window.isNavMenuOpen = false;
         }
 
         if (startBtn) {
+            startBtn.disabled = busy;
             startBtn.classList.toggle('visible', hasUpdate);
             startBtn.style.display = hasUpdate ? '' : 'none';
         }
@@ -6754,7 +7632,7 @@ window.isNavMenuOpen = false;
                 <button id="theme-group-system" data-theme-group="system" class="theme-area" tabindex="-1">Temas do sistema</button>
                 <button id="theme-area-login" data-theme-area="login" class="theme-area" tabindex="-1">Tela de Perfis</button>
             </div>
-            <div class="theme-settings-areas theme-settings-modules" role="group" aria-label="Módulos do sistema">${[['system','Temas'],['home','Home'],['nav-menu','Menu principal'],['side-panels','Menus laterais'],['popups','Popups']].map(([id,label])=>`<button id="theme-area-${id}" data-theme-area="${id}" class="theme-area" tabindex="-1">${label}</button>`).join('')}</div>
+            <div class="theme-settings-areas theme-settings-modules" role="group" aria-label="Módulos do sistema">${[['system','Temas'],['home','Home'],['nav-menu','Menu principal'],['profile',_t('navProfile')],['side-panels','Menus laterais'],['popups','Popups']].map(([id,label])=>`<button id="theme-area-${id}" data-theme-area="${id}" class="theme-area" tabindex="-1">${label}</button>`).join('')}</div>
             <p class="theme-settings-description" id="themeSettingsOwner"></p>
             <div class="theme-settings-status-row"><p id="themeSettingsStatus" class="theme-settings-status" role="status" aria-live="polite"></p><button id="themeSettingsRetry" class="nav-back-btn" tabindex="-1" hidden>Tentar novamente</button></div>
             <div id="themeSettingsList" class="theme-settings-list" role="group" aria-label="Temas instalados"></div>
@@ -6837,7 +7715,7 @@ window.isNavMenuOpen = false;
     }
     window.addEventListener('doorpi:theme-selection-state', _refreshThemeSettings);
 
-    function _themeSettingsLineTarget(items, current, direction) {
+    function _navLineTarget(items, current, direction) {
         const origin = current.getBoundingClientRect();
         const x = origin.left + origin.width / 2, y = origin.top + origin.height / 2;
         const sign = direction === 'UP' ? -1 : 1;
@@ -6865,16 +7743,16 @@ window.isNavMenuOpen = false;
             if(key==='ArrowDown')target=rows[Math.min(rows.length-1,index+1)];
         }else if(headers.includes(current)){
             if(key==='ArrowUp'){
-                target=_themeSettingsLineTarget(headers,current,'UP');
+                target=_navLineTarget(headers,current,'UP');
                 if(!target){_setTopbarFocus(true);return true;}
-            }else if(key==='ArrowDown')target=_themeSettingsLineTarget(headers,current,'DOWN')||_themeSettingsLineTarget(areas,current,'DOWN')||selected;
+            }else if(key==='ArrowDown')target=_navLineTarget(headers,current,'DOWN')||_navLineTarget(areas,current,'DOWN')||selected;
             else target=findSpatialCandidate(headers,current,direction);
         }else if(areas.includes(current)){
-            if(key==='ArrowUp')target=_themeSettingsLineTarget(areas,current,'UP')||_themeSettingsLineTarget(headers,current,'UP');
-            else if(key==='ArrowDown')target=_themeSettingsLineTarget(areas,current,'DOWN')||retry||selected;
+            if(key==='ArrowUp')target=_navLineTarget(areas,current,'UP')||_navLineTarget(headers,current,'UP');
+            else if(key==='ArrowDown')target=_navLineTarget(areas,current,'DOWN')||retry||selected;
             else target=findSpatialCandidate(areas,current,direction);
         }else if(current===retry){
-            if(key==='ArrowUp')target=_themeSettingsLineTarget(areas,current,'UP');
+            if(key==='ArrowUp')target=_navLineTarget(areas,current,'UP');
             else if(key==='ArrowDown')target=selected;
         }
         if(target){_contentIdx=_contentItems.indexOf(target);_updateContentFocus();}
@@ -7189,30 +8067,13 @@ window.isNavMenuOpen = false;
         const hasUpdates = updates.length > 0;
         const tabState = document.getElementById('updatesTabWindowsState');
 
-        if (tabState) {
-            tabState.textContent = status.rebootRequired
-                ? 'Reinício pendente'
-                : active
-                    ? 'Atualização em andamento'
-                    : hasUpdates
-                        ? `${updates.length} atualização(ões)`
-                        : status.status === 'error'
-                            ? 'Falha na verificação'
-                            : 'Windows atualizado';
-        }
-
+        const stateKey = status.rebootRequired ? 'quickRestart' :
+            { checking:'quickChecking', downloading:'windowsUpdateDownloading', installing:'windowsUpdateInstalling',
+              error:'quickError', 'access-denied':'quickError' }[status.status] ||
+            (hasUpdates ? 'quickAvailable' : status.lastCheckedAt ? 'quickUpdated' : 'updateUnchecked');
+        if (tabState) tabState.textContent = _t(stateKey);
         if (badge) {
-            badge.textContent = status.rebootRequired
-                ? _t('restartNow', 'Reiniciar agora').toUpperCase()
-                : active
-                    ? _t('windowsUpdateProcessing', 'PROCESSANDO')
-                    : hasUpdates
-                        ? _t('windowsUpdateAvailable', 'DISPONÍVEL')
-                        : status.status === 'error'
-                            ? 'ERRO'
-                            : status.status === 'access-denied'
-                                ? 'WINDOWS'
-                                : _t('windowsUpdateUpdated', 'ATUALIZADO');
+            badge.textContent = _t(stateKey);
             badge.dataset.state = status.status || 'idle';
         }
 
@@ -7300,11 +8161,11 @@ window.isNavMenuOpen = false;
 
         if (tabState) {
             tabState.textContent = status.status === 'error'
-                ? 'Falha na detecção'
+                ? _t('quickError')
                 : !adapters.length
-                    ? 'Nenhuma GPU detectada'
+                    ? _t('quickNoGpu')
                     : !updaters.length
-                        ? 'Atualizador não configurado'
+                        ? _t('quickNoApp')
                         : `${updaters.length} atualizador(es)`;
         }
 
@@ -7428,6 +8289,7 @@ window.isNavMenuOpen = false;
         });
     }
 
+    let _initialAccountSection = 'identity';
     function _renderSettingsAccount(body) {
         if (!document.getElementById('nav-account-styles')) {
             const s = document.createElement('style');
@@ -7479,7 +8341,8 @@ window.isNavMenuOpen = false;
         let apiConfigured = !!(_menuData.user.HasSteamGridApiKey || _menuData.user.hasSteamGridApiKey);
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
         let applicationHistoryEnabled = _menuData.user.ApplicationHistoryEnabled !== false && _menuData.user.applicationHistoryEnabled !== false;
-        const photo = _menuData.user.PhotoBase64 || '';
+        const user = _menuData.user;
+        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64 || '';
 
         const maskApi = () => apiConfigured
             ? _t('navApiConfigured', 'Chave configurada')
@@ -7539,24 +8402,26 @@ window.isNavMenuOpen = false;
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBack" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetAccount', 'Conta e Perfil')}</h2>
+                <h2>${_t('navEditProfileBtn')}</h2>
             </div>
             
             <div class="nav-profile-dashboard">
                 <div class="nav-profile-avatar-sec">
-                    <button class="nav-profile-photo" id="navProfilePhoto" tabindex="-1">
+                    <h3>${_t('profileAppearance')}</h3>
+                    <div class="nav-editor-preview"><img class="nav-editor-cover" alt="" hidden>
+                    <div class="nav-profile-photo" id="navProfilePhoto">
                         ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
-                    </button>
-                    <span class="nav-account-identity-kicker">${_t('navAvatarChange', 'Alterar avatar')}</span>
+                    </div>
+
                     <strong class="nav-account-identity-name">${_esc(pendingName || _t('navSetAccount', 'Perfil'))}</strong>
-                    <span class="nav-account-identity-help">Sua identidade no Doorpi, preferências de segurança e sincronização ficam reunidas aqui.</span>
-                </div>
-                
-                <div class="nav-profile-fields">
-                    <span class="nav-account-section-label">Identidade e acesso</span>
+                    </div>
+                    ${[['avatar','profileAvatar'],['cover','profileCover']].map(([part,key])=>`<fieldset class="nav-artwork-options"><legend>${_t(key)}</legend>
+                        <button class="nav-icon-btn" data-art-part="${part}" data-art-mode="image" tabindex="-1">${_t('profileChooseImage')}</button>
+                        <button class="nav-icon-btn" data-art-part="${part}" data-art-mode="game" tabindex="-1">${_t('profileUseGame')}</button></fieldset>`).join('')}
+                    <section class="nav-account-section" data-account-panel="identity"><h3>${_t("steam.identityAccess")}</h3>
                     <div class="nav-profile-field">
                         <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome de Usuário')}</span>
-                        <input class="nav-profile-field-input" id="navProfName" readonly value="${pendingName}" tabindex="-1" />
+                        <input class="nav-profile-field-input" id="navProfName" readonly value="${_esc(pendingName)}" tabindex="-1" />
                     </div>
 
                     <div class="nav-profile-field" style="margin-top: 10px;">
@@ -7564,21 +8429,14 @@ window.isNavMenuOpen = false;
                         <input class="nav-profile-field-input" id="navProfPin" type="text" readonly value="${maskPin()}" inputmode="numeric" pattern="[0-9]*" maxlength="4" tabindex="-1" />
                     </div>
                     
-                    <div class="nav-profile-field" style="margin-top: 10px;">
-                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
-                        <div class="nav-api-row">
-                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
-                            <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
-                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
-                        </div>
-                    </div>
-                    
-                    <div style="display:flex; justify-content:flex-start; align-items:center; min-height:18px;">
-                        <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">${_t('toastChangesSaved', '✓ Alterações Salvas')}</span>
-                    </div>
-
-                    <span class="nav-account-section-label">Conta na nuvem</span>
-                    <div class="nav-profile-sync">
+                    </section>
+                </div>
+                <div class="nav-profile-fields">
+                    <span id="navSaveStatus" role="status">${_t('toastChangesSaved')}</span>
+                    <section class="nav-account-section" data-account-panel="connections"><h3>${_t("profileConnections")}</h3>
+                    <div class="nav-profile-sync nav-connected-account" data-provider="google-drive">
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${window.DoorpiProfileSync?.googleIcon || 'G'}</span><span><strong>Google</strong><small>${_t('steam.backup')}</small></span></div>
+                        <p class="nav-connected-description">${_t('steam.cloudDescription')}</p>
                         <span class="nav-profile-sync-status" id="navProfileSyncStatus"></span>
                         <div class="nav-profile-sync-actions">
                             <button class="nav-icon-btn" id="navProfileSyncConnect" tabindex="-1" title="${_t('profileSyncLoginGoogle', 'Entrar com Google')}" aria-label="${_t('profileSyncLoginGoogle', 'Entrar com Google')}">${window.DoorpiProfileSync?.googleIcon || 'G'}<span>${_t('profileSyncLoginGoogle', 'Entrar com Google')}</span></button>
@@ -7587,35 +8445,66 @@ window.isNavMenuOpen = false;
                         </div>
                     </div>
 
-                    <span class="nav-account-section-label">${_t('navPrivacyActivity','Privacidade e atividade')}</span>
+                    <div class="nav-profile-sync nav-connected-account" data-provider="steam">
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span></div>
+                        <p class="nav-connected-description"><span id="navSteamIdentity">${_t('steam.publicProfile')}</span></p>
+                        <button class="nav-icon-btn nav-provider-manage" id="navSteamManage" tabindex="-1" > ${PLATFORM_ICONS.Steam}<span>${_t('steam.connect')}</span></button>
+                        <span class="nav-profile-sync-status" id="navSteamConnectionState" role="status">${_t('steam.disconnected')}</span>
+                        <button class="nav-icon-btn nav-steam-manual" id="navSteamManual" tabindex="-1" aria-expanded="false" aria-controls="navSteamControls">${_t('steam.manual')}</button>
+                        <div id="navSteamControls" class="nav-steam-controls" hidden>
+                        <label class="nav-profile-field-label" for="navSteamManualKey">${_t('steam.keyLabel')}</label>
+                        <input class="nav-profile-field-input" id="navSteamManualKey" type="password" autocomplete="off" spellcheck="false" maxlength="64" tabindex="-1" placeholder="${_t('steam.keyPlaceholder')}" />
+                        <button class="nav-icon-btn" id="navSteamSaveManualKey" tabindex="-1">${_t('steam.saveKey')}</button>
+                        <p class="nav-connected-notice">${_t('steam.publicRequired')}</p>
+                        <label class="nav-profile-field-label" for="navSteamAccount">${_t('steam.accountLabel')}</label>
+                        <input class="nav-profile-field-input" id="navSteamAccount" readonly tabindex="-1" placeholder="https://steamcommunity.com/id/seu-perfil" maxlength="2048" />
+                        <span class="nav-profile-sync-status" id="navSteamStatus" role="status" aria-live="polite"></span>
+                        <progress id="navSteamProgress" max="100" hidden aria-label="${_t('steam.syncProgress')}"></progress>
+                        <span class="nav-connected-description" id="navSteamTotals"></span>
+                        <button class="nav-icon-btn" id="navSteamView" tabindex="-1" aria-expanded="false">${_t('steam.importedSummary')}</button>
+                        <div id="navSteamData" class="nav-steam-preview" hidden></div>
+                        <div class="nav-profile-sync-actions">
+                            <button class="nav-icon-btn" data-steam-action="getKey" tabindex="-1">${_t('steam.getKey')}</button>
+                            <button class="nav-icon-btn" data-steam-action="pasteKey" tabindex="-1">${_t('steam.pasteKey')}</button>
+                            <button class="nav-icon-btn" data-steam-action="pasteAccount" tabindex="-1">${_t('steam.pasteAccount')}</button>
+                            <button class="nav-icon-btn" data-steam-action="import" tabindex="-1">${_t('steam.import')}</button>
+                            <button class="nav-icon-btn" data-steam-action="disconnect" tabindex="-1">${_t('steam.removeKey')}</button>
+                        </div>
+                        <small class="nav-connected-description">${_t('steam.keyNotice')}</small>
+                        </div>
+                    </div>
+
+                    <div class="nav-profile-field" style="margin-top: 10px;">
+                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
+                        <div class="nav-api-row">
+                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
+                            <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
+                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
+                        </div>
+                    </div>
+                    </section>
+                    <section class="nav-account-section" data-account-panel="privacy"><h3>${_t("navPrivacyActivity")}</h3>
                     <button class="nav-account-toggle" id="navApplicationHistory" aria-pressed="${applicationHistoryEnabled}" tabindex="-1">
                         <span class="nav-account-toggle-copy"><strong>${_t('navApplicationHistory','Histórico de aplicativos')}</strong><small>${_t('navApplicationHistoryHint','Registra apenas mídias realmente reproduzidas nos aplicativos nativos deste perfil.')}</small></span>
                         <span class="nav-account-switch" aria-hidden="true"></span>
                     </button>
 
                     <span class="nav-account-section-label">${_t('navAccessMaintenance','Acesso e manutenção')}</span>
-                    <button class="nav-icon-btn nav-account-route" id="navAccountSharing" tabindex="-1"><span class="nav-account-route-copy"><strong>${_t('navSetSharing', 'Contas dos apps')}</strong><small>Escolha quem pode usar cada conta conectada.</small></span><span class="nav-account-route-chevron">›</span></button>
-                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1"><span>Excluir perfil</span></button>
+                    <button class="nav-icon-btn nav-account-route" id="navAccountSharing" tabindex="-1"><span class="nav-account-route-copy"><strong>${_t('navSetSharing', 'Contas dos apps')}</strong><small>${_t('steam.sharingHint')}</small></span><span class="nav-account-route-chevron">›</span></button>
+                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1"><span>${_t('steam.deleteProfile')}</span></button>
+                    </section>
                 </div>
             </div>`;
 
-        _contentItems = [
-            body.querySelector('#setBack'),
-            body.querySelector('#navProfilePhoto'),
-            body.querySelector('#navProfName'),
-            body.querySelector('#navProfPin'),
-            body.querySelector('#navProfApi'),
-            body.querySelector('#navApiPaste'),
-            body.querySelector('#navApiLink'),
-            body.querySelector('#navProfileSyncConnect'),
-            body.querySelector('#navProfileSyncNow'),
-            body.querySelector('#navProfileSyncDisconnect'),
-            body.querySelector('#navApplicationHistory'),
-            body.querySelector('#navAccountSharing'),
-            body.querySelector('#navDeleteUser')
-        ].filter(Boolean);
-
-        body.querySelector('#setBack')?.addEventListener('click', () => {
+        body.querySelector('#setBack')?.addEventListener('click', event => {
+            if (event.currentTarget.dataset.returnToProfile) {
+                _preserveSettingsSubViewOnce = true;
+                _settingsSubView = null;
+                _selectCat(CATS.findIndex(cat=>cat.id==='profile'));
+                _contentIdx = Math.max(0,_contentItems.findIndex(el=>el.id==='btnEditProfileHub'));
+                _setTopbarFocus(false);
+                return;
+            }
             _settingsSubView = 'accountHub';
             _contentIdx = 0;
             document.activeElement?.blur(); 
@@ -7636,6 +8525,7 @@ window.isNavMenuOpen = false;
         const deleteBtn = body.querySelector('#navDeleteUser');
 
         const refreshSyncUi = () => {
+            if (!photoBtn?.isConnected) return;
             const connected = !!_profileSyncUi.connected;
             const busy = !!_profileSyncUi.busy;
             const status = body.querySelector('#navProfileSyncStatus');
@@ -7645,7 +8535,7 @@ window.isNavMenuOpen = false;
             if (status) {
                 status.textContent = busy
                     ? _t('profileSyncWorking', 'Sincronizando...')
-                    : (_profileSyncUi.message || (connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', 'Não conectado')));
+                    : (_profileSyncUi.message || (connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', _t('steam.disconnected'))));
                 status.classList.toggle('connected', connected && !busy);
             }
             if (connect) connect.style.display = connected ? 'none' : 'flex';
@@ -7654,20 +8544,131 @@ window.isNavMenuOpen = false;
             if (connect) connect.disabled = busy;
             if (syncNow) syncNow.disabled = busy;
             if (disconnect) disconnect.disabled = busy;
-            _contentItems = [
-                body.querySelector('#setBack'), body.querySelector('#navProfilePhoto'),
-                body.querySelector('#navProfName'), body.querySelector('#navProfPin'),
-                body.querySelector('#navProfApi'), body.querySelector('#navApiPaste'),
-                body.querySelector('#navApiLink'), body.querySelector('#navProfileSyncConnect'),
-                body.querySelector('#navProfileSyncNow'), body.querySelector('#navProfileSyncDisconnect'),
-                body.querySelector('#navApplicationHistory'),
-                body.querySelector('#navAccountSharing'), body.querySelector('#navDeleteUser')
-            ].filter(item => item && item.offsetWidth > 0 && item.offsetHeight > 0);
+            const focused = _contentItems[_contentIdx];
+            _contentItems = [...body.querySelectorAll('button,input')].filter(item => !item.disabled && item.offsetWidth && item.offsetHeight);
+            if (_contentItems.includes(focused)) _contentIdx = _contentItems.indexOf(focused);
             _contentIdx = Math.min(_contentIdx, Math.max(0, _contentItems.length - 1));
         };
         window._refreshProfileSyncAccountUi = refreshSyncUi;
         refreshSyncUi();
+        _contentIdx = Math.max(0,_contentItems.indexOf(body.querySelector('[data-art-part=avatar]')));
+        if (_initialAccountSection === 'connections') {
+            _contentIdx = Math.max(0,_contentItems.indexOf(body.querySelector('#navSteamManage')));
+            _initialAccountSection = 'identity';
+        }
         postToHost?.({ action: 'profileSyncStatus' });
+        body.querySelector('#navSteamManual')?.addEventListener('click', event => {
+            const controls = body.querySelector('#navSteamControls');
+            controls.hidden = !controls.hidden;
+            event.currentTarget.setAttribute('aria-expanded', String(!controls.hidden));
+            refreshSyncUi();
+        });
+        body.querySelector('#navSteamManage')?.addEventListener('click', () => {
+            postToHost?.(_steamConnectPayload());
+        });
+        const steamAccount = body.querySelector('#navSteamAccount');
+        let steamState = { hasKey: false, busy: false };
+        const refreshSteam = data => {
+            if (body.querySelector('#navSteamAccount') !== steamAccount) return;
+            if (data && data.profileId !== String(_menuData.user.Id || _menuData.user.id || '')) return;
+            if (data) {
+                steamState = { ...steamState, ...data };
+                if (Array.isArray(data.achievementIndex)) body.querySelector('.nav-editor-preview')?.refreshArtwork?.();
+            }
+            if (data?.manualKeyRequired) {
+                const controls = body.querySelector('#navSteamControls');
+                if (controls) controls.hidden = false;
+                body.querySelector('#navSteamManual')?.setAttribute('aria-expanded', 'true');
+            }
+            if (data?.hasKey && !data.busy) { const field = body.querySelector('#navSteamManualKey'); if (field) field.value = ''; }
+            if (steamAccount) steamAccount.disabled = !!steamState.busy;
+            const status = body.querySelector('#navSteamStatus');
+            if (status) status.textContent = steamState.message || _t('steam.configureHint');
+            const progress = body.querySelector('#navSteamProgress');
+            if (progress) {
+                progress.hidden = !steamState.busy;
+                const counts = String(steamState.message || '').match(/conquistas:\s*(\d+)\/(\d+)/i);
+                if (counts) { progress.max = Math.max(1, Number(counts[2])); progress.value = Number(counts[1]); }
+                else progress.removeAttribute('value');
+            }
+            if (steamAccount && (steamState.account || (!steamAccount.value && steamState.steamId))) steamAccount.value = steamState.account || steamState.steamId;
+            const totals = body.querySelector('#navSteamTotals');
+            if (totals) totals.textContent = steamState.steamId ? _t('steam.summary','',steamState.displayName || _t('steam.profile'),steamState.gameCount || 0,steamState.achievementCount || 0) : '';
+            const preview = body.querySelector('#navSteamData');
+            if (preview && Array.isArray(steamState.games)) {
+                preview.replaceChildren();
+                const heading = document.createElement('p');
+                heading.textContent = _t('steam.previewLimit');
+                preview.append(heading);
+                steamState.games.forEach(game => {
+                    const row = document.createElement('div');
+                    const name = document.createElement('strong');
+                    name.textContent = game.Name || _t('steam.gameFallback');
+                    const description = document.createElement('p');
+                    const hours = (Math.max(0, Number(game.PlaytimeMinutes) || 0) / 60).toLocaleString(undefined, { maximumFractionDigits: 1 });
+                    description.textContent = `${_t('steam.hours','',hours)} · ${game.total ? _t('steam.progress','',game.unlocked,game.total) : _t('steam.achievementsUnavailable')}`;
+                    const recent = document.createElement('p');
+                    recent.textContent = (game.achievements || []).join(' · ');
+                    row.append(name, description, recent);
+                    preview.append(row);
+                });
+            }
+            const view = body.querySelector('#navSteamView');
+            if (view) view.disabled = !!steamState.busy || !steamState.steamId;
+            body.querySelectorAll('[data-steam-action]').forEach(button => {
+                const operation = button.dataset.steamAction;
+                button.disabled = !!steamState.busy || (operation === 'import' && (!steamState.hasKey || !steamAccount?.value.trim())) || (operation === 'disconnect' && !steamState.hasKey);
+            });
+            const identity = body.querySelector('#navSteamIdentity');
+            if (identity) identity.textContent = steamState.displayName || (steamState.steamId ? _t('steam.importedProfile') : _t('steam.publicProfile'));
+            const manage = body.querySelector('#navSteamManage span');
+            if (manage) manage.textContent = steamState.hasKey && steamState.account ? _t('steam.anotherAccount') : _t('steam.connect');
+            const primary = body.querySelector('#navSteamManage');
+            if (primary) primary.disabled = !!steamState.busy;
+            const connectionState = body.querySelector('#navSteamConnectionState');
+            if (connectionState) connectionState.textContent = steamState.busy ? _t('steam.updating') : steamState.hasKey && (steamState.account || steamState.steamId) ? _t('steam.connected') : _t('steam.disconnected');
+            if (connectionState && !steamState.busy && /não foi|não pôde|mudou|cancelad|inválid|restrit|privad|indispon|configure primeiro/i.test(steamState.message || '')) connectionState.textContent = steamState.message;
+            refreshSyncUi();
+        };
+        window._refreshSteamAccountUi = refreshSteam;
+        body.querySelector('#navSteamSaveManualKey')?.addEventListener('click', () => {
+            const field = body.querySelector('#navSteamManualKey');
+            const key = field?.value.trim() || '';
+            if (!/^[a-f0-9]{32}$/i.test(key)) {
+                const status = body.querySelector('#navSteamStatus');
+                if (status) status.textContent = _t('steam.invalidKey');
+                return;
+            }
+            postToHost?.({ action: 'steamSaveManualKey', key });
+            field.value = '';
+        });
+        body.querySelector('#navSteamManualKey')?.addEventListener('click', event => {
+            const field = event.currentTarget;
+            if (window._doorpiShouldOpenVkbFromEvent?.(event)) window._vkbOpen?.(field, { onOk: () => window._vkbForceClose?.(), onCancel: () => window._vkbForceClose?.() });
+        });
+        body.querySelector('#navSteamView')?.addEventListener('click', event => {
+            const preview = body.querySelector('#navSteamData');
+            preview.hidden = !preview.hidden;
+            event.currentTarget.setAttribute('aria-expanded', String(!preview.hidden));
+        });
+        body.querySelectorAll('[data-steam-action]').forEach(button => button.addEventListener('click', () => {
+            const operation = button.dataset.steamAction;
+            if (operation === 'getKey') {
+                postToHost?.(_steamConnectPayload());
+                return;
+            }
+            steamState.busy = true;
+            refreshSteam();
+            postToHost?.({ action: ({ pasteKey: 'steamPasteKey', pasteAccount: 'steamPasteAccount', import: 'steamImport', disconnect: 'steamDisconnect' })[operation], account: steamAccount?.value.trim() || '' });
+        }));
+        steamAccount?.addEventListener('input', () => refreshSteam());
+        steamAccount?.addEventListener('click', event => {
+            steamAccount.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
+            window._vkbOpen?.(steamAccount, { onOk: () => { steamAccount.setAttribute('readonly', ''); window._vkbForceClose?.(); refreshSteam(); }, onCancel: () => { steamAccount.setAttribute('readonly', ''); window._vkbForceClose?.(); } });
+        });
+        refreshSteam();
+        postToHost?.({ action: 'steamProfileStatus' });
 
         body.querySelector('#navProfileSyncConnect')?.addEventListener('click', () => {
             _profileSyncUi.busy = true;
@@ -7702,15 +8703,64 @@ window.isNavMenuOpen = false;
             }
         };
 
-        photoBtn?.addEventListener('click', () => {
+        const rankedArt = () => {
+            const {gameTotals} = _profileLibraryRanking(_menuData.games || []);
+            return _profileGameRows(gameTotals,{..._steamView(),gameOrder:'hours'}).find(game=>game.minutes>0);
+        };
+        const refreshArt = () => {
+            const game = rankedArt();
+            const preview = body.querySelector('.nav-editor-cover');
+            const source = user.CoverBase64 ? 'data:image/jpeg;base64,'+user.CoverBase64 : _profileBanner(game);
+            preview.onerror = () => {
+                const fallback = game && _profileGameArt(game);
+                preview.onerror = () => { preview.hidden = true; };
+                if (fallback && !user.CoverBase64 && fallback !== source) preview.src = fallback;
+                else preview.hidden = true;
+            };
+            if (source) preview.src = source;
+            preview.hidden = !source;
+            for (const btn of body.querySelectorAll('[data-art-mode]')) {
+                const auto = btn.dataset.artPart === 'avatar' ? user.AvatarFromGame : !user.CoverBase64;
+                btn.setAttribute('aria-pressed', String((btn.dataset.artMode === 'game') === !!auto));
+            }
+        };
+        body.querySelector('.nav-editor-preview').refreshArtwork = refreshArt;
+        refreshArt();
+        for (const button of body.querySelectorAll('[data-art-part]')) button.onclick = () => {
+            const cover = button.dataset.artPart === 'cover';
+            if (button.dataset.artMode === 'image') { pickImage(cover,button); return; }
+            const game = rankedArt();
+            _setProfileArtwork(cover?'cover':'avatarGame',cover || !game ? '' : _profileGameArt(game));
+            if (!cover && game) {
+                const image = document.createElement('img');
+                image.alt = '';
+                image.src = _profileGameArt(game);
+                photoBtn.replaceChildren(image);
+            }
+            refreshArt();
+            _showSavedFeedback();
+        };
+        function pickImage(cover,returnFocus) {
+            const target = user.Id;
+            const revision = _menuReloadToken;
             if (typeof window.openDoorpiProfilePhotoPicker !== 'function') {
                 console.error('[ProfilePhoto] Seletor de foto não foi carregado.');
                 return;
             }
             window.openDoorpiProfilePhotoPicker({
                 hasApiKey: apiConfigured,
-                returnFocus: photoBtn,
+                cover, returnFocus,
+                favoriteTitles: cover ? _profileGameRows(_profileLibraryRanking(_menuData.games || []).gameTotals,
+                    {..._steamView(),gameOrder:'hours'}).filter(game=>game.minutes>0).slice(0,5).map(game=>game.name) : [],
                 onApply: result => {
+                    if (!returnFocus.isConnected || target !== window._doorpiCurrentUserId || revision !== _menuReloadToken) return;
+                    if (cover) {
+                        _setProfileArtwork('cover',result.base64);
+                        refreshArt();
+                        _showSavedFeedback();
+                        return;
+                    }
+                    _menuData.user.AvatarFromGame = false;
                     _menuData.user.PhotoBase64 = result.base64;
                     _menuData.user.PhotoSource = result.photoSource;
                     _menuData.user.PhotoSourceUrl = result.photoSourceUrl;
@@ -7721,7 +8771,7 @@ window.isNavMenuOpen = false;
                     if (window._doorpiProfile) Object.assign(window._doorpiProfile, _menuData.user);
                     window._applyDoorpiTopProfile?.(window._doorpiProfile || _menuData.user);
                     postToHost({
-                        action: 'saveUserProfile',
+                        action: 'saveUserProfile', userId: target,
                         name: _menuData.user.Name || '',
                         photoBase64: result.base64,
                         photoSource: result.photoSource,
@@ -7736,9 +8786,10 @@ window.isNavMenuOpen = false;
                     if (photoBtn) photoBtn.innerHTML = imgTag;
                     document.querySelectorAll('.nav-profile-avatar-large').forEach(avatar => { avatar.innerHTML = imgTag; });
                     _showSavedFeedback();
+                    refreshArt();
                 }
             });
-        });
+        }
 
         linkBtn?.addEventListener('click', () => {
             if (typeof postToHost === 'function') postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
@@ -7870,15 +8921,13 @@ window.isNavMenuOpen = false;
             _showSavedFeedback();
         };
 
-        _contentItems.forEach((el, idx) => {
-            el.addEventListener('mouseenter', () => {
-                _topbarFocus = false;
-                _contentIdx = idx;
-                _updateContentFocus();
-            });
-        });
+        body.querySelectorAll('button,input').forEach(el => el.addEventListener('mouseenter', () => {
+            const index = _contentItems.indexOf(el);
+            if (index < 0) return;
+            _contentIdx = index;
+            _setTopbarFocus(false);
+        }));
     }
-
     function _renderSettingsSharingLegacy(body) {
         if (!document.getElementById('nav-sharing-styles')) {
             const s = document.createElement('style');
@@ -9150,16 +10199,16 @@ window.isNavMenuOpen = false;
         _libraryHoldSawNativeInput = false;
         _libraryRapidNavigation = false;
         if (!settle) _stopRapidLibraryScrollAnimation();
-        document.querySelectorAll('.nav-library-pane.nav-rapid-navigation')
+        document.querySelectorAll('.nav-library-pane.nav-rapid-navigation,.nav-profile-grid.nav-rapid-navigation')
             .forEach(pane => pane.classList.remove('nav-rapid-navigation'));
         // Keep following the same target on release; do not recenter a second time.
     }
 
-    function _trackLibraryDirectionHold(key) {
+    function _trackLibraryDirectionHold(key,profileGrid = null) {
         const direction = {
             ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT'
         }[key];
-        if (!direction || !_isLazyCat()) return;
+        if (!direction || (!profileGrid && !_isLazyCat())) return;
         if (_libraryHoldDirection === direction && _libraryHoldRaf) return;
 
         _stopLibraryDirectionHold();
@@ -9167,7 +10216,7 @@ window.isNavMenuOpen = false;
         _libraryHoldStartedAt = performance.now();
 
         const poll = () => {
-            if (!window.isNavMenuOpen || !_isLazyCat() || _libraryHoldDirection !== direction) {
+            if (!window.isNavMenuOpen || (profileGrid ? !profileGrid.contains(document.activeElement) : !_isLazyCat()) || _libraryHoldDirection !== direction) {
                 _stopLibraryDirectionHold();
                 return;
             }
@@ -9179,7 +10228,10 @@ window.isNavMenuOpen = false;
             if (held) {
                 if (!_libraryRapidNavigation && elapsed >= 120) {
                     _libraryRapidNavigation = true;
-                    _cancelLibraryScrollAnimation();
+                    if (profileGrid) {
+                        profileGrid.classList.add('nav-rapid-navigation');
+                        _revealInsideScrollContainer(document.activeElement,profileGrid,12,true);
+                    } else _cancelLibraryScrollAnimation();
                 }
                 _libraryHoldRaf = requestAnimationFrame(poll);
                 return;
@@ -9203,7 +10255,14 @@ window.isNavMenuOpen = false;
         _updateContentFocus();
     }
 
+    function _syncCategoryVisibility() {
+        _overlay?.classList.toggle('nav-content-focused', !_topbarFocus);
+        const topbar = document.getElementById('navTopbar');
+        if (topbar && topbar.inert === _topbarFocus) topbar.inert = !_topbarFocus;
+    }
+
     function _updateTopbarFocusVisual() {
+        _syncCategoryVisibility();
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
             if (_topbarFocus && i === _catIdx && document.activeElement !== el)
@@ -9211,7 +10270,7 @@ window.isNavMenuOpen = false;
         });
     }
 
-    function _revealInsideScrollContainer(element, container, edge = 12) {
+    function _revealInsideScrollContainer(element, container, edge = 12, instant = false) {
         if (!element || !container) return;
 
         const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -9230,8 +10289,8 @@ window.isNavMenuOpen = false;
         else if (itemRect.bottom > containerRect.bottom - edge)
             delta = itemRect.bottom - containerRect.bottom + edge;
 
-        if (Math.abs(delta) > 0.5)
-            container.scrollBy({ top: delta, behavior: 'smooth' });
+        if (instant) container.scrollTo({ top:container.scrollTop+delta, behavior:'instant' });
+        else if (Math.abs(delta) > 0.5) container.scrollBy({ top:delta, behavior:'smooth' });
     }
 
     function _centerInsideScrollContainer(element, container) {
@@ -9251,6 +10310,7 @@ window.isNavMenuOpen = false;
     }
 
     function _updateContentFocus() {
+        _syncCategoryVisibility();
         if (_topbarFocus) {
    
             const _lg = _currentLazyGrid();
@@ -9584,7 +10644,10 @@ window.isNavMenuOpen = false;
         let nextIdx = currentIdx + parseInt(delta);
         if (nextIdx < 0 || nextIdx >= tabs.length) return;
 
-        tabs[nextIdx].click();
+        const insideCategory = !_topbarFocus;
+        _selectCat(nextIdx);
+        if (insideCategory && _contentItems.length) _navTopbar('ArrowDown');
+        else _setTopbarFocus(true);
     };
 
     window._navMenuCycleSharingSubtab = function (delta) {
@@ -9620,12 +10683,29 @@ window.isNavMenuOpen = false;
         return true;
     };
 
-    window._navMenuHandleKey = function (key) {
+    window._navMenuHandleKey = function (key, repeat = false) {
         if (window.isDoorpiFileBrowserOpen?.()) return false;
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        const sortDialog = document.querySelector('.nav-profile-sort-dialog[open]');
+        if (sortDialog) {
+            if (['Backspace','Escape','y','Y'].includes(key)) sortDialog.close();
+            else if (key==='Enter') sortDialog.querySelector('button:focus')?.click();
+            else if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key)) {
+                const options = [...sortDialog.querySelectorAll('[data-game-order]')];
+                const step = key==='ArrowUp' || key==='ArrowLeft' ? -1 : 1;
+                options[Math.max(0,Math.min(options.length-1,options.indexOf(document.activeElement)+step))]?.focus();
+            }
+            return true;
+        }
+        if ((key==='Y' || key==='y') && !repeat && CATS[_catIdx]?.id==='profile') {
+            const button = document.querySelector('.nav-profile-sort-trigger');
+            if (button) { button.click(); return true; }
+        }
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-            _trackLibraryDirectionHold(key);
+            const profileGrid = !_topbarFocus && (key==='ArrowUp' || key==='ArrowDown')
+                ? _contentItems[_contentIdx]?.closest('.nav-profile-grid') : null;
+            _trackLibraryDirectionHold(key,profileGrid);
         }
         if ((key === 'Escape' || key === 'Backspace') && _libraryInteractionMode === 'filters' &&
             _closeLibraryFilters()) return true;
@@ -9635,7 +10715,7 @@ window.isNavMenuOpen = false;
         if (key === 'R1') { window._navMenuCycleTab(1); return true; }
 
         if (_topbarFocus) return _navTopbar(key) === true;
-        return _navContent(key) === true;
+        return _navContent(key,repeat) === true;
     };
 
     document.addEventListener('keydown', e => {
@@ -9707,6 +10787,8 @@ window.isNavMenuOpen = false;
             if (document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay')) return;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
+            if (e.target?.matches?.('#navStorageProgramSearch') &&
+                (e.isComposing || !['ArrowUp', 'ArrowDown', 'Escape'].includes(e.key))) return;
 
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -9728,10 +10810,46 @@ window.isNavMenuOpen = false;
                 if (window.requestDoorpiBackAction?.()) return;
                 return;
             }
-            window._navMenuHandleKey(e.key);
+            window._navMenuHandleKey(e.key,e.repeat);
             return;
         }
     }, true);
+
+    function _accountDirectionTarget(current, key) {
+        const back = document.getElementById('setBack');
+        const first = document.querySelector('[data-art-part=avatar]');
+        if (current === back) return key === 'ArrowDown' ? first : null;
+        const column = current?.closest('.nav-profile-avatar-sec,.nav-profile-fields');
+        if (!column) return null;
+        const panels = Array.from(column.parentElement.children);
+        const other = panels.find(panel => panel !== column);
+        const stacked = other.getBoundingClientRect().top >= column.getBoundingClientRect().bottom ||
+            column.getBoundingClientRect().top >= other.getBoundingClientRect().bottom;
+        const controls = _contentItems.filter(item => item !== back && (stacked || column.contains(item)));
+        // Within a column, overlapping controls belong to the same visual row.
+        const rows = [];
+        for (const item of controls) {
+            const rect = item.getBoundingClientRect();
+            let row = rows.find(r => rect.top < r.bottom - 2 && rect.bottom > r.top + 2);
+            if (!row) rows.push(row = {top:rect.top,bottom:rect.bottom,items:[]});
+            row.items.push(item);
+        }
+        rows.sort((a,b)=>a.top-b.top);
+        const index = rows.findIndex(row=>row.items.includes(current));
+        if (index < 0) return null;
+        const row = rows[index].items;
+        const slot = row.indexOf(current);
+        if (key === 'ArrowDown' || key === 'ArrowUp') {
+            const next = rows[index + (key === 'ArrowDown' ? 1 : -1)]?.items;
+            return next ? next[Math.min(slot,next.length-1)] : key === 'ArrowUp' ? back : null;
+        }
+        const right = key === 'ArrowRight';
+        const neighbor = row[slot + (right ? 1 : -1)];
+        if (neighbor || stacked) return neighbor;
+        if (right !== (column === panels[0])) return null;
+        const candidates = _contentItems.filter(item=>other.contains(item));
+        return findSpatialCandidate(candidates,current,right ? 'RIGHT' : 'LEFT') || candidates[0];
+    }
 
     function _navTopbar(key) {
         switch (key) {
@@ -9752,6 +10870,8 @@ window.isNavMenuOpen = false;
                         _contentIdx = cards.length
                             ? _rememberedLibraryContentIndex(catId, actionCount, cards)
                             : 0;
+                    } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
+                        _contentIdx = Math.max(0,_contentItems.findIndex(item=>item.dataset.artPart === 'avatar'));
                     } else if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
                         const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
                         _contentIdx = editIndex >= 0 ? editIndex : 0;
@@ -9868,7 +10988,7 @@ window.isNavMenuOpen = false;
         return true;
     }
 
-    function _navContent(key) {
+    function _navContent(key,repeat = false) {
         const cols = _gridCols();
         const total = _contentItems.length;
 
@@ -9961,6 +11081,8 @@ window.isNavMenuOpen = false;
 
         if (_isLazyCat()) return _navLibraryContent(key);
 
+        if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'gaming' && _navigateSteamAchievements(key,repeat)) return true;
+        if (CATS[_catIdx]?.id === 'profile' && (key==='Escape' || key==='Backspace') && _returnToProfileCard()) return true;
         if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
             const active = _contentItems[_contentIdx];
             const heroIndex = _contentItems.findIndex(item => item?.id === 'btnProfileHero');
@@ -9969,6 +11091,18 @@ window.isNavMenuOpen = false;
             const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
             const activeTabIndex = _contentItems.findIndex(item => item?.classList?.contains('nav-unified-tab') && item.classList.contains('is-active'));
             const onTab = active?.classList?.contains('nav-unified-tab');
+            const cards = _contentItems.filter(item=>item.hasAttribute('data-profile-card'));
+            if (cards.length && key.startsWith('Arrow') && (cards.includes(active) || (onTab && key==='ArrowDown'))) {
+                const direction = key.slice(5).toUpperCase();
+                const target = onTab ? cards[0] : findSpatialCandidate(cards,active,direction)
+                    || (direction==='UP' ? _contentItems[activeTabIndex] : null);
+                if (target) {
+                    _contentIdx = _contentItems.indexOf(target);
+                    _updateContentFocus();
+                    if (cards.includes(target)) target.scrollIntoView({block:'nearest',inline:'nearest'});
+                }
+                return true;
+            }
 
             if (key === 'ArrowUp') {
                 if (active?.id === 'btnProfileRecent') {
@@ -10033,36 +11167,16 @@ window.isNavMenuOpen = false;
             if (active?.id === 'btnEditProfileHub' && (key === 'ArrowLeft' || key === 'ArrowRight')) return true;
         }
 
-        // Navegação Complexa nos menus de Settings da Conta
-        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                const byId = Object.fromEntries(_contentItems.map((item, index) => [item.id, index]));
-                const activeId = _contentItems[_contentIdx]?.id;
-                const syncPrimaryId = byId.navProfileSyncNow !== undefined ? 'navProfileSyncNow' : 'navProfileSyncConnect';
-                const routes = {
-                    setBack: { ArrowDown: 'navProfilePhoto', ArrowRight: 'navProfilePhoto' },
-                    navProfilePhoto: { ArrowUp: 'setBack', ArrowDown: 'navProfName', ArrowRight: 'navProfName' },
-                    navProfName: { ArrowUp: 'navProfilePhoto', ArrowDown: 'navProfPin', ArrowLeft: 'navProfilePhoto' },
-                    navProfPin: { ArrowUp: 'navProfName', ArrowDown: 'navProfApi', ArrowLeft: 'navProfilePhoto' },
-                    navProfApi: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowRight: 'navApiPaste', ArrowLeft: 'navProfilePhoto' },
-                    navApiPaste: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navProfApi', ArrowRight: 'navApiLink' },
-                    navApiLink: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navApiPaste' },
-                    navProfileSyncConnect: { ArrowUp: 'navProfApi', ArrowDown: 'navApplicationHistory' },
-                    navProfileSyncNow: { ArrowUp: 'navProfApi', ArrowDown: 'navApplicationHistory', ArrowRight: 'navProfileSyncDisconnect' },
-                    navProfileSyncDisconnect: { ArrowUp: 'navApiPaste', ArrowDown: 'navApplicationHistory', ArrowLeft: 'navProfileSyncNow' },
-                    navApplicationHistory: { ArrowUp: syncPrimaryId, ArrowDown: 'navAccountSharing' },
-                    navAccountSharing: { ArrowUp: 'navApplicationHistory', ArrowDown: 'navDeleteUser' },
-                    navDeleteUser: { ArrowUp: 'navAccountSharing' }
-                };
-                const nextId = routes[activeId]?.[key];
-                if (nextId && byId[nextId] !== undefined) {
-                    _contentIdx = byId[nextId];
-                    _updateContentFocus();
-                } else if (key === 'ArrowUp' && activeId === 'setBack') {
-                    _setTopbarFocus(true);
-                }
-                return true;
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account' && key.startsWith('Arrow')) {
+            const current = _contentItems[_contentIdx];
+            const target = _accountDirectionTarget(current, key);
+            if (target) {
+                _contentIdx = _contentItems.indexOf(target);
+                _updateContentFocus();
+            } else if (current?.id === 'setBack' && key === 'ArrowUp') {
+                _setTopbarFocus(true);
             }
+            return true;
         }
         if (CATS[_catIdx]?.id === 'settings' && document.querySelector('.nav-settings-directory')) {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -10276,6 +11390,7 @@ window.isNavMenuOpen = false;
                     const categories = Array.from(document.querySelectorAll('.nav-storage-v3-category'));
                     const openPrograms = document.getElementById('navStorageOpenPrograms');
                     const detailScroll = document.querySelector('[data-nav-storage-detail-scroll]');
+                    const search = document.getElementById('navStorageProgramSearch');
                     const programs = Array.from(document.querySelectorAll('.nav-storage-program'));
                     const selectedProgram = programs.find(item => item.dataset.storageProgram === _storageSelectedProgramId) || null;
                     const selectedProgramIndex = programs.indexOf(selectedProgram);
@@ -10291,7 +11406,13 @@ window.isNavMenuOpen = false;
 
                     if (active === back) {
                         if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
-                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(detailScroll || drives[0] || programs[0] || cancel || confirm);
+                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(detailScroll || drives[0] || search || programs[0] || cancel || confirm);
+                        return true;
+                    }
+
+                    if (active === search) {
+                        if (key === 'ArrowUp' || key === 'ArrowLeft') moveTo(back);
+                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(programs[0]);
                         return true;
                     }
 
@@ -10336,7 +11457,7 @@ window.isNavMenuOpen = false;
 
                     const programIndex = programs.indexOf(active);
                     if (programIndex >= 0) {
-                        if (key === 'ArrowUp') moveTo(programs[programIndex - 1] || back);
+                        if (key === 'ArrowUp') moveTo(programs[programIndex - 1] || search || back);
                         else if (key === 'ArrowDown') moveTo(active === selectedProgram ? (cancel || confirm || programs[programIndex + 1]) : programs[programIndex + 1]);
                         else if (key === 'ArrowLeft') moveTo(back);
                         return true;
@@ -10398,80 +11519,10 @@ window.isNavMenuOpen = false;
                 }
 
                 if (_systemSubView === 'updates') {
-                    const tabDoorpiIdx = _contentItems.findIndex(el => el?.id === 'updatesTabDoorpi');
-                    const tabWindowsIdx = _contentItems.findIndex(el => el?.id === 'updatesTabWindows');
-                    const tabGpuIdx = _contentItems.findIndex(el => el?.id === 'updatesTabGpu');
-                    const activeTabIdx = _systemUpdatesSubView === 'gpu'
-                        ? tabGpuIdx
-                        : (_systemUpdatesSubView === 'windows' ? tabWindowsIdx : tabDoorpiIdx);
-                    const firstActionIdx = _contentItems.findIndex(el =>
-                        el?.classList?.contains('nav-suggestion-card') ||
-                        el?.classList?.contains('nav-gpu-app-card'));
-                    const releaseNotesIdx = _contentItems.findIndex(el => el?.id === 'systemUpdateChangelog');
-                    const actionIndices = _contentItems
-                        .map((el, idx) => el?.classList?.contains('nav-suggestion-card') ? idx : -1)
-                        .filter(idx => idx >= 0);
-                    const actionPosition = actionIndices.indexOf(_contentIdx);
-                    const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
-                    const gpuCardIndices = _contentItems
-                        .map((el, idx) => el?.classList?.contains('nav-gpu-app-card') ? idx : -1)
-                        .filter(idx => idx >= 0);
-                    const gpuCardPosition = gpuCardIndices.indexOf(_contentIdx);
-
-                    if (_systemUpdatesSubView === 'gpu' && gpuCardPosition >= 0) {
-                        if (key === 'ArrowLeft') {
-                            _contentIdx = gpuCardIndices[(gpuCardPosition - 1 + gpuCardIndices.length) % gpuCardIndices.length];
-                        } else if (key === 'ArrowRight') {
-                            _contentIdx = gpuCardIndices[(gpuCardPosition + 1) % gpuCardIndices.length];
-                        } else if (key === 'ArrowUp') {
-                            _contentIdx = tabGpuIdx;
-                        }
-                        _updateContentFocus();
-                        return;
-                    }
-
-                    if (actionPosition >= 0) {
-                        if (key === 'ArrowLeft' && actionPosition % 2 === 1) _contentIdx = actionIndices[actionPosition - 1];
-                        else if (key === 'ArrowRight' && actionPosition % 2 === 0 && actionIndices[actionPosition + 1] !== undefined) _contentIdx = actionIndices[actionPosition + 1];
-                        else if (key === 'ArrowUp') _contentIdx = actionPosition >= 2
-                            ? actionIndices[actionPosition - 2]
-                            : activeTabIdx;
-                        else if (key === 'ArrowDown') {
-                            if (actionIndices[actionPosition + 2] !== undefined) _contentIdx = actionIndices[actionPosition + 2];
-                            else if (releaseNotesIdx >= 0 && _systemUpdatesSubView === 'doorpi') _contentIdx = releaseNotesIdx;
-                        }
-                        _updateContentFocus();
-                        return;
-                    }
-
-                    if (_contentIdx === releaseNotesIdx) {
-                        if (key === 'ArrowUp') _contentIdx = actionIndices[actionIndices.length - 1] ?? activeTabIdx;
-                        _updateContentFocus();
-                        return;
-                    }
-
-                    if (key === 'ArrowUp') {
-                        if (_contentIdx <= 0) {
-                            _setTopbarFocus(true);
-                            return;
-                        }
-                        if (onTabs) _contentIdx = 0;
-                        else if (_contentIdx === firstActionIdx) _contentIdx = activeTabIdx;
-                        else _contentIdx--;
-                    } else if (key === 'ArrowDown') {
-                        if (_contentIdx === 0) _contentIdx = activeTabIdx;
-                        else if (onTabs && firstActionIdx !== -1) _contentIdx = firstActionIdx;
-                        else if (onTabs && releaseNotesIdx >= 0 && _systemUpdatesSubView === 'doorpi') _contentIdx = releaseNotesIdx;
-                        else if (_contentIdx < total - 1) _contentIdx++;
-                    } else if (key === 'ArrowLeft') {
-                        if (_contentIdx === tabGpuIdx) _contentIdx = tabWindowsIdx;
-                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabDoorpiIdx;
-                    } else if (key === 'ArrowRight') {
-                        if (_contentIdx === tabDoorpiIdx) _contentIdx = tabWindowsIdx;
-                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabGpuIdx;
-                    }
-
-                    _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
+                    const current = _contentItems[_contentIdx];
+                    const neighbor = findSpatialCandidate(_contentItems, current, key.slice(5).toUpperCase());
+                    if (neighbor) _contentIdx = _contentItems.indexOf(neighbor);
+                    else if (_contentIdx === 0 && key === 'ArrowUp') { _setTopbarFocus(true); return; }
                     _updateContentFocus();
                     return;
                 }
@@ -10577,11 +11628,12 @@ window.isNavMenuOpen = false;
                     if (body) _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(_storageSelectedProgramId || '')}"]`);
                     return true;
                 } else if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'history') {
-                    _profileSubView = null;
-                    _contentIdx = 0;
-                    _renderContent('profile');
-                    _setTopbarFocus(false);
+                    document.getElementById('profileHistoryBack')?.click();
                 } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
+                    if (_settingsSubView === 'account') {
+                        document.getElementById('setBack')?.click();
+                        return true;
+                    }
                     if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.pairingPrompt) {
                         postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
                         return true;
@@ -10618,6 +11670,9 @@ window.isNavMenuOpen = false;
                             _settingsSubView = 'system';
                             _systemSubView = null;
                         }
+                    } else if (_settingsSubView === 'system' && _systemSubView === 'updates' && _systemUpdatesSubView !== 'hub') {
+                        document.getElementById('setBackSystemUpdates')?.click();
+                        return true;
                     } else if (_settingsSubView === 'system' && _systemSubView) {
                         if (_settingsReturnToRoot) {
                             _settingsReturnToRoot = false;
@@ -10709,15 +11764,38 @@ window.isNavMenuOpen = false;
         window.chrome.webview.addEventListener('message', e => {
             try {
                 const data = JSON.parse(e.data);
+                if (data.type === 'steamProfileStatus') {
+                    _acceptSteamPresentation(data);
+                    window._refreshSteamAccountUi?.(data);
+                }
+                if (data.type === 'steamGameHeader') acceptSteamHeader(data);
+                if (data.type === 'steamProfileAchievements') _acceptSteamPresentation(data);
 
                 if (data.type === 'gameHistoryDeleted' && data.removed) {
                     const deletedName = String(data.gameName || '');
-                    _menuData.history = (_menuData.history || []).filter(entry =>
-                        String(entry?.Name || '').localeCompare(
+                    const deletedId = String(data.gameId || '');
+                    _menuData.history = (_menuData.history || []).filter(entry => deletedId
+                        ? String(entry?.Id || '') !== deletedId
+                        : String(entry?.Name || '').localeCompare(
                             deletedName,
                             undefined,
                             { sensitivity: 'base' }) !== 0);
 
+                    if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile') {
+                        const previousIndex = _contentIdx;
+                        _renderContent('profile');
+                        _contentIdx = Math.max(0, Math.min(previousIndex, _contentItems.length - 1));
+                        _setTopbarFocus(false);
+                        _updateContentFocus();
+                    }
+                }
+
+                if (data.type === 'mediaHistoryDeleted' && data.removed) {
+                    const same = (left, right) => String(left || '').trim().toLocaleLowerCase() === String(right || '').trim().toLocaleLowerCase();
+                    _menuData.mediaHistory = (_menuData.mediaHistory || []).filter(item =>
+                        !(same(item.AppId, data.appId) && (data.seriesTitle && data.category === 'film-series'
+                            ? same(item.SeriesTitle, data.seriesTitle) || same(item.ContentTitle, data.contentTitle)
+                            : same(item.ContentTitle, data.contentTitle) && same(item.CreatorName, data.creatorName))));
                     if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile') {
                         const previousIndex = _contentIdx;
                         _renderContent('profile');
@@ -10807,7 +11885,36 @@ window.isNavMenuOpen = false;
     window._navMenuTriggerCtxMenu = function () {
         if (!window.isNavMenuOpen) return false;
         const catId = CATS[_catIdx]?.id;
-        const focusedProfileItem = _contentItems[_contentIdx];
+        let focusedProfileItem = _contentItems[_contentIdx];
+        if (catId === 'profile') {
+            const activeMediaRow = document.activeElement?.closest?.('[data-media-history="true"]') ||
+                (focusedProfileItem?.id === 'btnProfileRecent' ? focusedProfileItem._profileRecentActive?.() : null);
+            if (activeMediaRow?.dataset?.mediaHistory === 'true') {
+                const rect = activeMediaRow.getBoundingClientRect();
+                window._ctxMenuOpen?.(activeMediaRow, rect.right + 2, rect.top);
+                return true;
+            }
+        }
+        if (catId === 'profile' && _profileSubView === 'gaming') {
+            const activeGameCard = document.activeElement?.closest?.('.nav-achievement-game');
+            if (activeGameCard) focusedProfileItem = activeGameCard;
+        }
+        if (catId === 'profile' && _profileSubView === 'gaming' &&
+            focusedProfileItem?.matches?.('.nav-achievement-game')) {
+            const rowName = focusedProfileItem.querySelector('.nav-profile-game-title strong')?.textContent?.trim() || '';
+            const appId = Number(focusedProfileItem.dataset.steamGame) || 0;
+            const matches = (_menuData.history || []).filter(entry => {
+                if (appId && Number(entry.SteamAppId) === appId) return true;
+                const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+                return rowName && normalize(entry.Name) === normalize(rowName);
+            }).sort((a,b) => Number(b.TotalPlaytimeMinutes || 0) - Number(a.TotalPlaytimeMinutes || 0));
+            const historyEntry = matches[0];
+            focusedProfileItem.dataset.historyGameName = historyEntry?.Name || rowName;
+            focusedProfileItem.dataset.historyGameId = historyEntry?.Id || '';
+            _setTopbarFocus(false);
+            _openHistoryContextMenu(focusedProfileItem);
+            return true;
+        }
         if (catId === 'profile' && !_topbarFocus && focusedProfileItem?.dataset?.historyGameName) {
             _openHistoryContextMenu(focusedProfileItem);
             return true;
@@ -10870,7 +11977,7 @@ window.isNavMenuOpen = false;
     window._navMenuDeleteHistory = function (element) {
         const item = _findHistoryItem(element);
         if (!item) return;
-        postToHost?.({ action: 'deleteGameHistory', gameName: item.Name });
+        postToHost?.({ action: 'deleteGameHistory', gameId: item.Id || '', gameName: item.Name });
     };
     window._navMenuRemoveItem = function (catId, itemKey) {
         if (catId === 'games' && Array.isArray(_menuData.games)) {

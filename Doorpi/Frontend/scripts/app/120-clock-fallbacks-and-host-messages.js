@@ -603,6 +603,7 @@
             else if (data.type === 'storageUninstallStatus') {
                 window.DoorpiQuickPanel?.setStorageUninstallStatus?.(data);
                 window._navMenuSetStorageUninstallStatus?.(data);
+                if (data.status === 'completed') window.showDoorpiToast?.('Armazenamento', data.message);
             }
             else if (data.type === 'updateFeaturedCard') {
                 // 🔹 Avisa o Store: ele reordena o carrossel E atualiza o hero automaticamente

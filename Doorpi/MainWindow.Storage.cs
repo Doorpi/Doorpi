@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using Doorpi.Storage;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -23,6 +24,7 @@ public partial class MainWindow
     private int _activeStorageUninstallerObservedProcessId;
     private string _activeStorageUninstallerObservedProcessName = "";
     private string _activeStorageUninstallerProgramName = "";
+    private bool _activeStorageUninstallerUsesSteam;
     private HashSet<IntPtr> _activeStorageUninstallerWindowSnapshot = new();
     private bool _storageUninstallerInputReady;
     private volatile bool _storageUninstallerInputActive;
@@ -122,6 +124,16 @@ public partial class MainWindow
         public string QuietUninstallString { get; init; } = "";
         public long EstimatedSizeBytes { get; init; }
         public bool CanUninstall { get; init; }
+        public RegistryHive RegistryHive { get; init; }
+        public RegistryView RegistryView { get; init; }
+        public string RegistrySubKey { get; init; } = "";
+    }
+
+    private sealed record StorageUninstallTarget(
+        InstalledProgramEntry Program, string? SteamAppId, IReadOnlyList<string> InstallPaths)
+    {
+        public bool IsRemoved() =>
+            StorageUninstallEvidence.IsRemovalConfirmed(SteamAppId != null, InstallPaths, () => IsStorageProgramUnregistered(Program));
     }
 
     private sealed class StorageAggregation
@@ -259,14 +271,31 @@ public partial class MainWindow
             _ = Task.Run(() => RefreshStorageStatusAsync(drives, forceRefresh));
     }
 
-    private async Task RefreshStorageStatusAsync(List<StorageDriveSnapshot> drives, bool forceRefresh)
+    private async Task RefreshStorageStatusAsync(
+        List<StorageDriveSnapshot> drives, bool forceRefresh, IReadOnlyList<string>? removedPaths = null)
     {
-        if (!await _storageRefreshLock.WaitAsync(0).ConfigureAwait(false)) return;
+        if (removedPaths != null)
+            await _storageRefreshLock.WaitAsync().ConfigureAwait(false);
+        else if (!await _storageRefreshLock.WaitAsync(0).ConfigureAwait(false))
+            return;
         var scanCts = new CancellationTokenSource();
         Interlocked.Exchange(ref _storageScanCts, scanCts)?.Dispose();
         try
         {
             StorageCacheDocument? previousCache = LoadStorageCache();
+            if (removedPaths != null)
+            {
+                drives = GetStorageDrives();
+                if (previousCache != null)
+                {
+                    var remainingRoots = previousCache.Roots.Where(root =>
+                        !removedPaths.Any(path => IsStoragePathAtOrBelow(root.Path, path)));
+                    previousCache = BuildStorageDocument(drives, remainingRoots, previousCache.InventoryFingerprint,
+                        isComplete: previousCache.IsComplete, previousCache.ProgressCurrent, previousCache.ProgressTotal,
+                        previousCache.ProgressLabel);
+                    SaveStorageCache(previousCache);
+                }
+            }
             PostStorageSnapshot(drives, previousCache, calculating: true);
             var roots = BuildStorageScanRoots();
             PrepareStorageRootExclusions(roots);
@@ -306,7 +335,7 @@ public partial class MainWindow
                 else if (root.Category.Equals("games", StringComparison.OrdinalIgnoreCase) &&
                          root.Child.Equals("stores", StringComparison.OrdinalIgnoreCase))
                 {
-                    bytes = FindReportedStoreSize(root.Path, reportedStoreSizes);
+                    bytes = Directory.Exists(root.Path) ? FindReportedStoreSize(root.Path, reportedStoreSizes) : 0;
                     if (bytes > 0)
                     {
                         state = "informed";
@@ -341,6 +370,7 @@ public partial class MainWindow
                     state = result.Complete ? root.ResultState : "partial";
                 }
 
+                scanCts.Token.ThrowIfCancellationRequested();
                 rootResults[rootId] = StorageRootResult(root, rootId, bytes, state);
                 completedRoots++;
                 StorageCacheDocument partial = BuildStorageDocument(
@@ -355,8 +385,10 @@ public partial class MainWindow
                 PostStorageSnapshot(drives, partial, calculating: true);
             }
 
+            scanCts.Token.ThrowIfCancellationRequested();
+            List<StorageDriveSnapshot> finalDrives = GetStorageDrives();
             StorageCacheDocument document = BuildStorageDocument(
-                GetStorageDrives(),
+                finalDrives,
                 rootResults.Values,
                 fingerprint,
                 isComplete: true,
@@ -364,7 +396,7 @@ public partial class MainWindow
                 totalRoots,
                 "Análise concluída");
             SaveStorageCache(document);
-            PostStorageSnapshot(GetStorageDrives(), document, calculating: false);
+            PostStorageSnapshot(finalDrives, document, calculating: false);
         }
         catch (OperationCanceledException)
         {
@@ -384,7 +416,7 @@ public partial class MainWindow
         }
     }
 
-    private void CancelStorageRefreshForLaunch()
+    private void CancelStorageRefresh()
     {
         try { Volatile.Read(ref _storageScanCts)?.Cancel(); } catch { }
     }
@@ -429,6 +461,8 @@ public partial class MainWindow
             string path = ResolveGameStoragePath(game);
             if (string.IsNullOrWhiteSpace(path)) continue;
             if (IsStoreSource(game.Source) || IsPlatformManagedLaunchUrl(game.LaunchUrl))
+            {
+                if (StorageUninstallEvidence.HasNoInstallFiles(path)) continue;
                 AddStorageRoot(
                     roots,
                     path,
@@ -436,6 +470,7 @@ public partial class MainWindow
                     "stores",
                     StorageItemKey(game.Name, path),
                     $"{StorageSourceLabel(NormalizeStorageSource(game.Source, game.LaunchUrl))} · {game.Name}");
+            }
             else if (watched.Any(item => string.Equals(path, item, StringComparison.OrdinalIgnoreCase) || IsPathWithin(path, item)))
                 continue; // A pasta vigiada inteira já representa esses jogos sem duplicação.
             else
@@ -673,51 +708,32 @@ public partial class MainWindow
     private List<GameModel> LoadAllStorageGames()
     {
         var games = new List<GameModel>();
-        foreach (UserProfile profile in LoadUserProfiles())
+        var owners = LoadUserProfiles().Select(profile => profile.Id)
+            .Append(currentUserId).Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (string owner in owners)
         {
-            string path = Path.Combine(DoorpiPaths.DataFolder, "users", profile.Id, "games.json");
-            try
-            {
-                if (!File.Exists(path)) continue;
-                games.AddRange(JsonSerializer.Deserialize<List<GameModel>>(SafeReadAllText(path)) ?? new());
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
+            string path = Path.Combine(DoorpiPaths.DataFolder, "users", owner, "games.json");
+            games.AddRange(StateStorage.ReadEntities(path).Select(entity =>
+                JsonSerializer.Deserialize<GameModel>(entity.Payload) ?? throw new InvalidDataException("Biblioteca inválida.")));
         }
-        return games.Count > 0 ? games : LoadGames();
+        return games;
     }
 
     private string BuildStorageInventoryFingerprint()
     {
         var values = new List<string>();
-        foreach (string name in new[] { "games.json", "media.json", "folders.json" })
+        foreach (var (directory, recursive) in new[]
         {
-            string file = Path.Combine(DoorpiPaths.DataFolder, name);
-            try
-            {
-                if (!File.Exists(file)) continue;
-                values.Add($"{file}|{File.GetLength(file)}|{File.GetLastWriteTimeUtc(file).Ticks}");
-            }
-            catch { }
-        }
-        string browserIndex = Path.Combine(DoorpiPaths.BrowserProfilesFolder, "profiles-v2.json");
-        try
+            (DoorpiPaths.DataFolder, false),
+            (DoorpiPaths.BrowserProfilesFolder, false),
+            (Path.Combine(DoorpiPaths.DataFolder, "users"), true)
+        })
         {
-            if (File.Exists(browserIndex))
+            foreach (string file in StateStorage.EnumerateDocuments(directory, recursive: recursive))
             {
-                values.Add($"{browserIndex}|{File.GetLength(browserIndex)}|{File.GetLastWriteTimeUtc(browserIndex).Ticks}");
-            }
-        }
-        catch { }
-        string usersRoot = Path.Combine(DoorpiPaths.DataFolder, "users");
-        if (Directory.Exists(usersRoot))
-        {
-            foreach (string file in SafeEnumerateFiles(usersRoot, new[] { "games.json", "media.json", "folders.json", "emulators.json" }))
-            {
-                try
-                {
-                    values.Add($"{file}|{File.GetLength(file)}|{File.GetLastWriteTimeUtc(file).Ticks}");
-                }
-                catch { }
+                if (Path.GetFileName(file) is "games.json" or "media.json" or "folders.json" or "emulators.json" or "profiles-v2.json")
+                    values.Add($"{file}|{StateStorage.GetRevision(file)}");
             }
         }
         try { values.AddRange(GetWindowsRegistryFingerprint()); } catch { }
@@ -729,27 +745,6 @@ public partial class MainWindow
         values.Sort(StringComparer.OrdinalIgnoreCase);
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', values)));
         return Convert.ToHexString(hash);
-    }
-
-    private static IEnumerable<string> SafeEnumerateFiles(string root, IReadOnlyCollection<string> names)
-    {
-        try
-        {
-            var files = new List<string>();
-            foreach (string name in names)
-            {
-                string rootFile = Path.Combine(root, name);
-                if (File.Exists(rootFile)) files.Add(rootFile);
-            }
-            foreach (string userRoot in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly))
-            foreach (string name in names)
-            {
-                string userFile = Path.Combine(userRoot, name);
-                if (File.Exists(userFile)) files.Add(userFile);
-            }
-            return files;
-        }
-        catch { return Array.Empty<string>(); }
     }
 
     private static List<StorageScanRoot> DeduplicateStorageRoots(List<StorageScanRoot> roots)
@@ -1019,24 +1014,7 @@ public partial class MainWindow
     {
         try
         {
-            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam")
-                                     ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
-            string steamPath = NormalizeStoragePath(key?.GetValue("InstallPath") as string);
-            if (string.IsNullOrWhiteSpace(steamPath)) return;
-
-            var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { steamPath };
-            string configPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-            if (File.Exists(configPath))
-            {
-                string config = File.ReadAllText(configPath);
-                foreach (Match match in Regex.Matches(config, @"""path""\s+""([^""]+)"""))
-                {
-                    string library = NormalizeStoragePath(match.Groups[1].Value.Replace(@"\\", @"\"));
-                    if (!string.IsNullOrWhiteSpace(library)) libraries.Add(library);
-                }
-            }
-
-            foreach (string library in libraries)
+            foreach (string library in GetSteamLibraries(GetSteamInstallPath()))
             {
                 string steamApps = Path.Combine(library, "steamapps");
                 if (!Directory.Exists(steamApps)) continue;
@@ -1048,7 +1026,9 @@ public partial class MainWindow
                         string installDir = Regex.Match(content, @"""installdir""\s+""([^""]+)""").Groups[1].Value;
                         string sizeText = Regex.Match(content, @"""SizeOnDisk""\s+""(\d+)""", RegexOptions.IgnoreCase).Groups[1].Value;
                         if (!long.TryParse(sizeText, out long bytes) || bytes <= 0 || string.IsNullOrWhiteSpace(installDir)) continue;
-                        AddReportedStorageSize(result, Path.Combine(steamApps, "common", installDir), bytes);
+                        string path = GetSteamGameInstallPath(steamApps, installDir);
+                        if (Directory.Exists(path) && !StorageUninstallEvidence.HasNoInstallFiles(path))
+                            AddReportedStorageSize(result, path, bytes);
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
                 }
@@ -1109,10 +1089,132 @@ public partial class MainWindow
         });
     }
 
+    private static string GetSteamInstallPath()
+    {
+        using RegistryKey? key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam")
+                                 ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Valve\Steam");
+        return NormalizeStoragePath(key?.GetValue("InstallPath") as string);
+    }
+
+    private static HashSet<string> GetSteamLibraries(string steamPath)
+    {
+        var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (steamPath.Length == 0) return libraries;
+        libraries.Add(steamPath);
+        string configPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+        if (!File.Exists(configPath)) return libraries;
+
+        foreach (Match match in Regex.Matches(File.ReadAllText(configPath), @"""path""\s+""([^""]+)"""))
+        {
+            string library = NormalizeStoragePath(match.Groups[1].Value.Replace(@"\\", @"\"));
+            if (library.Length > 0) libraries.Add(library);
+        }
+        return libraries;
+    }
+
+    private static string GetSteamGameInstallPath(string steamApps, string installDir)
+    {
+        if (string.IsNullOrWhiteSpace(installDir) || Path.GetFileName(installDir) != installDir) return "";
+        string common = Path.Combine(steamApps, "common");
+        string path = NormalizeStoragePath(Path.Combine(common, installDir));
+        return IsPathWithin(path, common) ? path : "";
+    }
+
+    private static StorageUninstallTarget CaptureStorageUninstallTarget(InstalledProgramEntry program)
+    {
+        string? steamAppId = StorageUninstallEvidence.SteamUninstallAppId(program.RegistrySubKey, program.UninstallString);
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (program.InstallLocation.Length > 0 && !IsUnsafeStorageRoot(program.InstallLocation))
+            paths.Add(program.InstallLocation);
+        if (steamAppId != null)
+        {
+            try
+            {
+                foreach (string library in GetSteamLibraries(GetSteamInstallPath()))
+                {
+                    string steamApps = Path.Combine(library, "steamapps");
+                    string manifest = Path.Combine(steamApps, $"appmanifest_{steamAppId}.acf");
+                    if (!File.Exists(manifest)) continue;
+                    string installDir = Regex.Match(File.ReadAllText(manifest), @"""installdir""\s+""([^""]+)""", RegexOptions.IgnoreCase)
+                        .Groups[1].Value;
+                    string path = GetSteamGameInstallPath(steamApps, installDir);
+                    if (path.Length > 0) paths.Add(path);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                Debug.WriteLine("[Storage] Falha ao ler bibliotecas Steam: " + ex.Message);
+            }
+        }
+        return new StorageUninstallTarget(program, steamAppId, paths.ToArray());
+    }
+
+    private static bool IsStoragePathAtOrBelow(string candidate, string path)
+        => Path.IsPathFullyQualified(candidate) &&
+           (string.Equals(NormalizeStoragePath(candidate), path, StringComparison.OrdinalIgnoreCase) ||
+            IsPathWithin(candidate, path));
+
+    private void RemoveUninstalledGameFromLibrary(StorageUninstallTarget target)
+    {
+        if (target.SteamAppId == null && target.InstallPaths.Count == 0) return;
+
+        bool Matches(string launchUrl, string path, string command = "")
+        {
+            string? steamAppId = StorageUninstallEvidence.SteamLaunchAppId(launchUrl) ??
+                                 StorageUninstallEvidence.SteamLaunchAppId(path);
+            if (target.SteamAppId != null && steamAppId != null)
+                return target.SteamAppId == steamAppId;
+            string executable = LaunchCommand.ExecutablePathOrName(command);
+            return target.InstallPaths.Any(root => IsStoragePathAtOrBelow(path, root) ||
+                                                   IsStoragePathAtOrBelow(executable, root));
+        }
+
+        List<GameModel> removed;
+        bool cacheChanged;
+        for (int attempt = 0; ; attempt++)
+        {
+            var games = LoadGames();
+            removed = games.Where(game => string.IsNullOrWhiteSpace(game.EmulatorId) &&
+                                          Matches(game.LaunchUrl, game.Path, game.LaunchCommand)).ToList();
+            var cache = LoadVersionedAppCache(appCacheFile, currentUserId);
+            cacheChanged = false;
+            foreach (var apps in new[] { cache.SteamApps, cache.EpicApps, cache.GogApps, cache.RiotApps,
+                                         cache.XboxApps, cache.WindowsApps, cache.FolderApps })
+                cacheChanged |= apps.RemoveAll(app => Matches(app.LaunchUrl, app.Path)) > 0;
+
+            try
+            {
+                if (removed.Count > 0)
+                {
+                    games.RemoveAll(removed.Contains);
+                    var revision = _appCacheRevisions.GetValue(cache, _ => throw new InvalidOperationException("Catálogo sem revisão."));
+                    SaveGames(games,
+                        cacheChanged ? new Dictionary<string, string?> { [revision.Path] = JsonSerializer.Serialize(cache) } : null,
+                        cacheChanged ? new Dictionary<string, long> { [revision.Path] = revision.Revision } : null);
+                }
+                else if (cacheChanged)
+                {
+                    SaveAppCache(cache);
+                }
+                break;
+            }
+            catch (StorageConflictException) when (attempt < 2)
+            {
+                // Reload both collections and preserve edits committed during the uninstall.
+            }
+        }
+        if (removed.Count > 0)
+            PublishRemovedGamesToUI(removed);
+        else if (cacheChanged)
+            SendInstalledAppsToUI();
+    }
+
     private void UninstallStorageProgram(string programId)
     {
         if (string.IsNullOrWhiteSpace(programId)) return;
 
+        string owner = currentUserId;
+        long profileGeneration = _themeProfileGeneration;
         long sessionToken;
         lock (_storageUninstallerSync)
         {
@@ -1131,6 +1233,7 @@ public partial class MainWindow
             _activeStorageUninstallerObservedProcessId = 0;
             _activeStorageUninstallerObservedProcessName = "";
             _activeStorageUninstallerProgramName = "";
+            _activeStorageUninstallerUsesSteam = false;
             _activeStorageUninstallerWindowSnapshot.Clear();
             _storageUninstallerInputReady = false;
             sessionToken = ++_storageUninstallerSessionToken;
@@ -1147,6 +1250,8 @@ public partial class MainWindow
                 if (!program.CanUninstall || string.IsNullOrWhiteSpace(program.UninstallString))
                     throw new InvalidOperationException("Este programa não fornece uma ação de desinstalação.");
 
+                StorageUninstallTarget target = CaptureStorageUninstallTarget(program);
+                bool usesSteam = target.SteamAppId != null;
                 string command = NormalizeUninstallCommand(program.UninstallString);
                 PostStorageUninstallStatus(program.Id, "preparing", "Solicitando a remoção ao Windows…");
                 HashSet<IntPtr> windowSnapshot = SnapshotVisibleWindows();
@@ -1155,22 +1260,23 @@ public partial class MainWindow
                     if (_storageUninstallerSessionToken == sessionToken)
                     {
                         _activeStorageUninstallerProgramName = program.Name;
+                        _activeStorageUninstallerUsesSteam = usesSteam;
                         _activeStorageUninstallerWindowSnapshot = new HashSet<IntPtr>(windowSnapshot);
                     }
                 }
-                Process? process = LaunchCommand.Start(command);
-                if (process == null)
+                using Process? process = LaunchCommand.Start(command);
+                if (process == null && !usesSteam)
                     throw new InvalidOperationException("O Windows não iniciou o desinstalador.");
                 lock (_storageUninstallerSync)
                 {
                     if (_storageUninstallerSessionToken == sessionToken)
-                        _activeStorageUninstallerProcessId = process.Id;
+                        _activeStorageUninstallerProcessId = process?.Id ?? 0;
                 }
 
                 IntPtr uninstallerWindow = await WaitForStorageUninstallerWindowAsync(
                     windowSnapshot,
                     process,
-                    program.Name,
+                    target,
                     sessionToken).ConfigureAwait(false);
                 if (uninstallerWindow != IntPtr.Zero)
                 {
@@ -1180,8 +1286,11 @@ public partial class MainWindow
                     // Mesma ordem usada pelo fluxo de instalação de lojas: conclua
                     // a conexão elevada antes de iniciar o loop que envia input.
                     // Assim o primeiro movimento não dispara um segundo helper.
-                    await StartElevatedInputBridgeAsync().ConfigureAwait(false);
-                    await Task.Delay(1200).ConfigureAwait(false);
+                    if (!usesSteam)
+                    {
+                        await StartElevatedInputBridgeAsync().ConfigureAwait(false);
+                        await Task.Delay(1200).ConfigureAwait(false);
+                    }
 
                     IntPtr focusWindow = uninstallerWindow;
                     bool originalWindowUsable = IsWindow(focusWindow) &&
@@ -1192,6 +1301,7 @@ public partial class MainWindow
                         if (successor != IntPtr.Zero) focusWindow = successor;
                     }
                     RememberStorageUninstallerWindow(focusWindow, sessionToken);
+                    uninstallerWindow = focusWindow;
                     Dispatcher.Invoke(() =>
                     {
                         _mainUiOwnsDirectionalNavigation = false;
@@ -1213,22 +1323,42 @@ public partial class MainWindow
                 }
                 else
                 {
-                    PostStorageUninstallStatus(program.Id, "direct", "A remoção foi solicitada diretamente ao Windows; nenhuma janela de desinstalação foi aberta.");
+                    PostStorageUninstallStatus(program.Id, "direct", "Aguardando a confirmação da remoção…");
                 }
 
-                await WaitForStorageUninstallerReturnAsync(
+                bool removed = await WaitForStorageUninstallerReturnAsync(
                     process,
                     uninstallerWindow,
-                    program.Id,
+                    target,
                     sessionToken).ConfigureAwait(false);
+                lock (_storageUninstallerSync)
+                    _storageUninstallerInputReady = false;
                 if (externalUninstallerModeEntered)
                     Dispatcher.Invoke(StopStorageUninstallerInputModeForDoorpiReturn);
                 externalUninstallerModeEntered = false;
-                await Task.Delay(uninstallerWindow == IntPtr.Zero ? 1200 : 450).ConfigureAwait(false);
-                PostStoragePrograms(EnumerateInstalledPrograms());
-                PostStorageUninstallStatus(program.Id, "returned", uninstallerWindow == IntPtr.Zero
-                    ? "Lista atualizada após a solicitação de remoção."
-                    : "Lista atualizada após o retorno ao Doorpi.");
+                if (removed)
+                {
+                    try
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (owner.Length > 0 && currentUserId == owner && _themeProfileGeneration == profileGeneration)
+                                RemoveUninstalledGameFromLibrary(target);
+                        });
+                    }
+                    finally
+                    {
+                        CancelStorageRefresh();
+                        _ = RefreshStorageStatusAsync(GetStorageDrives(), forceRefresh: true, removedPaths: target.InstallPaths);
+                        PostStoragePrograms(EnumerateInstalledPrograms().Where(item => item.Id != program.Id));
+                    }
+                    PostStorageUninstallStatus(program.Id, "completed", $"Remoção de {program.Name} confirmada.");
+                }
+                else
+                {
+                    PostStoragePrograms(EnumerateInstalledPrograms());
+                    PostStorageUninstallStatus(program.Id, "returned", "Não foi possível confirmar a remoção.");
+                }
             }
             catch (Exception ex)
             {
@@ -1251,6 +1381,7 @@ public partial class MainWindow
                         _activeStorageUninstallerObservedProcessId = 0;
                         _activeStorageUninstallerObservedProcessName = "";
                         _activeStorageUninstallerProgramName = "";
+                        _activeStorageUninstallerUsesSteam = false;
                         _activeStorageUninstallerWindowSnapshot.Clear();
                         _storageUninstallerInputReady = false;
                     }
@@ -1263,6 +1394,7 @@ public partial class MainWindow
     {
         IntPtr window;
         int processId;
+        bool usesSteam;
         lock (_storageUninstallerSync)
         {
             if (!string.Equals(_activeStorageUninstallerProgramId, programId, StringComparison.OrdinalIgnoreCase))
@@ -1270,11 +1402,13 @@ public partial class MainWindow
                 PostStorageUninstallStatus(programId, "error", "O desinstalador não está mais aberto.");
                 return;
             }
+            if (!_storageUninstallerInputReady) return;
             window = _activeStorageUninstallerWindow;
             processId = _activeStorageUninstallerProcessId;
+            usesSteam = _activeStorageUninstallerUsesSteam;
         }
 
-        if ((window == IntPtr.Zero || !IsWindow(window)) && processId > 0)
+        if (!usesSteam && !IsStorageUninstallerWindowOpen(window) && processId > 0)
         {
             try
             {
@@ -1285,10 +1419,10 @@ public partial class MainWindow
             catch { window = IntPtr.Zero; }
         }
 
-        if (window == IntPtr.Zero || !IsWindow(window))
+        if (!IsStorageUninstallerWindowOpen(window))
             window = FindStorageUninstallerSuccessorWindow();
 
-        if (window == IntPtr.Zero || !IsWindow(window))
+        if (!IsStorageUninstallerWindowOpen(window))
         {
             PostStorageUninstallStatus(programId, "preparing", "A solicitação de remoção ainda está sendo processada.");
             return;
@@ -1402,8 +1536,8 @@ public partial class MainWindow
 
     private async Task<IntPtr> WaitForStorageUninstallerWindowAsync(
         IReadOnlySet<IntPtr> windowSnapshot,
-        Process launchedProcess,
-        string programName,
+        Process? launchedProcess,
+        StorageUninstallTarget target,
         long sessionToken)
     {
         DateTime deadline = DateTime.UtcNow.AddSeconds(12);
@@ -1414,6 +1548,7 @@ public partial class MainWindow
             {
                 if (_storageUninstallerSessionToken != sessionToken) return IntPtr.Zero;
             }
+            if (target.SteamAppId != null && target.IsRemoved()) return IntPtr.Zero;
             IntPtr bestWindow = IntPtr.Zero;
             int bestScore = int.MinValue;
             IntPtr foreground = GetForegroundWindow();
@@ -1438,11 +1573,14 @@ public partial class MainWindow
                     if (_shellProcessNames.Contains(processName)) return true;
 
                     string title = GetWindowTitle(hWnd);
+                    if (target.SteamAppId != null && !IsSteamUninstallerWindow(processName, title, target.Program.Name))
+                        return true;
+
                     int score = 40;
-                    if (pid == launchedProcess.Id) score += 120;
+                    if (pid == launchedProcess?.Id) score += 120;
                     if (hWnd == foreground) score += 45;
                     if (!string.IsNullOrWhiteSpace(title)) score += 12;
-                    if (TextMatchesAppName($"{title} {processName}", programName)) score += 55;
+                    if (TextMatchesAppName($"{title} {processName}", target.Program.Name)) score += 55;
                     score += Math.Min(25, Math.Max(0, rect.Width * rect.Height / 100_000));
 
                     if (score > bestScore)
@@ -1456,7 +1594,7 @@ public partial class MainWindow
             }, IntPtr.Zero);
 
             if (bestWindow != IntPtr.Zero) return bestWindow;
-            if (SafeHasExited(launchedProcess))
+            if (target.SteamAppId == null && (launchedProcess == null || SafeHasExited(launchedProcess)))
             {
                 if (++exitedChecks >= 8) return IntPtr.Zero;
             }
@@ -1468,6 +1606,17 @@ public partial class MainWindow
         }
         return IntPtr.Zero;
     }
+
+    private static bool IsSteamUninstallerWindow(string processName, string title, string programName)
+        => (processName.Equals("steam", StringComparison.OrdinalIgnoreCase) ||
+            processName.Equals("steamwebhelper", StringComparison.OrdinalIgnoreCase)) &&
+           (Regex.IsMatch(title, @"uninstall|desinstal|désinstall|deinstall", RegexOptions.IgnoreCase) ||
+            (title.Equals(programName, StringComparison.OrdinalIgnoreCase) ||
+             (programName.Length >= 3 && title.Contains(programName, StringComparison.OrdinalIgnoreCase) &&
+              !title.Equals("Steam", StringComparison.OrdinalIgnoreCase))));
+
+    private static bool IsStorageUninstallerWindowOpen(IntPtr window)
+        => window != IntPtr.Zero && IsWindow(window) && (IsWindowVisible(window) || IsIconic(window));
 
     private void RememberStorageUninstallerWindow(IntPtr window, long? sessionToken = null)
     {
@@ -1505,6 +1654,7 @@ public partial class MainWindow
         string observedProcessName;
         int launchedProcessId;
         int observedProcessId;
+        bool usesSteam;
         lock (_storageUninstallerSync)
         {
             snapshot = new HashSet<IntPtr>(_activeStorageUninstallerWindowSnapshot);
@@ -1512,6 +1662,7 @@ public partial class MainWindow
             observedProcessName = _activeStorageUninstallerObservedProcessName;
             launchedProcessId = _activeStorageUninstallerProcessId;
             observedProcessId = _activeStorageUninstallerObservedProcessId;
+            usesSteam = _activeStorageUninstallerUsesSteam;
         }
 
         IntPtr bestWindow = IntPtr.Zero;
@@ -1532,6 +1683,7 @@ public partial class MainWindow
                 string processName = SafeProcessName(candidate);
                 if (_shellProcessNames.Contains(processName) || IsDoorpiInternalName(processName)) return true;
                 string title = GetWindowTitle(hWnd);
+                if (usesSteam && !IsSteamUninstallerWindow(processName, title, programName)) return true;
                 string identity = $"{title} {processName}";
                 bool sameProcess = pid == launchedProcessId || pid == observedProcessId;
                 bool sameProcessName = !string.IsNullOrWhiteSpace(observedProcessName) &&
@@ -1561,23 +1713,29 @@ public partial class MainWindow
         return bestWindow;
     }
 
-    private async Task WaitForStorageUninstallerReturnAsync(
-        Process launchedProcess,
+    private async Task<bool> WaitForStorageUninstallerReturnAsync(
+        Process? launchedProcess,
         IntPtr observedWindow,
-        string programId,
+        StorageUninstallTarget target,
         long sessionToken)
     {
-        int closedChecks = 0;
+        bool usesSteam = target.SteamAppId != null;
+        int removalChecks = 0;
+        var closedFor = new Stopwatch();
+        TimeSpan closeGrace = usesSteam ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(8);
         while (true)
         {
             lock (_storageUninstallerSync)
             {
-                if (_storageUninstallerSessionToken != sessionToken) return;
+                if (_storageUninstallerSessionToken != sessionToken) return false;
             }
 
-            bool processAlive = !SafeHasExited(launchedProcess);
-            bool windowAlive = observedWindow != IntPtr.Zero && IsWindow(observedWindow) &&
-                               (IsWindowVisible(observedWindow) || IsIconic(observedWindow));
+            // Observe the game independently of the launcher or any dialog it owns.
+            removalChecks = target.IsRemoved() ? removalChecks + 1 : 0;
+            if (removalChecks >= 2) return true;
+
+            bool processAlive = launchedProcess != null && !SafeHasExited(launchedProcess);
+            bool windowAlive = IsStorageUninstallerWindowOpen(observedWindow);
             if (!windowAlive && observedWindow != IntPtr.Zero)
             {
                 IntPtr successor = FindStorageUninstallerSuccessorWindow(observedWindow);
@@ -1586,28 +1744,24 @@ public partial class MainWindow
                     observedWindow = successor;
                     RememberStorageUninstallerWindow(successor, sessionToken);
                     windowAlive = true;
-                    closedChecks = 0;
                     Dispatcher.Invoke(() =>
                     {
                         StartStorageUninstallerInputMode(centerCursor: false);
                         FocusExternalWindow(successor);
                     });
-                    PostStorageUninstallStatus(programId, "started", "A janela seguinte do desinstalador foi localizada e trazida para o primeiro plano.");
+                    PostStorageUninstallStatus(target.Program.Id, "started", "A janela seguinte do desinstalador foi localizada e trazida para o primeiro plano.");
                 }
             }
-            if (!processAlive && !windowAlive)
+            if (!windowAlive && (usesSteam || !processAlive))
             {
-                bool programStillRegistered = IsStorageProgramRegistered(programId);
-                // Instaladores como o Firefox encerram o launcher e recriam a
-                // janela em outro processo. Se a entrada ainda existe, dê tempo
-                // para esse handoff ocorrer. Se o Registro já foi limpo, bastam
-                // algumas leituras para evitar atrasar a atualização da lista.
-                int requiredClosedChecks = programStillRegistered ? 24 : 3;
-                if (++closedChecks >= requiredClosedChecks) return;
+                // Steam can keep removing files in the background after its confirmation dialog closes.
+                // Standalone installers can hand off to another window after the launcher exits.
+                closedFor.Start();
+                if (closedFor.Elapsed >= closeGrace) return false;
             }
             else
             {
-                closedChecks = 0;
+                closedFor.Reset();
             }
 
             await Task.Delay(350).ConfigureAwait(false);
@@ -1664,9 +1818,10 @@ public partial class MainWindow
                         long estimatedKb = Math.Max(0, ConvertRegistryLong(key.GetValue("EstimatedSize")));
                         string identity = StorageProgramRegistryIdentity(hive, view, uninstallPath, subKeyName);
                         string displayIcon = ReadRegistryString(key, "DisplayIcon");
-                        string installLocation = NormalizeStoragePath(ReadRegistryString(key, "InstallLocation"));
+                        string rawLocation = Environment.ExpandEnvironmentVariables(ReadRegistryString(key, "InstallLocation").Trim('"'));
+                        string installLocation = Path.IsPathFullyQualified(rawLocation) ? NormalizeStoragePath(rawLocation) : "";
                         string iconPath = ResolveProgramIconPath(displayIcon, installLocation, uninstallString);
-                        result.Add(new InstalledProgramEntry
+                        var entry = new InstalledProgramEntry
                         {
                             Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..24],
                             Name = name.Trim(),
@@ -1678,8 +1833,16 @@ public partial class MainWindow
                             UninstallString = uninstallString,
                             QuietUninstallString = ReadRegistryString(key, "QuietUninstallString"),
                             EstimatedSizeBytes = estimatedKb > long.MaxValue / 1024 ? long.MaxValue : estimatedKb * 1024,
-                            CanUninstall = !string.IsNullOrWhiteSpace(uninstallString) && ConvertRegistryInt(key.GetValue("NoRemove")) != 1
-                        });
+                            CanUninstall = !string.IsNullOrWhiteSpace(uninstallString) && ConvertRegistryInt(key.GetValue("NoRemove")) != 1,
+                            RegistryHive = hive,
+                            RegistryView = view,
+                            RegistrySubKey = subKeyName
+                        };
+                        if (StorageUninstallEvidence.SteamUninstallAppId(subKeyName, uninstallString) != null &&
+                            (installLocation.Length == 0 || StorageUninstallEvidence.HasNoInstallFiles(installLocation)) &&
+                            CaptureStorageUninstallTarget(entry).IsRemoved())
+                            continue;
+                        result.Add(entry);
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
                 }
@@ -1696,30 +1859,19 @@ public partial class MainWindow
             .ToList();
     }
 
-    private static bool IsStorageProgramRegistered(string programId)
+    private static bool IsStorageProgramUnregistered(InstalledProgramEntry program)
     {
-        if (string.IsNullOrWhiteSpace(programId)) return false;
-
         const string uninstallPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
-        foreach (RegistryHive hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
-        foreach (RegistryView view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        try
         {
-            try
-            {
-                using RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view);
-                using RegistryKey? uninstall = baseKey.OpenSubKey(uninstallPath);
-                if (uninstall == null) continue;
-                foreach (string subKeyName in uninstall.GetSubKeyNames())
-                {
-                    string identity = StorageProgramRegistryIdentity(hive, view, uninstallPath, subKeyName);
-                    string candidateId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..24];
-                    if (string.Equals(candidateId, programId, StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+            using RegistryKey baseKey = RegistryKey.OpenBaseKey(program.RegistryHive, program.RegistryView);
+            using RegistryKey? entry = baseKey.OpenSubKey($@"{uninstallPath}\{program.RegistrySubKey}");
+            return entry == null;
         }
-        return false;
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
     }
 
     private static string StorageProgramRegistryIdentity(
@@ -1755,6 +1907,8 @@ public partial class MainWindow
     private static string ResolveProgramLocation(InstalledProgramEntry program)
     {
         if (Directory.Exists(program.InstallLocation)) return program.InstallLocation;
+        if (StorageUninstallEvidence.SteamUninstallAppId(program.RegistrySubKey, program.UninstallString) != null)
+            return CaptureStorageUninstallTarget(program).InstallPaths.FirstOrDefault(Directory.Exists) ?? program.InstallLocation;
         string icon = Environment.ExpandEnvironmentVariables(program.DisplayIcon.Split(',')[0].Trim().Trim('"'));
         if (File.Exists(icon)) return Path.GetDirectoryName(icon) ?? "";
         string executable = LaunchCommand.ExecutablePathOrName(program.UninstallString);

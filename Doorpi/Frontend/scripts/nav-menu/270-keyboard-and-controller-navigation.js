@@ -9,7 +9,10 @@
         let nextIdx = currentIdx + parseInt(delta);
         if (nextIdx < 0 || nextIdx >= tabs.length) return;
 
-        tabs[nextIdx].click();
+        const insideCategory = !_topbarFocus;
+        _selectCat(nextIdx);
+        if (insideCategory && _contentItems.length) _navTopbar('ArrowDown');
+        else _setTopbarFocus(true);
     };
 
     window._navMenuCycleSharingSubtab = function (delta) {
@@ -45,12 +48,29 @@
         return true;
     };
 
-    window._navMenuHandleKey = function (key) {
+    window._navMenuHandleKey = function (key, repeat = false) {
         if (window.isDoorpiFileBrowserOpen?.()) return false;
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        const sortDialog = document.querySelector('.nav-profile-sort-dialog[open]');
+        if (sortDialog) {
+            if (['Backspace','Escape','y','Y'].includes(key)) sortDialog.close();
+            else if (key==='Enter') sortDialog.querySelector('button:focus')?.click();
+            else if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key)) {
+                const options = [...sortDialog.querySelectorAll('[data-game-order]')];
+                const step = key==='ArrowUp' || key==='ArrowLeft' ? -1 : 1;
+                options[Math.max(0,Math.min(options.length-1,options.indexOf(document.activeElement)+step))]?.focus();
+            }
+            return true;
+        }
+        if ((key==='Y' || key==='y') && !repeat && CATS[_catIdx]?.id==='profile') {
+            const button = document.querySelector('.nav-profile-sort-trigger');
+            if (button) { button.click(); return true; }
+        }
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-            _trackLibraryDirectionHold(key);
+            const profileGrid = !_topbarFocus && (key==='ArrowUp' || key==='ArrowDown')
+                ? _contentItems[_contentIdx]?.closest('.nav-profile-grid') : null;
+            _trackLibraryDirectionHold(key,profileGrid);
         }
         if ((key === 'Escape' || key === 'Backspace') && _libraryInteractionMode === 'filters' &&
             _closeLibraryFilters()) return true;
@@ -60,7 +80,7 @@
         if (key === 'R1') { window._navMenuCycleTab(1); return true; }
 
         if (_topbarFocus) return _navTopbar(key) === true;
-        return _navContent(key) === true;
+        return _navContent(key,repeat) === true;
     };
 
     document.addEventListener('keydown', e => {
@@ -132,6 +152,8 @@
             if (document.querySelector('.profile-photo-picker-overlay, .artwork-wizard-overlay')) return;
             if (typeof isCtxMenuOpen !== 'undefined' && isCtxMenuOpen) return;
             if (typeof isEditModalOpen !== 'undefined' && isEditModalOpen) return;
+            if (e.target?.matches?.('#navStorageProgramSearch') &&
+                (e.isComposing || !['ArrowUp', 'ArrowDown', 'Escape'].includes(e.key))) return;
 
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -153,10 +175,46 @@
                 if (window.requestDoorpiBackAction?.()) return;
                 return;
             }
-            window._navMenuHandleKey(e.key);
+            window._navMenuHandleKey(e.key,e.repeat);
             return;
         }
     }, true);
+
+    function _accountDirectionTarget(current, key) {
+        const back = document.getElementById('setBack');
+        const first = document.querySelector('[data-art-part=avatar]');
+        if (current === back) return key === 'ArrowDown' ? first : null;
+        const column = current?.closest('.nav-profile-avatar-sec,.nav-profile-fields');
+        if (!column) return null;
+        const panels = Array.from(column.parentElement.children);
+        const other = panels.find(panel => panel !== column);
+        const stacked = other.getBoundingClientRect().top >= column.getBoundingClientRect().bottom ||
+            column.getBoundingClientRect().top >= other.getBoundingClientRect().bottom;
+        const controls = _contentItems.filter(item => item !== back && (stacked || column.contains(item)));
+        // Within a column, overlapping controls belong to the same visual row.
+        const rows = [];
+        for (const item of controls) {
+            const rect = item.getBoundingClientRect();
+            let row = rows.find(r => rect.top < r.bottom - 2 && rect.bottom > r.top + 2);
+            if (!row) rows.push(row = {top:rect.top,bottom:rect.bottom,items:[]});
+            row.items.push(item);
+        }
+        rows.sort((a,b)=>a.top-b.top);
+        const index = rows.findIndex(row=>row.items.includes(current));
+        if (index < 0) return null;
+        const row = rows[index].items;
+        const slot = row.indexOf(current);
+        if (key === 'ArrowDown' || key === 'ArrowUp') {
+            const next = rows[index + (key === 'ArrowDown' ? 1 : -1)]?.items;
+            return next ? next[Math.min(slot,next.length-1)] : key === 'ArrowUp' ? back : null;
+        }
+        const right = key === 'ArrowRight';
+        const neighbor = row[slot + (right ? 1 : -1)];
+        if (neighbor || stacked) return neighbor;
+        if (right !== (column === panels[0])) return null;
+        const candidates = _contentItems.filter(item=>other.contains(item));
+        return findSpatialCandidate(candidates,current,right ? 'RIGHT' : 'LEFT') || candidates[0];
+    }
 
     function _navTopbar(key) {
         switch (key) {
@@ -177,6 +235,8 @@
                         _contentIdx = cards.length
                             ? _rememberedLibraryContentIndex(catId, actionCount, cards)
                             : 0;
+                    } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
+                        _contentIdx = Math.max(0,_contentItems.findIndex(item=>item.dataset.artPart === 'avatar'));
                     } else if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
                         const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
                         _contentIdx = editIndex >= 0 ? editIndex : 0;
@@ -293,7 +353,7 @@
         return true;
     }
 
-    function _navContent(key) {
+    function _navContent(key,repeat = false) {
         const cols = _gridCols();
         const total = _contentItems.length;
 
@@ -386,6 +446,8 @@
 
         if (_isLazyCat()) return _navLibraryContent(key);
 
+        if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'gaming' && _navigateSteamAchievements(key,repeat)) return true;
+        if (CATS[_catIdx]?.id === 'profile' && (key==='Escape' || key==='Backspace') && _returnToProfileCard()) return true;
         if (CATS[_catIdx]?.id === 'profile' && _profileSubView !== 'history') {
             const active = _contentItems[_contentIdx];
             const heroIndex = _contentItems.findIndex(item => item?.id === 'btnProfileHero');
@@ -394,6 +456,18 @@
             const editIndex = _contentItems.findIndex(item => item?.id === 'btnEditProfileHub');
             const activeTabIndex = _contentItems.findIndex(item => item?.classList?.contains('nav-unified-tab') && item.classList.contains('is-active'));
             const onTab = active?.classList?.contains('nav-unified-tab');
+            const cards = _contentItems.filter(item=>item.hasAttribute('data-profile-card'));
+            if (cards.length && key.startsWith('Arrow') && (cards.includes(active) || (onTab && key==='ArrowDown'))) {
+                const direction = key.slice(5).toUpperCase();
+                const target = onTab ? cards[0] : findSpatialCandidate(cards,active,direction)
+                    || (direction==='UP' ? _contentItems[activeTabIndex] : null);
+                if (target) {
+                    _contentIdx = _contentItems.indexOf(target);
+                    _updateContentFocus();
+                    if (cards.includes(target)) target.scrollIntoView({block:'nearest',inline:'nearest'});
+                }
+                return true;
+            }
 
             if (key === 'ArrowUp') {
                 if (active?.id === 'btnProfileRecent') {
@@ -458,36 +532,16 @@
             if (active?.id === 'btnEditProfileHub' && (key === 'ArrowLeft' || key === 'ArrowRight')) return true;
         }
 
-        // Navegação Complexa nos menus de Settings da Conta
-        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account') {
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-                const byId = Object.fromEntries(_contentItems.map((item, index) => [item.id, index]));
-                const activeId = _contentItems[_contentIdx]?.id;
-                const syncPrimaryId = byId.navProfileSyncNow !== undefined ? 'navProfileSyncNow' : 'navProfileSyncConnect';
-                const routes = {
-                    setBack: { ArrowDown: 'navProfilePhoto', ArrowRight: 'navProfilePhoto' },
-                    navProfilePhoto: { ArrowUp: 'setBack', ArrowDown: 'navProfName', ArrowRight: 'navProfName' },
-                    navProfName: { ArrowUp: 'navProfilePhoto', ArrowDown: 'navProfPin', ArrowLeft: 'navProfilePhoto' },
-                    navProfPin: { ArrowUp: 'navProfName', ArrowDown: 'navProfApi', ArrowLeft: 'navProfilePhoto' },
-                    navProfApi: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowRight: 'navApiPaste', ArrowLeft: 'navProfilePhoto' },
-                    navApiPaste: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navProfApi', ArrowRight: 'navApiLink' },
-                    navApiLink: { ArrowUp: 'navProfPin', ArrowDown: syncPrimaryId, ArrowLeft: 'navApiPaste' },
-                    navProfileSyncConnect: { ArrowUp: 'navProfApi', ArrowDown: 'navApplicationHistory' },
-                    navProfileSyncNow: { ArrowUp: 'navProfApi', ArrowDown: 'navApplicationHistory', ArrowRight: 'navProfileSyncDisconnect' },
-                    navProfileSyncDisconnect: { ArrowUp: 'navApiPaste', ArrowDown: 'navApplicationHistory', ArrowLeft: 'navProfileSyncNow' },
-                    navApplicationHistory: { ArrowUp: syncPrimaryId, ArrowDown: 'navAccountSharing' },
-                    navAccountSharing: { ArrowUp: 'navApplicationHistory', ArrowDown: 'navDeleteUser' },
-                    navDeleteUser: { ArrowUp: 'navAccountSharing' }
-                };
-                const nextId = routes[activeId]?.[key];
-                if (nextId && byId[nextId] !== undefined) {
-                    _contentIdx = byId[nextId];
-                    _updateContentFocus();
-                } else if (key === 'ArrowUp' && activeId === 'setBack') {
-                    _setTopbarFocus(true);
-                }
-                return true;
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'account' && key.startsWith('Arrow')) {
+            const current = _contentItems[_contentIdx];
+            const target = _accountDirectionTarget(current, key);
+            if (target) {
+                _contentIdx = _contentItems.indexOf(target);
+                _updateContentFocus();
+            } else if (current?.id === 'setBack' && key === 'ArrowUp') {
+                _setTopbarFocus(true);
             }
+            return true;
         }
         if (CATS[_catIdx]?.id === 'settings' && document.querySelector('.nav-settings-directory')) {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
@@ -701,6 +755,7 @@
                     const categories = Array.from(document.querySelectorAll('.nav-storage-v3-category'));
                     const openPrograms = document.getElementById('navStorageOpenPrograms');
                     const detailScroll = document.querySelector('[data-nav-storage-detail-scroll]');
+                    const search = document.getElementById('navStorageProgramSearch');
                     const programs = Array.from(document.querySelectorAll('.nav-storage-program'));
                     const selectedProgram = programs.find(item => item.dataset.storageProgram === _storageSelectedProgramId) || null;
                     const selectedProgramIndex = programs.indexOf(selectedProgram);
@@ -716,7 +771,13 @@
 
                     if (active === back) {
                         if (key === 'ArrowUp' || key === 'ArrowLeft') _setTopbarFocus(true);
-                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(detailScroll || drives[0] || programs[0] || cancel || confirm);
+                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(detailScroll || drives[0] || search || programs[0] || cancel || confirm);
+                        return true;
+                    }
+
+                    if (active === search) {
+                        if (key === 'ArrowUp' || key === 'ArrowLeft') moveTo(back);
+                        else if (key === 'ArrowDown' || key === 'ArrowRight') moveTo(programs[0]);
                         return true;
                     }
 
@@ -761,7 +822,7 @@
 
                     const programIndex = programs.indexOf(active);
                     if (programIndex >= 0) {
-                        if (key === 'ArrowUp') moveTo(programs[programIndex - 1] || back);
+                        if (key === 'ArrowUp') moveTo(programs[programIndex - 1] || search || back);
                         else if (key === 'ArrowDown') moveTo(active === selectedProgram ? (cancel || confirm || programs[programIndex + 1]) : programs[programIndex + 1]);
                         else if (key === 'ArrowLeft') moveTo(back);
                         return true;
@@ -823,80 +884,10 @@
                 }
 
                 if (_systemSubView === 'updates') {
-                    const tabDoorpiIdx = _contentItems.findIndex(el => el?.id === 'updatesTabDoorpi');
-                    const tabWindowsIdx = _contentItems.findIndex(el => el?.id === 'updatesTabWindows');
-                    const tabGpuIdx = _contentItems.findIndex(el => el?.id === 'updatesTabGpu');
-                    const activeTabIdx = _systemUpdatesSubView === 'gpu'
-                        ? tabGpuIdx
-                        : (_systemUpdatesSubView === 'windows' ? tabWindowsIdx : tabDoorpiIdx);
-                    const firstActionIdx = _contentItems.findIndex(el =>
-                        el?.classList?.contains('nav-suggestion-card') ||
-                        el?.classList?.contains('nav-gpu-app-card'));
-                    const releaseNotesIdx = _contentItems.findIndex(el => el?.id === 'systemUpdateChangelog');
-                    const actionIndices = _contentItems
-                        .map((el, idx) => el?.classList?.contains('nav-suggestion-card') ? idx : -1)
-                        .filter(idx => idx >= 0);
-                    const actionPosition = actionIndices.indexOf(_contentIdx);
-                    const onTabs = _contentIdx === tabDoorpiIdx || _contentIdx === tabWindowsIdx || _contentIdx === tabGpuIdx;
-                    const gpuCardIndices = _contentItems
-                        .map((el, idx) => el?.classList?.contains('nav-gpu-app-card') ? idx : -1)
-                        .filter(idx => idx >= 0);
-                    const gpuCardPosition = gpuCardIndices.indexOf(_contentIdx);
-
-                    if (_systemUpdatesSubView === 'gpu' && gpuCardPosition >= 0) {
-                        if (key === 'ArrowLeft') {
-                            _contentIdx = gpuCardIndices[(gpuCardPosition - 1 + gpuCardIndices.length) % gpuCardIndices.length];
-                        } else if (key === 'ArrowRight') {
-                            _contentIdx = gpuCardIndices[(gpuCardPosition + 1) % gpuCardIndices.length];
-                        } else if (key === 'ArrowUp') {
-                            _contentIdx = tabGpuIdx;
-                        }
-                        _updateContentFocus();
-                        return;
-                    }
-
-                    if (actionPosition >= 0) {
-                        if (key === 'ArrowLeft' && actionPosition % 2 === 1) _contentIdx = actionIndices[actionPosition - 1];
-                        else if (key === 'ArrowRight' && actionPosition % 2 === 0 && actionIndices[actionPosition + 1] !== undefined) _contentIdx = actionIndices[actionPosition + 1];
-                        else if (key === 'ArrowUp') _contentIdx = actionPosition >= 2
-                            ? actionIndices[actionPosition - 2]
-                            : activeTabIdx;
-                        else if (key === 'ArrowDown') {
-                            if (actionIndices[actionPosition + 2] !== undefined) _contentIdx = actionIndices[actionPosition + 2];
-                            else if (releaseNotesIdx >= 0 && _systemUpdatesSubView === 'doorpi') _contentIdx = releaseNotesIdx;
-                        }
-                        _updateContentFocus();
-                        return;
-                    }
-
-                    if (_contentIdx === releaseNotesIdx) {
-                        if (key === 'ArrowUp') _contentIdx = actionIndices[actionIndices.length - 1] ?? activeTabIdx;
-                        _updateContentFocus();
-                        return;
-                    }
-
-                    if (key === 'ArrowUp') {
-                        if (_contentIdx <= 0) {
-                            _setTopbarFocus(true);
-                            return;
-                        }
-                        if (onTabs) _contentIdx = 0;
-                        else if (_contentIdx === firstActionIdx) _contentIdx = activeTabIdx;
-                        else _contentIdx--;
-                    } else if (key === 'ArrowDown') {
-                        if (_contentIdx === 0) _contentIdx = activeTabIdx;
-                        else if (onTabs && firstActionIdx !== -1) _contentIdx = firstActionIdx;
-                        else if (onTabs && releaseNotesIdx >= 0 && _systemUpdatesSubView === 'doorpi') _contentIdx = releaseNotesIdx;
-                        else if (_contentIdx < total - 1) _contentIdx++;
-                    } else if (key === 'ArrowLeft') {
-                        if (_contentIdx === tabGpuIdx) _contentIdx = tabWindowsIdx;
-                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabDoorpiIdx;
-                    } else if (key === 'ArrowRight') {
-                        if (_contentIdx === tabDoorpiIdx) _contentIdx = tabWindowsIdx;
-                        else if (_contentIdx === tabWindowsIdx) _contentIdx = tabGpuIdx;
-                    }
-
-                    _contentIdx = Math.max(0, Math.min(total - 1, _contentIdx));
+                    const current = _contentItems[_contentIdx];
+                    const neighbor = findSpatialCandidate(_contentItems, current, key.slice(5).toUpperCase());
+                    if (neighbor) _contentIdx = _contentItems.indexOf(neighbor);
+                    else if (_contentIdx === 0 && key === 'ArrowUp') { _setTopbarFocus(true); return; }
                     _updateContentFocus();
                     return;
                 }
@@ -1002,11 +993,12 @@
                     if (body) _renderSettingsSystemStorage(body, `[data-storage-program="${CSS.escape(_storageSelectedProgramId || '')}"]`);
                     return true;
                 } else if (CATS[_catIdx]?.id === 'profile' && _profileSubView === 'history') {
-                    _profileSubView = null;
-                    _contentIdx = 0;
-                    _renderContent('profile');
-                    _setTopbarFocus(false);
+                    document.getElementById('profileHistoryBack')?.click();
                 } else if (CATS[_catIdx]?.id === 'settings' && _settingsSubView) {
+                    if (_settingsSubView === 'account') {
+                        document.getElementById('setBack')?.click();
+                        return true;
+                    }
                     if (_settingsSubView === 'bluetooth' && _bluetoothUpdateStatus?.pairingPrompt) {
                         postToHost?.({ action: 'respondBluetoothPairing', accepted: false, pin: '' });
                         return true;
@@ -1043,6 +1035,9 @@
                             _settingsSubView = 'system';
                             _systemSubView = null;
                         }
+                    } else if (_settingsSubView === 'system' && _systemSubView === 'updates' && _systemUpdatesSubView !== 'hub') {
+                        document.getElementById('setBackSystemUpdates')?.click();
+                        return true;
                     } else if (_settingsSubView === 'system' && _systemSubView) {
                         if (_settingsReturnToRoot) {
                             _settingsReturnToRoot = false;

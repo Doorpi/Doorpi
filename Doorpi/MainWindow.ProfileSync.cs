@@ -295,7 +295,7 @@ public partial class MainWindow
                             ?? throw new InvalidDataException("Coleção de histórico de mídia ausente."))
                         .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
                                         !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
-                                        entry.TotalPlaybackSeconds > 0)
+                                        (entry.TotalPlaybackSeconds > 0 || entry.PermanentlyExcluded))
                         .ToList();
                 }
                 catch (Exception ex) { failure = ex; }
@@ -318,6 +318,7 @@ public partial class MainWindow
             controls.Profiles,
             controls.Assignments,
             LoadProfileMediaHistoryForSync(profileId));
+        snapshot.Steam = Doorpi.Steam.SteamProfileStore.Read(Path.Combine(dataFolder, "users", profileId));
         return (snapshot, DecodeProfilePhoto(profile.PhotoBase64));
     }
 
@@ -841,7 +842,7 @@ public partial class MainWindow
     {
         string directory = Path.Combine(dataFolder, "users", GoogleOAuthClient.SafeProfileId(profileId));
         return StateStorage.ReadSnapshot(new[] { profilesFile }
-            .Concat(new[] { "user.json", "games.json", "game-history.json", "media-history.json", "controls.json", "media.json", "stores.json" }
+            .Concat(new[] { "user.json", "games.json", "game-history.json", "media-history.json", "controls.json", "media.json", "stores.json", "steam-account.json", "steam-games.json", "steam-achievements.json" }
                 .Select(name => Path.Combine(directory, name)))).Revisions;
     }
 
@@ -851,6 +852,7 @@ public partial class MainWindow
         CloudProfileV1 remote = result.RemoteProfile ?? throw new InvalidOperationException("Perfil remoto ausente.");
         profileId = GoogleOAuthClient.SafeProfileId(profileId);
         sourceRevisions ??= CaptureProfileSyncRevisions(profileId);
+        bool uploadPreservedSteamData = false;
         await _profileRemoteApplyGate.WaitAsync().ConfigureAwait(false);
         Interlocked.Increment(ref _profileSyncApplyingRemote);
         try
@@ -872,6 +874,7 @@ public partial class MainWindow
                 Path.Combine(profileDirectory, "media.json"), Path.Combine(profileDirectory, "stores.json"),
                 Path.Combine(profileDirectory, "profile-sync-base.json"), Path.Combine(profileDirectory, "profile-sync-pending-remote.json"),
                 Path.Combine(profileDirectory, "profile-sync-pending-remote.json.bak")
+                , Path.Combine(profileDirectory, "steam-account.json"), Path.Combine(profileDirectory, "steam-games.json"), Path.Combine(profileDirectory, "steam-achievements.json")
             });
             var expectedRevisions = new Dictionary<string, long>(localSnapshot.Revisions, StringComparer.OrdinalIgnoreCase);
             foreach (var expected in sourceRevisions) expectedRevisions[expected.Key] = expected.Value;
@@ -884,6 +887,11 @@ public partial class MainWindow
             if (remote.SchemaVersion >= 3)
                 profile.ApplicationHistoryEnabled = remote.ApplicationHistoryEnabled;
             profile.DateCreated = remote.CreatedAtUtc?.LocalDateTime ?? profile.DateCreated;
+            if (remote.SchemaVersion >= 7)
+            {
+                profile.CoverBase64 = remote.CoverBase64;
+                profile.AvatarFromGame = remote.AvatarFromGame;
+            }
             profile.PhotoSource = remote.ProfilePhoto.Source ?? "";
             profile.PhotoSourceUrl = remote.ProfilePhoto.SourceUrl ?? "";
             profile.PhotoSteamGridAssetId = remote.ProfilePhoto.SteamGridAssetId;
@@ -911,7 +919,10 @@ public partial class MainWindow
                 return new GameHistoryEntry
                 {
                     Name = game.Name,
-                    TotalPlaytimeMinutes = Math.Max(0, game.TotalPlaytimeSeconds / 60),
+                    SteamAppId = game.SteamAppId > 0 ? game.SteamAppId : old?.SteamAppId ?? 0,
+                    TotalPlaytimeMinutes = game.SteamAppId > 0 || old?.SteamAppId > 0
+                        ? Math.Max(Math.Max(0, game.TotalPlaytimeSeconds / 60), old?.TotalPlaytimeMinutes ?? 0)
+                        : Math.Max(0, game.TotalPlaytimeSeconds / 60),
                     LastSessionMinutes = Math.Max(0, game.LastSessionSeconds / 60),
                     FirstPlayed = game.FirstPlayedUtc?.LocalDateTime ?? DateTime.MinValue,
                     LastPlayed = game.LastPlayedUtc?.LocalDateTime ?? DateTime.MinValue,
@@ -956,7 +967,7 @@ public partial class MainWindow
                     .Where(entry => !string.IsNullOrWhiteSpace(entry.AppId) &&
                                     !string.IsNullOrWhiteSpace(entry.ContentTitle) &&
                                     !IsInvalidTrackedMediaTitle(entry.ContentTitle) &&
-                                    entry.TotalPlaybackSeconds > 0)
+                                    (entry.TotalPlaybackSeconds > 0 || entry.PermanentlyExcluded))
                     .Select(entry =>
                     {
                         string appId = entry.AppId ?? "";
@@ -973,6 +984,7 @@ public partial class MainWindow
                         return new MediaActivityHistoryEntry
                         {
                             AppId = appId,
+                            PermanentlyExcluded = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true,
                             AppName = entry.AppName ?? "",
                             Category = entry.Category ?? "",
                             ContentTitle = contentTitle,
@@ -996,19 +1008,19 @@ public partial class MainWindow
                             MetadataCapturedUtc = hasCloudMetadata
                                 ? entry.MetadataCapturedUtc?.LocalDateTime
                                 : local?.MetadataCapturedUtc,
-                            TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
-                            LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
-                            DailyPlaybackDate = hasCloudDailyPlayback
+                            TotalPlaybackSeconds = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? 0 : Math.Max(0, entry.TotalPlaybackSeconds),
+                            LastSessionSeconds = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? 0 : Math.Max(0, entry.LastSessionSeconds),
+                            DailyPlaybackDate = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? "" : hasCloudDailyPlayback
                                 ? entry.DailyPlaybackDate ?? ""
                                 : local?.DailyPlaybackDate ?? "",
-                            DailyPlaybackSeconds = hasCloudDailyPlayback
+                            DailyPlaybackSeconds = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? 0 : hasCloudDailyPlayback
                                 ? Math.Max(0, entry.DailyPlaybackSeconds)
                                 : Math.Max(0, local?.DailyPlaybackSeconds ?? 0),
-                            SessionCount = Math.Max(0, entry.SessionCount),
-                            LastPositionSeconds = Math.Max(0, entry.LastPositionSeconds),
-                            DurationSeconds = Math.Max(0, entry.DurationSeconds),
-                            FirstPlayed = entry.FirstPlayedUtc?.LocalDateTime ?? DateTime.MinValue,
-                            LastPlayed = entry.LastPlayedUtc?.LocalDateTime ?? DateTime.MinValue
+                            SessionCount = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? 0 : Math.Max(0, entry.SessionCount),
+                            LastPositionSeconds = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? 0 : Math.Max(0, entry.LastPositionSeconds),
+                            DurationSeconds = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? 0 : Math.Max(0, entry.DurationSeconds),
+                            FirstPlayed = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? DateTime.MinValue : entry.FirstPlayedUtc?.LocalDateTime ?? DateTime.MinValue,
+                            LastPlayed = entry.PermanentlyExcluded || local?.PermanentlyExcluded == true ? DateTime.MinValue : entry.LastPlayedUtc?.LocalDateTime ?? DateTime.MinValue
                         };
                     })
                     .ToList()
@@ -1024,13 +1036,36 @@ public partial class MainWindow
                 [Path.Combine(dataFolder, "users", profileId, "controls.json")] = JsonSerializer.Serialize(controls, ControlJsonOptions)
             };
             AddLibraryHistoryResetWrites(profileId, removedHistoryKeys, writes);
+            // Old cloud formats have no Steam section. They must not delete newer
+            // local imports or any credential, which is strictly device-local.
+            Doorpi.Steam.SteamProfileData? appliedSteam = remote.Steam ?? local?.Snapshot.Steam;
+            if (appliedSteam != null)
+            {
+                if (local?.Snapshot.Steam is { } localSteam && localSteam.SteamId == appliedSteam.SteamId)
+                    appliedSteam = Doorpi.Steam.SteamProfileMerge.Merge(localSteam, appliedSteam) ?? throw new InvalidDataException("Dados Steam ausentes após combinar os perfis.");
+                Doorpi.Steam.SteamHistoryImport.Apply(appliedSteam!, appliedHistory, new List<GameModel>());
+                writes[historyPath] = JsonSerializer.Serialize(appliedHistory, IndentedJsonOptions);
+                foreach (var write in Doorpi.Steam.SteamProfileStore.BuildWrites(profileDirectory, appliedSteam)) writes[write.Key] = write.Value;
+            }
 
             var appliedControls = GetCloudControlConfigurationSnapshot(controls);
             CloudProfileV1 appliedSnapshot = ProfileSyncSnapshotFactory.Create(
                 profile, appliedHistory, deviceId, DateTimeOffset.UtcNow,
                 appliedControls.Profiles, appliedControls.Assignments, appliedMediaHistory);
+            appliedSnapshot.Steam = appliedSteam;
+            uploadPreservedSteamData = appliedSteam != null && (Doorpi.Steam.SteamProfileMerge.Fingerprint(appliedSteam) != Doorpi.Steam.SteamProfileMerge.Fingerprint(remote.Steam)
+                || appliedHistory.Any(entry =>
+                {
+                    if (entry.SteamAppId <= 0) return false;
+                    var remoteGame = remote.Games.FirstOrDefault(game => game.SteamAppId == entry.SteamAppId);
+                    return entry.TotalPlaytimeMinutes > (remoteGame?.TotalPlaytimeSeconds ?? 0) / 60
+                        || entry.ShowcaseVerticalImageUrl != (remoteGame?.ShowcaseVerticalImageUrl ?? "")
+                        || entry.HistoryHorizontalImageUrl != (remoteGame?.HistoryHorizontalImageUrl ?? "")
+                        || entry.ProfileBannerImageUrl != (remoteGame?.ProfileBannerImageUrl ?? "");
+                }));
             await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision,
-                localWrites: writes, expectedRevisions: expectedRevisions).ConfigureAwait(false);
+                localWrites: writes, expectedRevisions: expectedRevisions,
+                remoteBaseline: uploadPreservedSteamData ? remote : null).ConfigureAwait(false);
 
             await Dispatcher.InvokeAsync(() =>
             {
@@ -1054,6 +1089,7 @@ public partial class MainWindow
         {
             Interlocked.Decrement(ref _profileSyncApplyingRemote);
             _profileRemoteApplyGate.Release();
+            if (uploadPreservedSteamData) ScheduleProfileSync(profileId);
         }
     }
 
@@ -1271,6 +1307,8 @@ public partial class MainWindow
         string targetFolder = Path.Combine(dataFolder, "images", urlFolder);
         string fileName = "cloud_" + StableAssetName(profileId + "_" + gameName + "_" + category);
         string? localPath = await DownloadImageAsync(remoteUrl, targetFolder, fileName).ConfigureAwait(false);
+        if (localPath == null && Doorpi.Steam.SteamHistoryArtwork.Fallback(remoteUrl) is { } fallbackUrl)
+            localPath = await DownloadImageAsync(fallbackUrl, targetFolder, fileName).ConfigureAwait(false);
         if (localPath == null) return;
         string savedUrl = $"https://data.local/images/{urlFolder}/{Path.GetFileName(localPath)}";
         bool cacheApplied = false;

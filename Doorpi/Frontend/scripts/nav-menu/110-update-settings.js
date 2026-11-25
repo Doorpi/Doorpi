@@ -1,5 +1,5 @@
     function _renderSettingsSystemUpdatesV2(body) {
-        const active = _systemUpdatesSubView || 'doorpi';
+        const active = _systemUpdatesSubView || 'hub';
         if (active !== 'doorpi') _releaseNotesScrollActive = false;
         const doorpiActive = active === 'doorpi';
         const windowsActive = active === 'windows';
@@ -12,16 +12,16 @@
         }
 
         body.innerHTML = `
-        <div class="nav-settings-subheader">
+        <div class="nav-settings-subheader nav-updates-header">
             <button class="nav-back-btn" id="setBackSystemUpdates" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-            <h2>${_t('updatesTitle', 'Atualizações')}</h2>
+            <h2>${active === 'hub' ? _t('updatesTitle') : gpuActive ? _t('videoCardTitle') : windowsActive ? 'Windows' : 'Doorpi'}</h2>
         </div>
 
         <div class="nav-updates-shell">
-            <div class="nav-system-tabs">
-                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1"><strong>Doorpi</strong><small id="updatesTabDoorpiState">Sistema e componentes</small></button>
-                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1"><strong>Windows</strong><small id="updatesTabWindowsState">Sistema operacional</small></button>
-                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1"><strong>${_t('videoCardTitle', 'Placa de vídeo')}</strong><small id="updatesTabGpuState">Drivers e atualizadores</small></button>
+            <div class="nav-update-directory" ${active === 'hub' ? '' : 'hidden'}>
+                <button class="nav-system-tab ${doorpiActive ? 'active' : ''}" id="updatesTabDoorpi" data-updates-tab="doorpi" tabindex="-1"><span class="nav-update-source-copy"><strong>Doorpi</strong><small>${_t('quickDoorpiDesc')}</small></span><span class="nav-update-source-state" id="updatesTabDoorpiState">${_t('updateUnchecked')}</span></button>
+                <button class="nav-system-tab ${windowsActive ? 'active' : ''}" id="updatesTabWindows" data-updates-tab="windows" tabindex="-1"><span class="nav-update-source-copy"><strong>Windows</strong><small>${_t('quickWindowsDesc')}</small></span><span class="nav-update-source-state" id="updatesTabWindowsState">${_t('updateUnchecked')}</span></button>
+                <button class="nav-system-tab ${gpuActive ? 'active' : ''}" id="updatesTabGpu" data-updates-tab="gpu" tabindex="-1"><span class="nav-update-source-copy"><strong>${_t('videoCardTitle', 'Placa de vídeo')}</strong><small>${_t('quickGpuDesc')}</small></span><span class="nav-update-source-state" id="updatesTabGpuState">${_t('updateUnchecked')}</span></button>
             </div>
 
             <section class="nav-update-view" data-update-panel="doorpi" ${doorpiActive ? '' : 'hidden'}>
@@ -39,14 +39,12 @@
             <div class="nav-suggestions-grid nav-update-actions" id="navUpdateActionsGrid">
                 <button class="nav-suggestion-card visible" id="navCardCheckUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('checkDoorpi', 'Verificar Doorpi')}</div>
-                    <span class="nav-suggestion-card-text">${_t('checkDoorpiDesc', 'Consulta atualizações do Doorpi, Updater e changelog.')}</span>
                 </button>
                 <button class="nav-suggestion-card nav-update-primary" id="navCardStartUpdate" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('updateDoorpi', 'Atualizar Doorpi')}</div>
-                    <span class="nav-suggestion-card-text">${_t('updateDoorpiDesc', 'Baixa o pacote validado, atualiza componentes e reinicia o Doorpi se necessário.')}</span>
                 </button>
             </div>
-            <section class="nav-release-notes" id="systemUpdateChangelog" role="region" aria-label="Notas da versão"></section>
+            <section class="nav-release-notes" id="systemUpdateChangelog" role="button" tabindex="-1" aria-label="${_esc(_t('sysUpdateReleaseNotes'))}"></section>
             </section>
 
             <section class="nav-update-view" data-update-panel="windows" ${windowsActive ? '' : 'hidden'}>
@@ -59,7 +57,7 @@
                     </div>
                     <div class="nav-update-meta" id="windowsUpdateMeta"></div>
                 </div>
-                <div class="nav-update-list" id="windowsUpdateList"></div>
+
             </div>
 
             <div class="nav-windows-guidance">
@@ -69,21 +67,18 @@
             <div class="nav-suggestions-grid nav-update-actions" id="windowsUpdateActionsGrid">
                 <button class="nav-suggestion-card visible" id="navCardCheckWindowsUpdates" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('checkWindows', 'Verificar Windows')}</div>
-                    <span class="nav-suggestion-card-text">${_t('checkWindowsDesc', 'Consulta o Windows Update e lista os pacotes encontrados.')}</span>
                 </button>
                 <button class="nav-suggestion-card nav-update-primary" id="navCardStartWindowsUpdate" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('windowsUpdateInstall', 'Baixar e instalar')}</div>
-                    <span class="nav-suggestion-card-text">${_t('windowsUpdateInstallDesc', 'Usa a API do Windows Update para baixar e instalar em segundo plano.')}</span>
                 </button>
                 <button class="nav-suggestion-card nav-update-primary" id="navCardRestartWindows" tabindex="-1" style="display:none;">
                     <div class="nav-suggestion-card-btn">${_t('restartNow', 'Reiniciar agora')}</div>
-                    <span class="nav-suggestion-card-text">${_t('windowsRestartDesc', 'Reinicia o computador para concluir atualizações pendentes.')}</span>
                 </button>
                 <button class="nav-suggestion-card visible" id="navCardOpenWindowsUpdate" tabindex="-1">
                     <div class="nav-suggestion-card-btn">${_t('quickOpenWindowsUpdate', 'Abrir Windows Update')}</div>
-                    <span class="nav-suggestion-card-text">${_t('windowsOpenNativeDesc', 'Abre a tela nativa do Windows com mouse e teclado pelo controle.')}</span>
                 </button>
             </div>
+                <div class="nav-update-list" id="windowsUpdateList"></div>
             </section>
 
             <section class="nav-update-view" data-update-panel="gpu" ${gpuActive ? '' : 'hidden'}>
@@ -99,12 +94,13 @@
                 <div class="nav-update-list" id="gpuAdapterList"></div>
             </div>
 
+            <h3 class="nav-update-section-title">${_t('updateDriverTools')}</h3>
+            <div class="nav-suggestions-grid nav-update-actions" id="gpuUpdateActionsGrid"></div>
             <div class="nav-gpu-guidance">
                 <p><strong>${_t('gpuUpdaterAdminNoticeTitle', 'Permiss\u00e3o tempor\u00e1ria.')}</strong> ${_t('gpuUpdaterAdminNoticeText', 'Se o Windows pedir permiss\u00e3o, autorize o assistente do Doorpi para controlar instaladores elevados.')}</p>
                 <p><strong>${_t('gpuUpdaterSessionNoticeTitle', 'Durante a atualiza\u00e7\u00e3o.')}</strong> ${_t('gpuUpdaterSessionNoticeText', 'N\u00e3o feche nem minimize o atualizador. Ao final, o Doorpi ser\u00e1 reiniciado para restaurar o renderizador.')}</p>
             </div>
 
-            <div class="nav-suggestions-grid nav-update-actions" id="gpuUpdateActionsGrid"></div>
             </section>
         </div>`;
 
@@ -115,13 +111,21 @@
             '#updatesTabGpu',
             '#navCardCheckUpdates',
             '#navCardStartUpdate',
+            '#systemUpdateChangelog',
             '#navCardCheckWindowsUpdates',
             '#navCardStartWindowsUpdate',
             '#navCardRestartWindows',
             '#navCardOpenWindowsUpdate',
             '#gpuUpdateActionsGrid .nav-gpu-app-card'
         ]);
+        if (active === 'hub') _contentIdx = 1;
 
+        const notes = body.querySelector('#systemUpdateChangelog');
+        notes.onclick = () => {
+            _releaseNotesScrollActive = notes.scrollHeight > notes.clientHeight && !_releaseNotesScrollActive;
+            notes.classList.toggle('is-scroll-active', _releaseNotesScrollActive);
+            notes.focus({ preventScroll: true });
+        };
         window._updateBootModeUI = refreshItems;
         refreshItems();
         _updateSystemUpdateUI();
@@ -132,13 +136,17 @@
         if (typeof postToHost === 'function') postToHost({ action: 'requestGpuUpdateStatus' });
 
         body.querySelector('#setBackSystemUpdates')?.addEventListener('click', () => {
-            _returnFromSystemDetail();
+            if (active === 'hub') { _returnFromSystemDetail(); return; }
+            _systemUpdatesSubView = 'hub';
+            _contentIdx = ['doorpi','windows','gpu'].indexOf(active) + 1;
+            _renderContent('settings');
+            _updateContentFocus();
         });
         body.querySelectorAll('[data-updates-tab]').forEach(btn => {
             btn.addEventListener('click', () => {
                 _releaseNotesScrollActive = false;
                 _systemUpdatesSubView = btn.dataset.updatesTab || 'doorpi';
-                _contentIdx = _systemUpdatesSubView === 'gpu' ? 3 : (_systemUpdatesSubView === 'windows' ? 2 : 1);
+                _contentIdx = 0;
                 _renderContent('settings');
                 _updateContentFocus();
             });

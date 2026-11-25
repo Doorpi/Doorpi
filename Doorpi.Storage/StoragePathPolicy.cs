@@ -16,7 +16,7 @@ public sealed class StoragePathPolicy
     private static readonly HashSet<string> UserDocuments = new(DataDocuments, StringComparer.OrdinalIgnoreCase)
     {
         "profile-sync-state.json", "profile-sync-base.json", "profile-sync-pending-remote.json",
-        "profile-sync-operation.json"
+        "profile-sync-operation.json", "steam-account.json", "steam-games.json", "steam-achievements.json", "steam-credentials.json", "steam-connection.json", "steam-sync-operation.json", "steam-refresh-queue.json"
     };
     private static readonly HashSet<string> UpdateDocuments = new(StringComparer.OrdinalIgnoreCase)
     {

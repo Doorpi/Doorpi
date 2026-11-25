@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Doorpi.ProfileSync;
 
@@ -50,6 +51,10 @@ public static class ProfileSyncSerializer
 
     private sealed class CanonicalProfileContent
     {
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? CoverBase64 { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? AvatarFromGame { get; init; }
         public int SchemaVersion { get; init; }
         public string ProfileName { get; init; } = "";
         public string PinCode { get; init; } = "";
@@ -63,11 +68,16 @@ public static class ProfileSyncSerializer
         public IReadOnlyList<CloudMediaHistoryEntryV1> MediaHistory { get; init; } = Array.Empty<CloudMediaHistoryEntryV1>();
         public IReadOnlyList<CloudControlProfileV1> ControlProfiles { get; init; } = Array.Empty<CloudControlProfileV1>();
         public IReadOnlyList<CloudControlAssignmentV1> ControlAssignments { get; init; } = Array.Empty<CloudControlAssignmentV1>();
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Steam { get; init; }
 
         public static CanonicalProfileContent From(CloudProfileV1 profile)
             => new()
             {
+                CoverBase64 = profile.SchemaVersion >= 7 ? profile.CoverBase64 : null,
+                AvatarFromGame = profile.SchemaVersion >= 7 ? profile.AvatarFromGame : null,
                 SchemaVersion = profile.SchemaVersion,
+                Steam = profile.SchemaVersion >= 6 && profile.Steam != null ? Doorpi.Steam.SteamProfileMerge.Fingerprint(profile.Steam) : null,
                 ProfileName = profile.ProfileName ?? "",
                 PinCode = profile.PinCode ?? "",
                 SteamGridApiKey = profile.SteamGridApiKey ?? "",
@@ -181,6 +191,7 @@ public static class ProfileSyncSerializer
             => new()
             {
                 GameKey = game.GameKey ?? "",
+                SteamAppId = game.SteamAppId,
                 Name = game.Name ?? "",
                 TotalPlaytimeSeconds = Math.Max(0, game.TotalPlaytimeSeconds),
                 LastSessionSeconds = Math.Max(0, game.LastSessionSeconds),
@@ -213,6 +224,7 @@ public static class ProfileSyncSerializer
                 ArtworkSource = entry.ArtworkSource ?? "",
                 MetadataCapturedUtc = NormalizeUtc(entry.MetadataCapturedUtc),
                 TotalPlaybackSeconds = Math.Max(0, entry.TotalPlaybackSeconds),
+                PermanentlyExcluded = entry.PermanentlyExcluded,
                 LastSessionSeconds = Math.Max(0, entry.LastSessionSeconds),
                 DailyPlaybackDate = entry.DailyPlaybackDate ?? "",
                 DailyPlaybackSeconds = Math.Max(0, entry.DailyPlaybackSeconds),

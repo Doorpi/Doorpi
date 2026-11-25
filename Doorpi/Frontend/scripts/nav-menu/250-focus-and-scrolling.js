@@ -117,16 +117,16 @@
         _libraryHoldSawNativeInput = false;
         _libraryRapidNavigation = false;
         if (!settle) _stopRapidLibraryScrollAnimation();
-        document.querySelectorAll('.nav-library-pane.nav-rapid-navigation')
+        document.querySelectorAll('.nav-library-pane.nav-rapid-navigation,.nav-profile-grid.nav-rapid-navigation')
             .forEach(pane => pane.classList.remove('nav-rapid-navigation'));
         // Keep following the same target on release; do not recenter a second time.
     }
 
-    function _trackLibraryDirectionHold(key) {
+    function _trackLibraryDirectionHold(key,profileGrid = null) {
         const direction = {
             ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT'
         }[key];
-        if (!direction || !_isLazyCat()) return;
+        if (!direction || (!profileGrid && !_isLazyCat())) return;
         if (_libraryHoldDirection === direction && _libraryHoldRaf) return;
 
         _stopLibraryDirectionHold();
@@ -134,7 +134,7 @@
         _libraryHoldStartedAt = performance.now();
 
         const poll = () => {
-            if (!window.isNavMenuOpen || !_isLazyCat() || _libraryHoldDirection !== direction) {
+            if (!window.isNavMenuOpen || (profileGrid ? !profileGrid.contains(document.activeElement) : !_isLazyCat()) || _libraryHoldDirection !== direction) {
                 _stopLibraryDirectionHold();
                 return;
             }
@@ -146,7 +146,10 @@
             if (held) {
                 if (!_libraryRapidNavigation && elapsed >= 120) {
                     _libraryRapidNavigation = true;
-                    _cancelLibraryScrollAnimation();
+                    if (profileGrid) {
+                        profileGrid.classList.add('nav-rapid-navigation');
+                        _revealInsideScrollContainer(document.activeElement,profileGrid,12,true);
+                    } else _cancelLibraryScrollAnimation();
                 }
                 _libraryHoldRaf = requestAnimationFrame(poll);
                 return;
@@ -170,7 +173,14 @@
         _updateContentFocus();
     }
 
+    function _syncCategoryVisibility() {
+        _overlay?.classList.toggle('nav-content-focused', !_topbarFocus);
+        const topbar = document.getElementById('navTopbar');
+        if (topbar && topbar.inert === _topbarFocus) topbar.inert = !_topbarFocus;
+    }
+
     function _updateTopbarFocusVisual() {
+        _syncCategoryVisibility();
         document.querySelectorAll('.nav-cat-item').forEach((el, i) => {
             el.classList.toggle('nav-focused', _topbarFocus && i === _catIdx);
             if (_topbarFocus && i === _catIdx && document.activeElement !== el)
@@ -178,7 +188,7 @@
         });
     }
 
-    function _revealInsideScrollContainer(element, container, edge = 12) {
+    function _revealInsideScrollContainer(element, container, edge = 12, instant = false) {
         if (!element || !container) return;
 
         const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -197,8 +207,8 @@
         else if (itemRect.bottom > containerRect.bottom - edge)
             delta = itemRect.bottom - containerRect.bottom + edge;
 
-        if (Math.abs(delta) > 0.5)
-            container.scrollBy({ top: delta, behavior: 'smooth' });
+        if (instant) container.scrollTo({ top:container.scrollTop+delta, behavior:'instant' });
+        else if (Math.abs(delta) > 0.5) container.scrollBy({ top:delta, behavior:'smooth' });
     }
 
     function _centerInsideScrollContainer(element, container) {
@@ -218,6 +228,7 @@
     }
 
     function _updateContentFocus() {
+        _syncCategoryVisibility();
         if (_topbarFocus) {
    
             const _lg = _currentLazyGrid();

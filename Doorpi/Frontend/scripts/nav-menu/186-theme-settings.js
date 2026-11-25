@@ -11,7 +11,7 @@
                 <button id="theme-group-system" data-theme-group="system" class="theme-area" tabindex="-1">Temas do sistema</button>
                 <button id="theme-area-login" data-theme-area="login" class="theme-area" tabindex="-1">Tela de Perfis</button>
             </div>
-            <div class="theme-settings-areas theme-settings-modules" role="group" aria-label="Módulos do sistema">${[['system','Temas'],['home','Home'],['nav-menu','Menu principal'],['side-panels','Menus laterais'],['popups','Popups']].map(([id,label])=>`<button id="theme-area-${id}" data-theme-area="${id}" class="theme-area" tabindex="-1">${label}</button>`).join('')}</div>
+            <div class="theme-settings-areas theme-settings-modules" role="group" aria-label="Módulos do sistema">${[['system','Temas'],['home','Home'],['nav-menu','Menu principal'],['profile',_t('navProfile')],['side-panels','Menus laterais'],['popups','Popups']].map(([id,label])=>`<button id="theme-area-${id}" data-theme-area="${id}" class="theme-area" tabindex="-1">${label}</button>`).join('')}</div>
             <p class="theme-settings-description" id="themeSettingsOwner"></p>
             <div class="theme-settings-status-row"><p id="themeSettingsStatus" class="theme-settings-status" role="status" aria-live="polite"></p><button id="themeSettingsRetry" class="nav-back-btn" tabindex="-1" hidden>Tentar novamente</button></div>
             <div id="themeSettingsList" class="theme-settings-list" role="group" aria-label="Temas instalados"></div>
@@ -94,7 +94,7 @@
     }
     window.addEventListener('doorpi:theme-selection-state', _refreshThemeSettings);
 
-    function _themeSettingsLineTarget(items, current, direction) {
+    function _navLineTarget(items, current, direction) {
         const origin = current.getBoundingClientRect();
         const x = origin.left + origin.width / 2, y = origin.top + origin.height / 2;
         const sign = direction === 'UP' ? -1 : 1;
@@ -122,16 +122,16 @@
             if(key==='ArrowDown')target=rows[Math.min(rows.length-1,index+1)];
         }else if(headers.includes(current)){
             if(key==='ArrowUp'){
-                target=_themeSettingsLineTarget(headers,current,'UP');
+                target=_navLineTarget(headers,current,'UP');
                 if(!target){_setTopbarFocus(true);return true;}
-            }else if(key==='ArrowDown')target=_themeSettingsLineTarget(headers,current,'DOWN')||_themeSettingsLineTarget(areas,current,'DOWN')||selected;
+            }else if(key==='ArrowDown')target=_navLineTarget(headers,current,'DOWN')||_navLineTarget(areas,current,'DOWN')||selected;
             else target=findSpatialCandidate(headers,current,direction);
         }else if(areas.includes(current)){
-            if(key==='ArrowUp')target=_themeSettingsLineTarget(areas,current,'UP')||_themeSettingsLineTarget(headers,current,'UP');
-            else if(key==='ArrowDown')target=_themeSettingsLineTarget(areas,current,'DOWN')||retry||selected;
+            if(key==='ArrowUp')target=_navLineTarget(areas,current,'UP')||_navLineTarget(headers,current,'UP');
+            else if(key==='ArrowDown')target=_navLineTarget(areas,current,'DOWN')||retry||selected;
             else target=findSpatialCandidate(areas,current,direction);
         }else if(current===retry){
-            if(key==='ArrowUp')target=_themeSettingsLineTarget(areas,current,'UP');
+            if(key==='ArrowUp')target=_navLineTarget(areas,current,'UP');
             else if(key==='ArrowDown')target=selected;
         }
         if(target){_contentIdx=_contentItems.indexOf(target);_updateContentFocus();}

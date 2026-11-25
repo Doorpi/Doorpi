@@ -132,11 +132,15 @@ StateStorage.WriteAllText(Path.Combine(data,"theme-settings.json"),"{\"version\"
 Reject<InvalidDataException>(()=>store.ResetAll("reset",resetProfile.Revision,resetProfile.ProfileRevision,0));
 Check(store.Read("reset").ThemeId=="orbit","Corrupt device preference prevents partial profile reset");
 var systemBefore=store.Read("reset");
+systemBefore=store.Save("reset","retrato",systemBefore.Revision,systemBefore.ProfileRevision,"profile");
+Check(systemBefore.Parts!["profile"]=="default","Retired built-in uses the standard profile");
+systemBefore=store.Save("reset","pkg-profile-test",systemBefore.Revision,systemBefore.ProfileRevision,"profile");
 store.Save("reset","orbit",systemBefore.Revision,systemBefore.ProfileRevision,"system");
-Check(store.Read("reset").Parts!.Values.All(id=>id=="orbit"),"System selection sets all profile parts");
+var expectedParts=store.Read("reset").Parts!;
+Check(expectedParts["profile"]=="pkg-profile-test" && expectedParts.Where(part=>part.Key!="profile").All(part=>part.Value=="orbit"),"System selection preserves independent profile appearance");
 Check(StateStorage.ReadAllText(Path.Combine(data,"theme-settings.json"))=="{\"version\":9}","System selection never reads or overwrites device login");
 Reject<StorageConflictException>(()=>store.Save("reset","default",systemBefore.Revision,systemBefore.ProfileRevision,"system"));
-Check(store.Read("reset").Parts!.Values.All(id=>id=="orbit"),"Stale system selection cannot partially overwrite modules");
+Check(store.Read("reset").Parts!.All(part=>part.Value==expectedParts[part.Key]),"Stale system selection cannot partially overwrite modules");
 var independent=store.Read("reset");store.Save("reset","default",independent.Revision,independent.ProfileRevision,"popups");
 Check(store.Read("reset").Parts!["home"]=="orbit"&&store.Read("reset").Parts!["popups"]=="default","Individual override preserves remaining system modules");
 Console.WriteLine($"PASS: {count} theme storage/catalog/package assertions (isolated SQLite fixture).");

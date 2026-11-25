@@ -65,6 +65,7 @@
             horizontalUrl: prop(raw, 'horizontalUrl', 'HorizontalUrl'),
             heroUrl: prop(raw, 'heroUrl', 'HeroUrl'),
             logoUrl: prop(raw, 'logoUrl', 'LogoUrl'),
+            duplicateEmulatorNames: prop(raw, 'duplicateEmulatorNames', 'DuplicateEmulatorNames') || [],
             artworkResolved: false
         };
     }
@@ -501,7 +502,7 @@
         if (status) status.textContent = text('emulatorLibraryLoading', 'Lendo os metadados da biblioteca...');
         renderPreviewGrid();
         updateSetupState();
-        postToHost({ action: 'previewEmulatorLibrary', requestId: state.requestId, executablePath: state.draft.executablePath, catalogId: state.draft.catalogId, romFolders: state.draft.romFolders.filter(Boolean), extensions: parseExtensions() });
+        postToHost({ action: 'previewEmulatorLibrary', requestId: state.requestId, emulatorId: state.draft.id, executablePath: state.draft.executablePath, catalogId: state.draft.catalogId, romFolders: state.draft.romFolders.filter(Boolean), extensions: parseExtensions() });
     }
 
     function renderPreviewGrid() {
@@ -580,15 +581,43 @@
         }));
     }
 
-    function saveConfiguration() {
+    function submitConfiguration(duplicatePolicy = 'keepExisting') {
         syncDraftFromInputs();
         if (!requiredFieldsReady() || !state.scanComplete || state.scanRunning) return;
         document.getElementById('emulatorSetupConfirm').disabled = true;
         postToHost({
             action: 'saveEmulatorConfiguration',
             config: { id: state.draft.id, catalogId: state.draft.catalogId, name: state.draft.name, executablePath: state.draft.executablePath, launchTemplate: state.draft.launchTemplate, extensions: parseExtensions(), romFolders: state.draft.romFolders.filter(Boolean), gridImage: state.draft.gridImage, gridSourceUrl: state.draft.gridSourceUrl },
-            games: state.games
+            games: state.games,
+            duplicatePolicy
         });
+    }
+
+    function saveConfiguration() {
+        syncDraftFromInputs();
+        if (!requiredFieldsReady() || !state.scanComplete || state.scanRunning) return;
+        const conflicts = state.games.filter(game => game.duplicateEmulatorNames?.length);
+        if (!conflicts.length) { submitConfiguration(); return; }
+
+        const existingNames = [...new Set(conflicts.flatMap(game => game.duplicateEmulatorNames))];
+        const overlay = document.createElement('div');
+        overlay.className = 'emulator-editor-overlay';
+        overlay.innerHTML = `<div class="emulator-editor" role="dialog" aria-modal="true">
+            <h3>${text('emulatorDuplicateTitle', 'Jogos já vinculados a outro emulador')}</h3>
+            <p>${text('emulatorDuplicateDescription', 'Encontramos')} ${conflicts.length} ${text('emulatorDuplicateCount', 'jogo(s) já cadastrados em')} <strong>${esc(existingNames.join(', '))}</strong>. ${text('emulatorDuplicateQuestion', 'Como quer usar esses jogos?')}</p>
+            <div class="emulator-editor-actions">
+                <button class="modal-btn secondary emulator-nav" id="emulatorKeepExisting" type="button" tabindex="0">${text('emulatorKeepExisting', 'Manter o emulador atual')}</button>
+                <button class="modal-btn primary emulator-nav" id="emulatorUseCurrent" type="button" tabindex="0">${text('emulatorUseCurrent', 'Usar')} ${esc(state.draft.name)}</button>
+                <button class="modal-btn cancel emulator-nav" id="emulatorDuplicateCancel" type="button" tabindex="0">${text('btnCancelLabel', 'Cancelar')}</button>
+            </div>
+        </div>`;
+        document.getElementById('view-emulators')?.appendChild(overlay);
+        window.refreshDoorpiGamepadHints?.();
+        const close = () => { overlay.remove(); document.getElementById('emulatorSetupConfirm')?.focus(); };
+        overlay.querySelector('#emulatorKeepExisting')?.addEventListener('click', () => { overlay.remove(); submitConfiguration('keepExisting'); });
+        overlay.querySelector('#emulatorUseCurrent')?.addEventListener('click', () => { overlay.remove(); submitConfiguration('useCurrent'); });
+        overlay.querySelector('#emulatorDuplicateCancel')?.addEventListener('click', close);
+        requestAnimationFrame(() => overlay.querySelector('#emulatorKeepExisting')?.focus());
     }
 
     window.openEmulatorsView = function () {

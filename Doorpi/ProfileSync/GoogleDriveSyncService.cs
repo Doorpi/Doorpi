@@ -606,7 +606,8 @@ public sealed class GoogleDriveSyncService
         string remoteRevision,
         CancellationToken cancellationToken = default,
         IReadOnlyDictionary<string, string?>? localWrites = null,
-        IReadOnlyDictionary<string, long>? expectedRevisions = null)
+        IReadOnlyDictionary<string, long>? expectedRevisions = null,
+        CloudProfileV1? remoteBaseline = null)
     {
         ArgumentNullException.ThrowIfNull(appliedProfile);
         SemaphoreSlim gate = Gate(profileId);
@@ -616,14 +617,15 @@ public sealed class GoogleDriveSyncService
             ProfileSyncLocalStore store = Store(profileId);
             ProfileSyncState state = await store.LoadStateAsync(cancellationToken).ConfigureAwait(false);
             state.IsConnected = true;
-            state.LastSyncedContentHash = ProfileSyncSerializer.ComputeContentHash(appliedProfile);
+            var baseline = remoteBaseline ?? appliedProfile;
+            state.LastSyncedContentHash = ProfileSyncSerializer.ComputeContentHash(baseline);
             state.LastSyncedAtUtc = DateTimeOffset.UtcNow;
             state.RemoteProfileRevision = remoteRevision;
             state.PendingAction = null;
             state.PendingLocalContentHash = "";
             state.PendingConflict = null;
             state.ConflictPromptDeferred = false;
-            await store.SaveSynchronizedAsync(state, appliedProfile, cancellationToken, localWrites, expectedRevisions).ConfigureAwait(false);
+            await store.SaveSynchronizedAsync(state, baseline, cancellationToken, localWrites, expectedRevisions).ConfigureAwait(false);
         }
         finally
         {
@@ -746,6 +748,11 @@ public sealed class GoogleDriveSyncService
             profile.SchemaVersion < 1 ||
             profile.SchemaVersion > ProfileSyncSnapshotFactory.CurrentSchemaVersion)
             throw new InvalidDataException("O perfil remoto usa um formato inválido ou incompatível.");
+        if (profile.SchemaVersion >= 7 && (profile.CoverBase64 == null || profile.CoverBase64.Length > 4_000_000 ||
+            (profile.CoverBase64.Length != 0 && (!profile.CoverBase64.StartsWith("/9j/", StringComparison.Ordinal) ||
+            !Convert.TryFromBase64String(profile.CoverBase64, new byte[profile.CoverBase64.Length], out _)))))
+            throw new InvalidDataException("A capa do perfil remoto é inválida.");
+        if (profile.Steam != null) Doorpi.Steam.SteamProfileStore.Validate(profile.Steam);
 
         // Version 1 snapshots have no controller configuration. Explicit nulls
         // written by intermediate builds are optional empty sections as well.

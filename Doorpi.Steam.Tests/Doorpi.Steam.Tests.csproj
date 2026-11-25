@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Doorpi.Storage/Doorpi.Storage.csproj" />
+    <Compile Include="../Doorpi/Steam/*.cs" Link="Steam/%(Filename)%(Extension)" />
+    <Compile Include="../Doorpi/GameModel.cs" Link="GameModel.cs" />
+    <Compile Include="../Doorpi/ProfileSync/ProfileSyncModels.cs" Link="ProfileSyncModels.cs" />
+    <Compile Include="../Doorpi/ProfileSync/ProfileSyncSerializer.cs" Link="ProfileSyncSerializer.cs" />
+    <Compile Include="../Doorpi/ProfileSync/ProfileSyncEngine.cs" Link="ProfileSyncEngine.cs" />
+    <Compile Include="$(IntermediateOutputPath)Models.Generated.cs" />
+  </ItemGroup>
+  <Target Name="ExtractProductionModels" BeforeTargets="CoreCompile">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\GenerateModels.ps1&quot; -OutputPath &quot;$(MSBuildProjectDirectory)\$(IntermediateOutputPath)Models.Generated.cs&quot;" />
+  </Target>
+</Project>

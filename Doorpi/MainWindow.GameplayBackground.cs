@@ -355,9 +355,11 @@ public partial class MainWindow
         // Preserve the latest durable point before touching the larger library files.
         PersistActiveSessionJournal();
 
-        bool committed = elapsedMinutes < 1;
+        bool committed = false;
         try
         {
+            QueueSteamAfterGameplay(currentUserId, gameId);
+            committed = elapsedMinutes < 1;
             if (elapsedMinutes >= 1)
             {
                 var games = LoadGames();
@@ -394,6 +396,7 @@ public partial class MainWindow
         }
 
         if (!committed) return;
+
 
         DeleteActiveGameplayJournal();
         lock (_sessionPlaytimeLock)
@@ -474,6 +477,7 @@ public partial class MainWindow
                 }
             }
 
+            QueueSteamAfterGameplay(currentUserId, journal.GameId);
             DeleteActiveGameplayJournal();
             DoorpiBootDiagnostics.Log(
                 "playtime-journal-recovered",

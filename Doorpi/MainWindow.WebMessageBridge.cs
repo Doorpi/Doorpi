@@ -66,6 +66,7 @@ namespace Doorpi
                 if (await TryHandleWebPermissionSettingsAsync(action, root).ConfigureAwait(true))
                     return;
 
+                if (await TryHandleSteamProfileMessageAsync(action, root).ConfigureAwait(true)) return;
                 if (await TryHandleProfileSyncWebMessageAsync(action, root).ConfigureAwait(true))
                     return;
 
@@ -1156,6 +1157,11 @@ namespace Doorpi
                     string requestId = GetStr(root, "requestId");
                     string query = GetStr(root, "query");
                     string apiKey = GetStr(root, "apiKey");
+                    bool cover = GetStr(root, "artworkType") == "hero";
+                    var favorites = cover && root.TryGetProperty("favoriteTitles", out var names) && names.ValueKind == JsonValueKind.Array
+                        ? names.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!.Trim())
+                            .Where(name => name.Length is > 0 and <= 256).Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToArray()
+                        : Array.Empty<string>();
                     bool suggestions = root.TryGetProperty("suggestions", out var suggestionsEl) && suggestionsEl.GetBoolean();
                     if (string.IsNullOrWhiteSpace(apiKey)) apiKey = GetSteamGridApiKey();
 
@@ -1167,19 +1173,10 @@ namespace Doorpi
                                 query,
                                 apiKey,
                                 suggestions,
+                                cover,
+                                favorites,
                                 CancellationToken.None).ConfigureAwait(false);
-                            var squares = result.Squares.Select(item => new
-                            {
-                                id = item.Id,
-                                url = item.Url,
-                                thumb = item.Thumb,
-                                score = item.Score,
-                                width = item.Width,
-                                height = item.Height,
-                                shape = item.Shape,
-                                gameName = item.GameName
-                            }).ToList();
-                            var verticals = result.Verticals.Select(item => new
+                            var artwork = result.Select(item => new
                             {
                                 id = item.Id,
                                 url = item.Url,
@@ -1197,8 +1194,9 @@ namespace Doorpi
                                     requestId,
                                     query,
                                     suggestions,
-                                    squares,
-                                    verticals
+                                    squares = artwork.Where(item => item.shape == "square"),
+                                    verticals = artwork.Where(item => item.shape == "vertical"),
+                                    heroes = artwork.Where(item => item.shape == "hero")
                                 })));
                         }
                         catch (Exception ex)
@@ -1453,6 +1451,7 @@ namespace Doorpi
                          root.TryGetProperty("images", out var historyArtworkImagesEl))
                 {
                     string gameName = GetStr(root, "gameName");
+                    string gameId = GetStr(root, "gameId");
                     string requestId = GetStr(root, "requestId");
                     var imagesClone = historyArtworkImagesEl.Clone();
 
@@ -1460,7 +1459,7 @@ namespace Doorpi
                     {
                         _ = Task.Run(async () =>
                         {
-                            var result = await SaveSelectedHistoryArtworkAsync(gameName, imagesClone).ConfigureAwait(false);
+                            var result = await SaveSelectedHistoryArtworkAsync(gameId, gameName, imagesClone).ConfigureAwait(false);
                             Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(
                                 JsonSerializer.Serialize(new
                                 {
@@ -1476,12 +1475,13 @@ namespace Doorpi
                 else if (action == "deleteGameHistory")
                 {
                     string gameName = GetStr(root, "gameName");
+                    string gameId = GetStr(root, "gameId");
                     string profileId = currentUserId;
                     if (!string.IsNullOrWhiteSpace(gameName) && !string.IsNullOrWhiteSpace(profileId))
                     {
                         _ = Task.Run(() =>
                         {
-                            bool removed = DeleteGameHistoryEntry(profileId, gameName);
+                            bool removed = DeleteGameHistoryEntry(profileId, gameId, gameName);
                             Dispatcher.Invoke(() =>
                             {
                                 if (removed) LoadGamesIntoUI();
@@ -1490,9 +1490,41 @@ namespace Doorpi
                                     type = "gameHistoryDeleted",
                                     profileId,
                                     gameName,
+                                    gameId,
                                     removed
                                 }));
                             });
+                        });
+                    }
+                }
+                else if (action == "deleteMediaHistory")
+                {
+                    string profileId = currentUserId;
+                    string appId = GetStr(root, "appId");
+                    string contentTitle = GetStr(root, "contentTitle");
+                    string creatorName = GetStr(root, "creatorName");
+                    string category = GetStr(root, "category");
+                    string seriesTitle = GetStr(root, "seriesTitle");
+                    bool permanently = root.TryGetProperty("permanent", out var permanentEl) &&
+                        permanentEl.ValueKind == JsonValueKind.True;
+                    if (!string.IsNullOrWhiteSpace(profileId) && !string.IsNullOrWhiteSpace(appId) &&
+                        !string.IsNullOrWhiteSpace(contentTitle))
+                    {
+                        _ = Task.Run(() =>
+                        {
+                            bool removed = DeleteMediaHistoryEntry(profileId, appId, contentTitle, creatorName, category, permanently, seriesTitle);
+                            Dispatcher.Invoke(() => webView.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(new
+                            {
+                                type = "mediaHistoryDeleted",
+                                profileId,
+                                appId,
+                                contentTitle,
+                                creatorName,
+                                category,
+                                seriesTitle,
+                                permanently,
+                                removed
+                            })));
                         });
                     }
                 }
@@ -1569,6 +1601,9 @@ namespace Doorpi
                             bool changed = false;
                             if (hasNewName && !string.IsNullOrEmpty(newName))
                             {
+                                string previousName = game.Name;
+                                if (!string.Equals(previousName, newName, StringComparison.Ordinal))
+                                    RenameGameHistoryEntry(currentUserId, game, previousName, newName);
                                 game.Name = newName;
                                 changed = true;
                                 Debug.WriteLine($"[editGame] '{game.Path}' renomeado para: {newName}");
@@ -1795,6 +1830,33 @@ namespace Doorpi
                 {
                     await HandleDeleteCurrentUserAsync();
                 }
+                else if (action == "setProfileArtwork")
+                {
+                    var target = GetStr(root, "userId");
+                    if (string.IsNullOrEmpty(target) || target != currentUserId) return;
+                    var profiles = LoadUserProfiles();
+                    var user = profiles.FirstOrDefault(item => item.Id == target);
+                    if (user == null) return;
+                    var value = GetStr(root, "value");
+                    switch (GetStr(root, "part"))
+                    {
+                        case "cover":
+                            if (value.Length > 4_000_000 || (value.Length != 0 &&
+                                (!value.StartsWith("/9j/", StringComparison.Ordinal) || !Convert.TryFromBase64String(value, new byte[value.Length], out _)))) return;
+                            user.CoverBase64 = value;
+                            break;
+                        case "avatarGame":
+                            if (value.Length > 4096 || (value.Length > 0 &&
+                                (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||
+                                 value.Any(c => char.IsControl(c) || c == '"' || c == '<' || c == '>')))) return;
+                            user.GameAvatarUrl = value;
+                            user.AvatarFromGame = true;
+                            break;
+                        default: return;
+                    }
+                    SaveUserProfiles(profiles);
+                    ScheduleProfileSync(target);
+                }
                 else if (action == "saveUserProfile")
                 {
                     bool createNew = root.TryGetProperty("createNew", out var createEl) && createEl.GetBoolean();
@@ -1814,6 +1876,7 @@ namespace Doorpi
                     string requestedPin = hasPin ? NormalizePinCode(GetStr(root, "pin")) : "";
 
                     string requestedId = GetStr(root, "userId");
+                    if (hasPhotoMetadata && !createNew && requestedId.Length > 0 && requestedId != currentUserId) return;
                     var profile = new UserProfile
                     {
                         Id = createNew ? "" : (!string.IsNullOrWhiteSpace(requestedId) ? requestedId : currentUserId),
@@ -1843,6 +1906,7 @@ namespace Doorpi
                         existingUser.PhotoBase64 = profile.PhotoBase64;
                         if (hasPhotoMetadata)
                         {
+                            existingUser.AvatarFromGame = false;
                             existingUser.PhotoSource = profile.PhotoSource;
                             existingUser.PhotoSourceUrl = profile.PhotoSourceUrl;
                             existingUser.PhotoSteamGridAssetId = profile.PhotoSteamGridAssetId;
@@ -2394,6 +2458,11 @@ namespace Doorpi
                                         if (hwnd != IntPtr.Zero)
                                         {
                                             executableSession.MouseModeActive = false;
+                                            executableSession.Process = existingProc;
+                                            executableSession.Url = mediaUrl;
+                                            executableSession.DoorpiSuspended = false;
+                                            executableSession.WatcherPaused = false;
+                                            InitializeMediaExeProcessGroup(mediaUrl, existingProc, executablePath: executablePath);
 
                                             InitializeMediaExeMouseModeForSession(executableSession, media);
                                             executableSession.GamepadDisabled = !executableSession.MouseModeRequested;
@@ -2403,17 +2472,12 @@ namespace Doorpi
 
                                             // Restaura e foca
                                             if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
-                                            ShowWindow(hwnd, 3);
-                                            FocusExternalWindow(hwnd);
+                                            if (!TryMaximizeConfirmedExecutableAppWindow(hwnd, executableSession))
+                                                FocusExternalWindow(hwnd);
 
                                             // SEMPRE cancela e recria o watcher, pois o antigo deu return ao minimizar!
                                             executableSession.WatcherCts?.Cancel();
                                             executableSession.WatcherCts = new CancellationTokenSource();
-                                            executableSession.Process = existingProc;
-                                            executableSession.Url = mediaUrl;
-                                            executableSession.DoorpiSuspended = false;
-                                            executableSession.WatcherPaused = false;
-                                            InitializeMediaExeProcessGroup(mediaUrl, existingProc, executablePath: executablePath);
                                             StartMediaExeWatcher(existingProc, mediaUrl, mediaName, executableSession.WatcherCts.Token);
                                             int sessionId = NextExecutableAppSessionId(executableSession);
                                             EnsureMediaExeShortcutThread(sessionId);
@@ -2435,7 +2499,10 @@ namespace Doorpi
                                     Process? proc = null;
                                     HashSet<int>? baselineBeforeLaunch = SnapshotProcessIds();
                                     if (!string.IsNullOrWhiteSpace(configuredCommand))
-                                        proc = LaunchCommand.Start(configuredCommand, ProcessWindowStyle.Maximized);
+                                    {
+                                        executableSession.AppWindowMaximized = false;
+                                        proc = LaunchCommand.Start(configuredCommand);
+                                    }
 
                                     if (proc != null || baselineBeforeLaunch != null)
                                     {

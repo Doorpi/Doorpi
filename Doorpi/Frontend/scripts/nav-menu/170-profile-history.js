@@ -33,6 +33,8 @@
     }
 
     function _findHistoryItem(element) {
+        const id = element?.dataset?.historyGameId || '';
+        if (id) return (_menuData.history || []).find(entry => String(entry?.Id || '') === id) || null;
         const name = element?.dataset?.historyGameName || '';
         return (_menuData.history || []).find(entry =>
             String(entry?.Name || '').localeCompare(name, undefined, { sensitivity: 'base' }) === 0);
@@ -68,9 +70,10 @@
         _contentItems = [back];
 
         back?.addEventListener('click', () => {
-            _profileSubView = null;
+            _profileSubView = 'gaming';
             _contentIdx = 0;
             _renderContent('profile');
+            _contentIdx = Math.max(0,_contentItems.findIndex(item=>item.id==='btnGameHistory'));
             _setTopbarFocus(false);
         });
 
@@ -87,6 +90,7 @@
                 row.tabIndex = -1;
                 row.className = 'nav-profile-history-row';
                 row.dataset.historyGameName = item.Name;
+                if (item.Id) row.dataset.historyGameId = item.Id;
                 row.innerHTML = `
                     <span class="nav-profile-history-art">
                         ${image ? `<img src="${_esc(image)}" alt="" />` : icon ? `<img class="is-icon" src="${_esc(icon)}" alt="" />` : ''}

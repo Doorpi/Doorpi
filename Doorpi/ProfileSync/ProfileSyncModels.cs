@@ -58,7 +58,8 @@ public enum ProfileDifferenceKind
     MediaMetadata,
     MediaArtwork,
     ControlProfiles,
-    ControlAssignments
+    ControlAssignments,
+    SteamProfile
 }
 
 public sealed class CloudProfileV1
@@ -74,11 +75,15 @@ public sealed class CloudProfileV1
     public string LastModifiedDeviceId { get; set; } = "";
     public long TotalPlaytimeSeconds { get; set; }
     public long TotalMediaPlaybackSeconds { get; set; }
+    public string CoverBase64 { get; set; } = "";
+    public bool AvatarFromGame { get; set; }
     public CloudProfilePhotoV1 ProfilePhoto { get; set; } = new();
     public List<CloudGameHistoryEntryV1> Games { get; set; } = new();
     public List<CloudMediaHistoryEntryV1> MediaHistory { get; set; } = new();
     public List<CloudControlProfileV1> ControlProfiles { get; set; } = new();
     public List<CloudControlAssignmentV1> ControlAssignments { get; set; } = new();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Doorpi.Steam.SteamProfileData? Steam { get; set; }
 }
 
 public sealed class CloudControlProfileV1
@@ -151,6 +156,8 @@ public sealed class CloudProfilePhotoV1
 public sealed class CloudGameHistoryEntryV1
 {
     public string GameKey { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int SteamAppId { get; set; }
     public string Name { get; set; } = "";
     public long TotalPlaytimeSeconds { get; set; }
     public int LastSessionSeconds { get; set; }
@@ -182,6 +189,8 @@ public sealed class CloudMediaHistoryEntryV1
     public string ArtworkSource { get; set; } = "";
     public DateTimeOffset? MetadataCapturedUtc { get; set; }
     public long TotalPlaybackSeconds { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PermanentlyExcluded { get; set; }
     public long LastSessionSeconds { get; set; }
     public string DailyPlaybackDate { get; set; } = "";
     public long DailyPlaybackSeconds { get; set; }

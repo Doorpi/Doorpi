@@ -12,6 +12,7 @@
             <button class="ctx-item ctx-primary-action" id="ctxRuntimeAction" role="menuitem">
                 <span class="ctx-icon">▶</span> <span id="ctxRuntimeActionText">${t('ctxStart')}</span>
             </button>
+            <button class="ctx-item" id="ctxMoreActions" role="menuitem" aria-expanded="false" data-i18n="ctxMoreActions">${t('ctxMoreActions')}</button>
             <button class="ctx-item ctx-toggle-item" id="ctxStoreGamepadControl" role="menuitem">
                 <span id="ctxStoreGamepadControlText">${t('storeDisableGamepadControl')}</span> <span class="ctx-icon"></span>
             </button>
@@ -33,6 +34,9 @@
             <button class="ctx-item ctx-danger" id="ctxDelete" role="menuitem">
                 <span class="ctx-icon">✕</span> <span data-i18n="ctxRemoveGame">${t('ctxRemoveGame')}</span>
             </button>
+            <button class="ctx-item ctx-danger" id="ctxDeleteMediaPermanent" role="menuitem">
+                <span class="ctx-icon">⊘</span> <span>${t('mediaHistoryDeletePermanent')}</span>
+            </button>
         `;
         document.body.appendChild(el);
         return el;
@@ -40,6 +44,70 @@
 
     let _ctxCard = null;
     let _ctxReturnKey = null;
+    let _mediaPermanentDialog = null;
+
+    function _closeMediaPermanentDialog(options = {}) {
+        if (!_mediaPermanentDialog) return false;
+        _mediaPermanentDialog.remove();
+        _mediaPermanentDialog = null;
+        if (options.restoreFocus !== false) {
+            requestAnimationFrame(() => _ctxMenu.querySelector('#ctxDeleteMediaPermanent')?.focus());
+        }
+        return true;
+    }
+
+    function _openMediaPermanentDialog(message, onConfirm) {
+        _closeMediaPermanentDialog();
+        const overlay = document.createElement('div');
+        overlay.className = 'media-history-confirm-overlay';
+        overlay.innerHTML = `
+            <section class="media-history-confirm" role="dialog" aria-modal="true" aria-labelledby="mediaHistoryConfirmTitle" aria-describedby="mediaHistoryConfirmMessage">
+                <h2 id="mediaHistoryConfirmTitle">${t('mediaHistoryDeletePermanent')}</h2>
+                <p id="mediaHistoryConfirmMessage"></p>
+                <div class="media-history-confirm-actions">
+                    <button type="button" class="media-history-confirm-btn" data-confirm-cancel>${t('btnCancel')}</button>
+                    <button type="button" class="media-history-confirm-btn is-danger" data-confirm-delete>${t('mediaHistoryDeletePermanent')}</button>
+                </div>
+            </section>`;
+        overlay.querySelector('#mediaHistoryConfirmMessage').textContent = message;
+        const cancel = overlay.querySelector('[data-confirm-cancel]');
+        const confirm = overlay.querySelector('[data-confirm-delete]');
+        cancel.addEventListener('click', () => _closeMediaPermanentDialog());
+        confirm.addEventListener('click', () => {
+            _closeMediaPermanentDialog({ restoreFocus: false });
+            onConfirm();
+        });
+        overlay.addEventListener('mousedown', event => {
+            if (event.target === overlay) _closeMediaPermanentDialog();
+        });
+        document.body.appendChild(overlay);
+        _mediaPermanentDialog = overlay;
+        requestAnimationFrame(() => cancel.focus());
+    }
+
+    window._doorpiMediaPermanentDialogIsOpen = () => !!_mediaPermanentDialog;
+    window._doorpiMediaPermanentDialogBack = _closeMediaPermanentDialog;
+
+    document.addEventListener('keydown', event => {
+        if (!_mediaPermanentDialog) return;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const buttons = Array.from(_mediaPermanentDialog.querySelectorAll('button'));
+            const current = buttons.indexOf(document.activeElement);
+            buttons[(current + 1 + buttons.length) % buttons.length]?.focus();
+        } else if (event.key === 'Tab') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const buttons = Array.from(_mediaPermanentDialog.querySelectorAll('button'));
+            const current = Math.max(0, buttons.indexOf(document.activeElement));
+            buttons[(current + (event.shiftKey ? buttons.length - 1 : 1)) % buttons.length]?.focus();
+        } else if (event.key === 'Escape' || event.key === 'Backspace') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            _closeMediaPermanentDialog();
+        }
+    }, true);
 
     function _getCtxReturnKey(card) {
         if (!card) return null;
@@ -52,7 +120,8 @@
             channel: card.dataset.channel || '',
             updaterId: card.dataset.updaterId || '',
             deviceId: card.dataset.deviceId || '',
-            historyGameName: card.dataset.historyGameName || ''
+            historyGameName: card.dataset.historyGameName || '',
+            historyGameId: card.dataset.historyGameId || ''
         };
     }
 
@@ -67,6 +136,7 @@
             if (key.id && card.dataset.id === key.id) return true;
             if (key.updaterId && card.dataset.updaterId === key.updaterId) return true;
             if (key.deviceId && card.dataset.deviceId === key.deviceId) return true;
+            if (key.historyGameId && card.dataset.historyGameId === key.historyGameId) return true;
             if (key.historyGameName && card.dataset.historyGameName === key.historyGameName) return true;
             return false;
         }) || null;
@@ -104,6 +174,7 @@
     }
 
     function _openCtxMenu(card, x, y) {
+        _ctxMenu.classList.remove('ctx-condensed');
         _ctxCard = card;
         _ctxReturnKey = _getCtxReturnKey(card);
         _ctxCard.classList.add('ctx-active');
@@ -120,11 +191,14 @@
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
         const isHistoryCard = !!card.dataset.historyGameName;
+        const isMediaHistoryCard = card.dataset.mediaHistory === 'true';
         _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
         _ctxMenu.classList.toggle('bluetooth-device-context', isBluetoothDeviceCard);
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
+        const ctxDeleteMediaPermanentBtn = _ctxMenu.querySelector('#ctxDeleteMediaPermanent');
+        if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
         const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
         const ctxRuntimeBtn = _ctxMenu.querySelector('#ctxRuntimeAction');
         const ctxRuntimeText = _ctxMenu.querySelector('#ctxRuntimeActionText');
@@ -214,7 +288,27 @@
             }
             ctxCloseBtn.style.display = 'none';
             _ctxMenu.querySelector('#ctxGameName').textContent = card.dataset.historyGameName;
+        } else if (isMediaHistoryCard) {
+            if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'none';
+            if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
+            if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
+            if (ctxEditBtn) ctxEditBtn.style.display = 'none';
+            if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
+            if (ctxSharingBtn) ctxSharingBtn.style.display = 'none';
+            if (ctxDeleteBtn) {
+                ctxDeleteBtn.style.display = 'flex';
+                const text = ctxDeleteBtn.querySelector('[data-i18n], span:last-child');
+                if (text) text.textContent = t('mediaHistoryDeleteOnly');
+            }
+            if (ctxDeleteMediaPermanentBtn) {
+                ctxDeleteMediaPermanentBtn.style.display = 'flex';
+                ctxDeleteMediaPermanentBtn.querySelector('span:last-child').textContent = t('mediaHistoryDeletePermanent');
+            }
+            ctxCloseBtn.style.display = 'none';
+            _ctxMenu.querySelector('#ctxGameName').textContent =
+                card.querySelector('.nav-unified-row-copy strong')?.textContent?.trim() || card.dataset.mediaHistoryTitle || '';
         } else if (isBluetoothDeviceCard) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -230,6 +324,7 @@
             _ctxMenu.querySelector('#ctxGameName').textContent =
                 card.querySelector('.bt-device-copy strong')?.innerText?.trim() || 'Bluetooth';
         } else if (isGpuUpdaterCard) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -245,6 +340,7 @@
             _ctxMenu.querySelector('#ctxGameName').textContent =
                 card.querySelector('.dq-app-name, .nav-gpu-app-name')?.innerText?.trim() || 'Atualizador';
         } else if (isStoreCard) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = 'none';
@@ -253,6 +349,7 @@
             ctxCloseBtn.style.display = 'none';
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         } else if (isYoutube) {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'none';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -261,6 +358,7 @@
             ctxCloseBtn.style.display = 'flex';
             _ctxMenu.querySelector('#ctxGameName').textContent = t('systemAppLabel');
         } else {
+            if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'flex';
             if (ctxEditBtn) ctxEditBtn.style.display = 'flex';
             if (ctxExtensionsBtn) ctxExtensionsBtn.style.display = isBrowserMedia ? 'flex' : 'none';
@@ -274,6 +372,23 @@
             _ctxMenu.querySelector('#ctxGameName').textContent = card.querySelector('.title, .nav-vertical-card-title')?.innerText?.trim() || '';
         }
 
+        const more = _ctxMenu.querySelector('#ctxMoreActions');
+        const secondary = ['ctxStoreGamepadControl','ctxStoreAutoAdd','ctxExtensions','ctxSharing','ctxDelete','ctxDeleteMediaPermanent']
+            .map(id => _ctxMenu.querySelector('#' + id)).filter(item => item && item.style.display !== 'none');
+        _ctxMenu.querySelectorAll('[data-ctx-secondary]').forEach(item => item.removeAttribute('data-ctx-secondary'));
+        secondary.forEach(item => item.dataset.ctxSecondary = '');
+        const condensed = !isMediaHistoryCard && secondary.length >= 2;
+        more.style.display = condensed ? 'flex' : 'none';
+        more.setAttribute('aria-expanded','false');
+        _ctxMenu.classList.toggle('ctx-condensed', condensed);
+        more.onclick = () => {
+            _ctxMenu.classList.remove('ctx-condensed');
+            more.setAttribute('aria-expanded','true');
+            more.style.display = 'none';
+            _syncCtxMenuSeparators();
+            _ctxMenu.style.top = Math.max(10, Math.min(_ctxMenu.offsetTop, innerHeight - _ctxMenu.offsetHeight - 10)) + 'px';
+            secondary[0]?.focus();
+        };
         _syncCtxMenuSeparators();
         _ctxMenu.style.display = 'flex';
         requestAnimationFrame(() => {
@@ -420,6 +535,18 @@
     document.getElementById('ctxDelete').addEventListener('click', () => {
         const card = _ctxCard; _closeCtxMenu({ restoreFocus: false });
         if (!card) return;
+        if (card.dataset.mediaHistory === 'true') {
+            postToHost?.({
+                action: 'deleteMediaHistory',
+                permanent: false,
+                appId: card.dataset.mediaHistoryAppId || '',
+                contentTitle: card.dataset.mediaHistoryTitle || '',
+                creatorName: card.dataset.mediaHistoryCreator || '',
+                category: card.dataset.mediaHistoryCategory || '',
+                seriesTitle: card.dataset.mediaHistorySeriesTitle || ''
+            });
+            return;
+        }
         if (card.dataset.gpuUpdaterCard === 'true') {
             const updaterId = card.dataset.updaterId || '';
             if (updaterId) postToHost?.({ action: 'removeGpuUpdater', updaterId });
@@ -434,5 +561,28 @@
             return;
         }
         _executeDelete(card);
+    });
+
+    document.getElementById('ctxDeleteMediaPermanent').addEventListener('click', () => {
+        const card = _ctxCard;
+        if (!card || card.dataset.mediaHistory !== 'true') return;
+        const category = card.dataset.mediaHistoryCategory || '';
+        const type = category === 'music' ? t('mediaHistoryTypeMusic')
+            : category === 'film-series' ? t('mediaHistoryTypeFilm')
+            : category === 'live' ? t('mediaHistoryTypeStreaming')
+            : t('mediaHistoryTypeVideo');
+        const warning = t('mediaHistoryPermanentWarning', type);
+        _openMediaPermanentDialog(warning, () => {
+            _closeCtxMenu({ restoreFocus: false });
+            postToHost?.({
+                action: 'deleteMediaHistory',
+                permanent: true,
+                appId: card.dataset.mediaHistoryAppId || '',
+                contentTitle: card.dataset.mediaHistoryTitle || '',
+                creatorName: card.dataset.mediaHistoryCreator || '',
+                category,
+                seriesTitle: card.dataset.mediaHistorySeriesTitle || ''
+            });
+        });
     });
 

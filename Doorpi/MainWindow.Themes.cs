@@ -115,7 +115,7 @@ public partial class MainWindow
                 { Reply(false, "A sessão do perfil mudou.", "profile-changed"); return true; }
                 string id = GetStr(root, "themeId"), part = GetStr(root, "part");
                 if (string.IsNullOrEmpty(part)) part = "home";
-                var requiredParts = part == "system" ? ThemePackage.Parts.Where(p => p != "login").ToArray() : new[] { part };
+                var requiredParts = part == "system" ? ThemePackage.Parts.Where(p => p != "login" && p != "profile").ToArray() : new[] { part };
                 if ((part != "system" && !ThemePackage.Parts.Contains(part)) || (id != "default" && !InstalledThemes().Any(theme => theme.Id == id && requiredParts.All(p => (theme.Parts ?? new[] { "home", "side-panels" }).Contains(p)))))
                     throw new InvalidDataException("O tema não fornece esta área.");
                 if (!long.TryParse(GetStr(root, "profileRevision"), NumberStyles.None, CultureInfo.InvariantCulture, out long profileRevision)) throw new InvalidDataException("Revisão do perfil ausente.");

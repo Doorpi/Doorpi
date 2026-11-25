@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Doorpi.Steam;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -7048,7 +7049,7 @@ namespace Doorpi
             });
         }
 
-        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "")
+        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "", SteamConnectAttempt? steamConnection = null)
         {
             CancelMediaWebViewGlobalWarmup();
             // Corrige a URL logo de cara se a abertura já for apontando para a home
@@ -7058,13 +7059,13 @@ namespace Doorpi
             if (url.TrimEnd('/') == "https://www.steamgriddb.com")
                 url = "https://www.steamgriddb.com/profile/preferences/api";
 
-            bool isUtility = url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
+            bool isUtility = steamConnection != null || url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
             bool isTrailerCapture = isGenericBrowser && _genericBrowserCaptureWebAppUrl &&
                                     string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
 
             if (_ytWebView != null)
             {
-                if (isUtility && _webAppWindow == null)
+                if (isUtility && _webAppWindow == null && steamConnection == null)
                 {
                     Panel.SetZIndex(_ytWebView, 1000);
                     _ytWebView.Visibility = Visibility.Visible;
@@ -7078,6 +7079,12 @@ namespace Doorpi
                         SendGameLaunchStatus("gameLaunching", appName, heroImg, gridImg, "app");
 
                         _webAppWindow.WindowState = WindowState.Maximized;
+                        if (isYouTube)
+                        {
+                            if (!IsSystemCursorHidden()) EnsureCursorHidden();
+                            _mainScreenMouseVisible = false;
+                            ParkCursorOutsideWindow(new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle);
+                        }
                         _webAppWindow.Activate();
                         _ytWebView.Focus();
                         _ytWebView.CoreWebView2?.ExecuteScriptAsync("window.focus();");
@@ -7243,6 +7250,12 @@ namespace Doorpi
                 Interlocked.Exchange(
                     ref _activeWebAppWindowHandleValue,
                     new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle.ToInt64());
+                if (isYouTube)
+                {
+                    if (!IsSystemCursorHidden()) EnsureCursorHidden();
+                    _mainScreenMouseVisible = false;
+                    ParkCursorOutsideWindow(new IntPtr(Interlocked.Read(ref _activeWebAppWindowHandleValue)));
+                }
                 LogMediaControllerDiagnostic(
                     "web-window-handle-ready",
                     extra: $"hwnd=0x{Interlocked.Read(ref _activeWebAppWindowHandleValue):X}");
@@ -7263,6 +7276,7 @@ namespace Doorpi
                 _genericBrowserEnvironment = env;
             await EnsureWebViewWithProfileAsync(permissionView, env, profile.ProfileName);
             if (currentUserId != permissionContext.UserId || !ReferenceEquals(permissionView, _ytWebView)) return;
+            if (steamConnection != null) await AttachSteamConnectAsync(permissionView.CoreWebView2, steamConnection);
             await ConfigureWebPermissionsAsync(permissionView.CoreWebView2, permissionContext);
             await RestoreRetainedMediaSessionCookiesAsync(
                 _ytWebView.CoreWebView2,
@@ -7488,7 +7502,13 @@ namespace Doorpi
                     await InjectInstalledExtensionsAsync(_ytWebView.CoreWebView2);
             };
 
-            if (_mainScreenMouseVisible)
+            if (isYouTube)
+            {
+                if (!IsSystemCursorHidden()) EnsureCursorHidden();
+                _mainScreenMouseVisible = false;
+                ParkCursorOutsideWindow(new IntPtr(Interlocked.Read(ref _activeWebAppWindowHandleValue)));
+            }
+            else if (_mainScreenMouseVisible)
             {
                 EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
@@ -8544,6 +8564,7 @@ namespace Doorpi
             ClosePopupWindowAndDispose();
 
             var coreWebView = ytWebView.CoreWebView2;
+            EndSteamConnectAttempt(coreWebView);
             Task sessionCookieCapture = CaptureRetainedMediaSessionCookiesAsync(
                 coreWebView,
                 _activeMediaWebViewProfileName,
@@ -8785,6 +8806,7 @@ namespace Doorpi
         {
             var msg = e.TryGetWebMessageAsString();
             if (msg == null) return;
+            if (msg.StartsWith(SteamConnectionCapture.Prefix, StringComparison.Ordinal)) return;
 
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
             WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;

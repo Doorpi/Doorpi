@@ -159,6 +159,15 @@
     },
     {
       "path": "features/home/100-default-composition.css"
+    },
+    {
+      "path": "features/230-connected-accounts.css"
+    },
+    {
+      "path": "features/235-profile-achievements.css"
+    },
+    {
+      "path": "features/236-profile-standard.css"
     }
   ]
 }

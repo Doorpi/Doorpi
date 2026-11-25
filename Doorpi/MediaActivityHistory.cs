@@ -30,6 +30,7 @@ namespace Doorpi
         public string ArtworkSource { get; set; } = "";
         public DateTime? MetadataCapturedUtc { get; set; }
         public long TotalPlaybackSeconds { get; set; }
+        public bool PermanentlyExcluded { get; set; }
         public long LastSessionSeconds { get; set; }
         public string DailyPlaybackDate { get; set; } = "";
         public long DailyPlaybackSeconds { get; set; }
@@ -209,6 +210,10 @@ namespace Doorpi
             Timeout = TimeSpan.FromSeconds(12)
         };
         private ActiveMediaHistorySession? _activeMediaHistorySession;
+        private readonly HashSet<string> _temporaryMediaHistorySuppression = new(StringComparer.OrdinalIgnoreCase);
+
+        private static string MediaHistorySuppressionKey(string profileId, string appId, string title, string creator)
+            => string.Join('\u001f', profileId, appId, title, NormalizeTrackedMediaCreator(creator)).ToUpperInvariant();
 
         private static string NormalizeMediaHistoryCategory(string? value)
             => (value ?? "").Trim().ToLowerInvariant() switch
@@ -430,12 +435,20 @@ namespace Doorpi
                 {
                     // Players complexos podem emitir amostras de frames internos sem metadados.
                     // Essas amostras não devem encerrar a sessão válida do frame principal.
+                    if (string.Equals(state, "stopped", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string stoppedPrefix = string.Join('\u001f', profile.Id, app.Id).ToUpperInvariant() + "\u001f";
+                        _temporaryMediaHistorySuppression.RemoveWhere(key => key.StartsWith(stoppedPrefix, StringComparison.OrdinalIgnoreCase));
+                    }
                     return;
                 }
+                string suppressionKey = MediaHistorySuppressionKey(profile.Id, app.Id, normalizedTitle, normalizedCreator);
                 if (!playing)
                 {
                     if (string.Equals(state, "stopped", StringComparison.OrdinalIgnoreCase))
                     {
+                        string stoppedPrefix = string.Join('\u001f', profile.Id, app.Id).ToUpperInvariant() + "\u001f";
+                        _temporaryMediaHistorySuppression.RemoveWhere(key => key.StartsWith(stoppedPrefix, StringComparison.OrdinalIgnoreCase));
                         FinalizeMediaHistorySessionLocked(saveEligibleActivity: true);
                         return;
                     }
@@ -452,6 +465,12 @@ namespace Doorpi
                     }
                     return;
                 }
+
+                if (_temporaryMediaHistorySuppression.Contains(suppressionKey)) return;
+                string appSuppressionPrefix = string.Join('\u001f', profile.Id, app.Id).ToUpperInvariant() + "\u001f";
+                _temporaryMediaHistorySuppression.RemoveWhere(key =>
+                    key.StartsWith(appSuppressionPrefix, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(key, suppressionKey, StringComparison.OrdinalIgnoreCase));
 
                 var now = DateTime.UtcNow;
                 var next = new ActiveMediaHistorySession
@@ -796,8 +815,9 @@ namespace Doorpi
         {
             var selected = new List<MediaActivityHistoryEntry>();
             foreach (IGrouping<string, MediaActivityHistoryEntry> category in history
-                         .Where(entry => !string.IsNullOrWhiteSpace(entry.ArtworkRemoteUrl) ||
-                                         !string.IsNullOrWhiteSpace(entry.ArtworkLocalUrl))
+                         .Where(entry => !entry.PermanentlyExcluded &&
+                                         (!string.IsNullOrWhiteSpace(entry.ArtworkRemoteUrl) ||
+                                          !string.IsNullOrWhiteSpace(entry.ArtworkLocalUrl)))
                          .GroupBy(MediaHistoryStorageCategory, StringComparer.OrdinalIgnoreCase))
             {
                 var orderedByConsumption = category
@@ -819,7 +839,7 @@ namespace Doorpi
         {
             DateTime cutoff = DateTime.UtcNow.AddDays(-MediaHistoryTransientRetentionDays);
             var keep = history
-                .Where(entry => MediaHistoryStorageCategory(entry) == "film-series")
+                .Where(entry => entry.PermanentlyExcluded || MediaHistoryStorageCategory(entry) == "film-series")
                 .Select(MediaHistoryEntryStorageKey)
                 .ToHashSet(StringComparer.Ordinal);
 
@@ -1947,6 +1967,108 @@ namespace Doorpi
             PersistMediaHistorySessionLocked(active, isFinal: true);
         }
 
+        private bool DeleteMediaHistoryEntry(
+            string profileId,
+            string appId,
+            string contentTitle,
+            string creatorName,
+            string category,
+            bool permanently,
+            string seriesTitle)
+        {
+            if (string.IsNullOrWhiteSpace(profileId) || string.IsNullOrWhiteSpace(appId) ||
+                string.IsNullOrWhiteSpace(contentTitle) ||
+                !string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return false;
+
+            lock (_mediaHistoryFileLock)
+            {
+                if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return false;
+                string path = Path.Combine(ResolveMediaProfileFolder(profileId), "media-history.json");
+                List<MediaActivityHistoryEntry> history;
+                try
+                {
+                    history = File.Exists(path)
+                        ? JsonSerializer.Deserialize<List<MediaActivityHistoryEntry>>(SafeReadAllText(path))
+                            ?? throw new InvalidDataException("Histórico de mídia inválido.")
+                        : new List<MediaActivityHistoryEntry>();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[MediaHistory] Não foi possível excluir um título: " + ex.Message);
+                    return false;
+                }
+
+                string normalizedCreator = NormalizeTrackedMediaCreator(creatorName);
+                bool isSeriesGroup = string.Equals(category, "film-series", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(seriesTitle);
+                List<MediaActivityHistoryEntry> matches = history.Where(item =>
+                    string.Equals(item.AppId, appId, StringComparison.OrdinalIgnoreCase) &&
+                    (isSeriesGroup && string.Equals(item.Category, "film-series", StringComparison.OrdinalIgnoreCase)
+                        ? string.Equals(item.SeriesTitle, seriesTitle, StringComparison.OrdinalIgnoreCase) ||
+                          string.Equals(item.ContentTitle, contentTitle, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(item.ContentTitle, contentTitle, StringComparison.OrdinalIgnoreCase) &&
+                          string.Equals(NormalizeTrackedMediaCreator(item.CreatorName), normalizedCreator, StringComparison.OrdinalIgnoreCase))).ToList();
+                if (matches.Count == 0 && !permanently) return false;
+
+                if (permanently)
+                {
+                    if (matches.Count == 0) matches.Add(new MediaActivityHistoryEntry
+                    {
+                        AppId = appId,
+                        ContentTitle = contentTitle,
+                        CreatorName = normalizedCreator,
+                        Category = category,
+                        SeriesTitle = seriesTitle,
+                        FirstPlayed = DateTime.UtcNow,
+                        LastPlayed = DateTime.UtcNow
+                    });
+                    foreach (MediaActivityHistoryEntry entry in matches)
+                    {
+                        entry.PermanentlyExcluded = true;
+                        entry.TotalPlaybackSeconds = 0;
+                        entry.LastSessionSeconds = 0;
+                        entry.DailyPlaybackSeconds = 0;
+                        entry.SessionCount = 0;
+                        entry.LastPositionSeconds = 0;
+                        entry.DurationSeconds = 0;
+                        entry.FirstPlayed = DateTime.MinValue;
+                        entry.LastPlayed = DateTime.MinValue;
+                        entry.ArtworkRemoteUrl = "";
+                        entry.ArtworkLocalUrl = "";
+                        entry.ArtworkSource = "";
+                        if (!history.Contains(entry)) history.Add(entry);
+                    }
+                }
+                else
+                {
+                    foreach (MediaActivityHistoryEntry entry in matches) history.Remove(entry);
+                }
+
+                if (_activeMediaHistorySession is { } active &&
+                    string.Equals(active.AppId, appId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(active.ContentTitle, contentTitle, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(NormalizeTrackedMediaCreator(active.CreatorName), normalizedCreator, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!permanently)
+                        _temporaryMediaHistorySuppression.Add(MediaHistorySuppressionKey(profileId, appId, contentTitle, normalizedCreator));
+                    _activeMediaHistorySession = null;
+                }
+
+                try
+                {
+                    SafeWriteAllText(path, JsonSerializer.Serialize(history, IndentedJsonOptions));
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[MediaHistory] Falha ao salvar a exclusão: " + ex.Message);
+                    return false;
+                }
+            }
+
+            ScheduleProfileSync(profileId, notifyFailure: true, delayMs: 100);
+            return true;
+        }
+
         private List<MediaActivityHistoryEntry> LoadMediaHistoryLocked()
         {
             foreach (string candidate in new[] { mediaHistoryFile, mediaHistoryFile + ".bak" })
@@ -2122,6 +2244,11 @@ namespace Doorpi
                 string.Equals(item.AppId, active.AppId, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(item.ContentTitle, active.ContentTitle, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(NormalizeTrackedMediaCreator(item.CreatorName), active.CreatorName, StringComparison.OrdinalIgnoreCase));
+            if (entry?.PermanentlyExcluded == true)
+            {
+                active.PersistedSeconds = active.AccumulatedSeconds;
+                return;
+            }
 
             if (entry == null)
             {

@@ -220,6 +220,8 @@ document.addEventListener('keydown', e => {
     }
 
     if (window.isGlobalLoading) { e.preventDefault(); return; }
+    if (e.target?.matches?.('[data-storage-program-search]') &&
+        (e.isComposing || !['ArrowUp', 'ArrowDown', 'Escape'].includes(e.key))) return;
     if (window.isDoorpiOverlayOpen?.() && !isVkbOpenForNavigation()) {
         const dirMapOverlay = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMapOverlay[e.key]) {

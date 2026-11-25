@@ -1,0 +1,17 @@
+#doorpi-steam-export {
+    position:fixed;z-index:2147483646;box-sizing:border-box;
+    min-width:150px;min-height:44px;padding:11px 18px;
+    border:1px solid #c8e5ff65;border-radius:8px;
+    background:#254f76;color:#fff;box-shadow:0 8px 24px #0006;
+    font:600 15px/1.3 'Segoe UI',sans-serif;cursor:pointer;
+}
+#doorpi-steam-export:hover { background:#32658f; }
+#doorpi-steam-export:focus-visible { outline:3px solid #fff;outline-offset:3px; }
+#doorpi-steam-export:disabled { cursor:progress;opacity:.8; }
+#doorpi-steam-export[hidden],#doorpi-steam-export-status[hidden] { display:none; }
+#doorpi-steam-export-status {
+    position:fixed;z-index:2147483646;max-width:min(340px,calc(100vw - 24px));
+    box-sizing:border-box;padding:10px 14px;border:1px solid #ffffff30;
+    border-radius:8px;background:#101a25;color:#e8edf3;
+    font:14px/1.5 'Segoe UI',sans-serif;box-shadow:0 6px 20px #0005;
+}

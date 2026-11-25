@@ -1,0 +1,82 @@
+.nav-connected-account { gap: 12px; padding: 20px; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; background: rgba(255,255,255,.035); }
+.nav-connected-account > strong { font-size: 1.1rem; }
+.nav-connected-description { margin: 0; color: rgba(255,255,255,.7); line-height: 1.5; font-size: .92rem; }
+.nav-connected-notice { margin: 0; padding: 12px 14px; border-radius: 10px; color: #f6d88c; background: rgba(225,171,48,.09); line-height: 1.5; font-size: .92rem; }
+.nav-connected-account .nav-profile-sync-actions { flex-wrap: wrap; gap: 10px; }
+.nav-connected-account .nav-icon-btn:disabled { opacity: .45; cursor: default; }
+.nav-connected-account .nav-profile-sync-status { white-space: normal; overflow-wrap: anywhere; }
+.nav-steam-preview > div { padding: 12px 0; border-top: 1px solid rgba(255,255,255,.1); }
+.nav-steam-preview p { margin: 6px 0; color: rgba(255,255,255,.7); line-height: 1.5; }
+.nav-steam-preview[hidden] { display: none; }
+
+/* Providers share the same identity / state / action hierarchy. */
+.nav-connected-account { border-radius:10px; padding:clamp(16px,1.5vw,28px); gap:10px; background:var(--doorpi-dialog-surface,rgba(255,255,255,.035)); }
+.nav-provider-heading { display:flex; align-items:center; gap:14px; }
+.nav-provider-icon { display:grid; place-items:center; width:44px; height:44px; flex:none; color:inherit; }
+.nav-provider-icon svg { width:32px; height:32px; }
+.nav-provider-heading>span:last-child { display:grid; gap:4px; }
+.nav-provider-heading strong { font-size:clamp(18px,1.1vw,28px); font-weight:550; }
+.nav-provider-heading small { font-size:clamp(13px,.8vw,20px); opacity:.65; }
+.nav-provider-manage { align-self:flex-start; gap:10px; }
+.nav-provider-manage svg { width:24px; height:24px; fill:currentColor; }
+.nav-steam-controls { display:flex; flex-direction:column; gap:12px; padding-top:16px; border-top:1px solid #ffffff18; }
+.nav-steam-controls[hidden] { display:none!important; }
+.nav-connected-account>.nav-steam-manual { grid-column:1/-1; grid-row:3; justify-self:start; padding:6px 0; min-height:32px; background:transparent; border-color:transparent; color:inherit; opacity:.65; font-size:.85rem; }
+.nav-connected-account>.nav-steam-manual.nav-focused-el { opacity:1; border-color:currentColor; }
+.nav-profile-sync.nav-connected-account { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; justify-content:normal; padding:clamp(16px,1.5vw,28px); gap:10px 20px; }
+.nav-connected-account .nav-provider-heading { grid-column:1; grid-row:1; }
+.nav-connected-account>.nav-connected-description { grid-column:1; grid-row:2; }
+.nav-connected-account>.nav-profile-sync-actions,.nav-connected-account>.nav-provider-manage { grid-column:2; grid-row:1; }
+.nav-connected-account>.nav-profile-sync-status { grid-column:2; grid-row:2; text-align:right; max-width:28ch; }
+.nav-connected-account>.nav-steam-controls { grid-column:1/-1; grid-row:4; }
+.nav-profile-avatar-sec:has(.nav-account-identity-name) { align-self:start; position:sticky; top:0; min-height:280px; justify-content:center; }
+@media(max-width:1100px) { .nav-profile-sync.nav-connected-account { grid-template-columns:1fr; } .nav-connected-account>.nav-profile-sync-actions,.nav-connected-account>.nav-provider-manage,.nav-connected-account>.nav-profile-sync-status,.nav-connected-account>.nav-steam-controls { grid-column:1; grid-row:auto; text-align:left; } }
+.nav-connected-account .nav-profile-sync-actions .nav-icon-btn svg { width:22px; height:22px; flex:none; }
+.nav-connected-account .nav-profile-sync-actions .nav-icon-btn { gap:8px; }
+
+
+/* Keep integration status beside its provider and leave actions in a single column. */
+.nav-profile-fields .nav-profile-sync.nav-connected-account {
+    border:0; border-top:1px solid #ffffff24; border-radius:0; background:transparent;
+    padding:clamp(12px,1vw,24px) 0; gap:6px 18px;
+}
+.nav-connected-account > .nav-profile-sync-status { grid-column:1; grid-row:2; max-width:none; text-align:start; }
+.nav-connected-account > .nav-connected-description { grid-column:1; grid-row:3; }
+.nav-connected-account > .nav-steam-manual { grid-row:4; }
+.nav-connected-account > .nav-steam-controls { grid-row:5; }
+@media(max-width:1100px) {
+    .nav-connected-account > .nav-provider-manage,.nav-connected-account > .nav-profile-sync-actions { grid-row:4; }
+    .nav-connected-account > .nav-steam-manual { grid-row:5; }
+    .nav-connected-account > .nav-steam-controls { grid-row:6; }
+}
+
+
+/* One editing surface, with artwork and identity beside connected services. */
+.nav-profile-dashboard:has(.nav-editor-preview) {
+    width: min(100%, 1720px); margin-inline: auto;
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+    gap: clamp(24px, 4vw, 84px); align-items: start;
+}
+.nav-profile-dashboard .nav-profile-avatar-sec:has(.nav-editor-preview) {
+    position: static; align-items: stretch; min-height: 0; padding: 0;
+    border: 0; background: none; gap: clamp(12px, 1.4vh, 22px);
+}
+.nav-editor-preview {
+    position: relative; isolation: isolate; overflow: hidden; display: flex;
+    align-items: end; gap: 1em; padding: clamp(14px, 1.4vw, 30px);
+    min-height: clamp(100px, 15vh, 220px); border-radius: 8px; background: #222a34;
+}
+.nav-editor-cover { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; opacity: .54; }
+.nav-editor-preview .nav-profile-photo { width: clamp(56px, 6vw, 94px); height: auto; aspect-ratio: 1; flex: none; }
+.nav-editor-preview .nav-account-identity-name { align-self: center; text-shadow: 0 1px 4px #000; }
+.nav-profile-dashboard h3 { margin: 0; color: inherit; font-size: clamp(17px, 1.32vw, 28px); font-weight: 550; }
+.nav-artwork-options { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.nav-artwork-options legend { margin-bottom: 5px; }
+.nav-artwork-options button[aria-pressed=true] { background: #ffffff16; border-bottom-color: currentColor; }
+.nav-account-section { display: grid; align-content: start; gap: clamp(10px, 1vw, 20px); }
+.nav-account-section[data-account-panel=privacy] { padding-top: 12px; }
+.nav-profile-fields { position: relative; }
+.nav-profile-fields #navSaveStatus { pointer-events:none; opacity:0; position:absolute; right:0; top:0; color:inherit; }
+@media (max-width: 850px) {
+    .nav-profile-dashboard:has(.nav-editor-preview) { grid-template-columns: minmax(0, 1fr); }
+}

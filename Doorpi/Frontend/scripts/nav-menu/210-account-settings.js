@@ -43,6 +43,7 @@
         });
     }
 
+    let _initialAccountSection = 'identity';
     function _renderSettingsAccount(body) {
         if (!document.getElementById('nav-account-styles')) {
             const s = document.createElement('style');
@@ -57,7 +58,8 @@
         let apiConfigured = !!(_menuData.user.HasSteamGridApiKey || _menuData.user.hasSteamGridApiKey);
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
         let applicationHistoryEnabled = _menuData.user.ApplicationHistoryEnabled !== false && _menuData.user.applicationHistoryEnabled !== false;
-        const photo = _menuData.user.PhotoBase64 || '';
+        const user = _menuData.user;
+        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64 || '';
 
         const maskApi = () => apiConfigured
             ? _t('navApiConfigured', 'Chave configurada')
@@ -117,24 +119,26 @@
         body.innerHTML = `
             <div class="nav-settings-subheader">
                 <button class="nav-back-btn" id="setBack" tabindex="-1">‹ ${_t('navBack', 'Voltar')}</button>
-                <h2>${_t('navSetAccount', 'Conta e Perfil')}</h2>
+                <h2>${_t('navEditProfileBtn')}</h2>
             </div>
             
             <div class="nav-profile-dashboard">
                 <div class="nav-profile-avatar-sec">
-                    <button class="nav-profile-photo" id="navProfilePhoto" tabindex="-1">
+                    <h3>${_t('profileAppearance')}</h3>
+                    <div class="nav-editor-preview"><img class="nav-editor-cover" alt="" hidden>
+                    <div class="nav-profile-photo" id="navProfilePhoto">
                         ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
-                    </button>
-                    <span class="nav-account-identity-kicker">${_t('navAvatarChange', 'Alterar avatar')}</span>
+                    </div>
+
                     <strong class="nav-account-identity-name">${_esc(pendingName || _t('navSetAccount', 'Perfil'))}</strong>
-                    <span class="nav-account-identity-help">Sua identidade no Doorpi, preferências de segurança e sincronização ficam reunidas aqui.</span>
-                </div>
-                
-                <div class="nav-profile-fields">
-                    <span class="nav-account-section-label">Identidade e acesso</span>
+                    </div>
+                    ${[['avatar','profileAvatar'],['cover','profileCover']].map(([part,key])=>`<fieldset class="nav-artwork-options"><legend>${_t(key)}</legend>
+                        <button class="nav-icon-btn" data-art-part="${part}" data-art-mode="image" tabindex="-1">${_t('profileChooseImage')}</button>
+                        <button class="nav-icon-btn" data-art-part="${part}" data-art-mode="game" tabindex="-1">${_t('profileUseGame')}</button></fieldset>`).join('')}
+                    <section class="nav-account-section" data-account-panel="identity"><h3>${_t("steam.identityAccess")}</h3>
                     <div class="nav-profile-field">
                         <span class="nav-profile-field-label">${_t('navProfileNameLabel', 'Nome de Usuário')}</span>
-                        <input class="nav-profile-field-input" id="navProfName" readonly value="${pendingName}" tabindex="-1" />
+                        <input class="nav-profile-field-input" id="navProfName" readonly value="${_esc(pendingName)}" tabindex="-1" />
                     </div>
 
                     <div class="nav-profile-field" style="margin-top: 10px;">
@@ -142,21 +146,14 @@
                         <input class="nav-profile-field-input" id="navProfPin" type="text" readonly value="${maskPin()}" inputmode="numeric" pattern="[0-9]*" maxlength="4" tabindex="-1" />
                     </div>
                     
-                    <div class="nav-profile-field" style="margin-top: 10px;">
-                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
-                        <div class="nav-api-row">
-                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
-                            <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
-                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
-                        </div>
-                    </div>
-                    
-                    <div style="display:flex; justify-content:flex-start; align-items:center; min-height:18px;">
-                        <span id="navSaveStatus" style="color:#6ee696; font-size:0.95rem; font-weight:500; opacity:0; transition:opacity 0.3s;">${_t('toastChangesSaved', '✓ Alterações Salvas')}</span>
-                    </div>
-
-                    <span class="nav-account-section-label">Conta na nuvem</span>
-                    <div class="nav-profile-sync">
+                    </section>
+                </div>
+                <div class="nav-profile-fields">
+                    <span id="navSaveStatus" role="status">${_t('toastChangesSaved')}</span>
+                    <section class="nav-account-section" data-account-panel="connections"><h3>${_t("profileConnections")}</h3>
+                    <div class="nav-profile-sync nav-connected-account" data-provider="google-drive">
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${window.DoorpiProfileSync?.googleIcon || 'G'}</span><span><strong>Google</strong><small>${_t('steam.backup')}</small></span></div>
+                        <p class="nav-connected-description">${_t('steam.cloudDescription')}</p>
                         <span class="nav-profile-sync-status" id="navProfileSyncStatus"></span>
                         <div class="nav-profile-sync-actions">
                             <button class="nav-icon-btn" id="navProfileSyncConnect" tabindex="-1" title="${_t('profileSyncLoginGoogle', 'Entrar com Google')}" aria-label="${_t('profileSyncLoginGoogle', 'Entrar com Google')}">${window.DoorpiProfileSync?.googleIcon || 'G'}<span>${_t('profileSyncLoginGoogle', 'Entrar com Google')}</span></button>
@@ -165,35 +162,66 @@
                         </div>
                     </div>
 
-                    <span class="nav-account-section-label">${_t('navPrivacyActivity','Privacidade e atividade')}</span>
+                    <div class="nav-profile-sync nav-connected-account" data-provider="steam">
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span></div>
+                        <p class="nav-connected-description"><span id="navSteamIdentity">${_t('steam.publicProfile')}</span></p>
+                        <button class="nav-icon-btn nav-provider-manage" id="navSteamManage" tabindex="-1" > ${PLATFORM_ICONS.Steam}<span>${_t('steam.connect')}</span></button>
+                        <span class="nav-profile-sync-status" id="navSteamConnectionState" role="status">${_t('steam.disconnected')}</span>
+                        <button class="nav-icon-btn nav-steam-manual" id="navSteamManual" tabindex="-1" aria-expanded="false" aria-controls="navSteamControls">${_t('steam.manual')}</button>
+                        <div id="navSteamControls" class="nav-steam-controls" hidden>
+                        <label class="nav-profile-field-label" for="navSteamManualKey">${_t('steam.keyLabel')}</label>
+                        <input class="nav-profile-field-input" id="navSteamManualKey" type="password" autocomplete="off" spellcheck="false" maxlength="64" tabindex="-1" placeholder="${_t('steam.keyPlaceholder')}" />
+                        <button class="nav-icon-btn" id="navSteamSaveManualKey" tabindex="-1">${_t('steam.saveKey')}</button>
+                        <p class="nav-connected-notice">${_t('steam.publicRequired')}</p>
+                        <label class="nav-profile-field-label" for="navSteamAccount">${_t('steam.accountLabel')}</label>
+                        <input class="nav-profile-field-input" id="navSteamAccount" readonly tabindex="-1" placeholder="https://steamcommunity.com/id/seu-perfil" maxlength="2048" />
+                        <span class="nav-profile-sync-status" id="navSteamStatus" role="status" aria-live="polite"></span>
+                        <progress id="navSteamProgress" max="100" hidden aria-label="${_t('steam.syncProgress')}"></progress>
+                        <span class="nav-connected-description" id="navSteamTotals"></span>
+                        <button class="nav-icon-btn" id="navSteamView" tabindex="-1" aria-expanded="false">${_t('steam.importedSummary')}</button>
+                        <div id="navSteamData" class="nav-steam-preview" hidden></div>
+                        <div class="nav-profile-sync-actions">
+                            <button class="nav-icon-btn" data-steam-action="getKey" tabindex="-1">${_t('steam.getKey')}</button>
+                            <button class="nav-icon-btn" data-steam-action="pasteKey" tabindex="-1">${_t('steam.pasteKey')}</button>
+                            <button class="nav-icon-btn" data-steam-action="pasteAccount" tabindex="-1">${_t('steam.pasteAccount')}</button>
+                            <button class="nav-icon-btn" data-steam-action="import" tabindex="-1">${_t('steam.import')}</button>
+                            <button class="nav-icon-btn" data-steam-action="disconnect" tabindex="-1">${_t('steam.removeKey')}</button>
+                        </div>
+                        <small class="nav-connected-description">${_t('steam.keyNotice')}</small>
+                        </div>
+                    </div>
+
+                    <div class="nav-profile-field" style="margin-top: 10px;">
+                        <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
+                        <div class="nav-api-row">
+                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
+                            <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
+                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
+                        </div>
+                    </div>
+                    </section>
+                    <section class="nav-account-section" data-account-panel="privacy"><h3>${_t("navPrivacyActivity")}</h3>
                     <button class="nav-account-toggle" id="navApplicationHistory" aria-pressed="${applicationHistoryEnabled}" tabindex="-1">
                         <span class="nav-account-toggle-copy"><strong>${_t('navApplicationHistory','Histórico de aplicativos')}</strong><small>${_t('navApplicationHistoryHint','Registra apenas mídias realmente reproduzidas nos aplicativos nativos deste perfil.')}</small></span>
                         <span class="nav-account-switch" aria-hidden="true"></span>
                     </button>
 
                     <span class="nav-account-section-label">${_t('navAccessMaintenance','Acesso e manutenção')}</span>
-                    <button class="nav-icon-btn nav-account-route" id="navAccountSharing" tabindex="-1"><span class="nav-account-route-copy"><strong>${_t('navSetSharing', 'Contas dos apps')}</strong><small>Escolha quem pode usar cada conta conectada.</small></span><span class="nav-account-route-chevron">›</span></button>
-                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1"><span>Excluir perfil</span></button>
+                    <button class="nav-icon-btn nav-account-route" id="navAccountSharing" tabindex="-1"><span class="nav-account-route-copy"><strong>${_t('navSetSharing', 'Contas dos apps')}</strong><small>${_t('steam.sharingHint')}</small></span><span class="nav-account-route-chevron">›</span></button>
+                    <button class="nav-icon-btn nav-btn-danger" id="navDeleteUser" tabindex="-1"><span>${_t('steam.deleteProfile')}</span></button>
+                    </section>
                 </div>
             </div>`;
 
-        _contentItems = [
-            body.querySelector('#setBack'),
-            body.querySelector('#navProfilePhoto'),
-            body.querySelector('#navProfName'),
-            body.querySelector('#navProfPin'),
-            body.querySelector('#navProfApi'),
-            body.querySelector('#navApiPaste'),
-            body.querySelector('#navApiLink'),
-            body.querySelector('#navProfileSyncConnect'),
-            body.querySelector('#navProfileSyncNow'),
-            body.querySelector('#navProfileSyncDisconnect'),
-            body.querySelector('#navApplicationHistory'),
-            body.querySelector('#navAccountSharing'),
-            body.querySelector('#navDeleteUser')
-        ].filter(Boolean);
-
-        body.querySelector('#setBack')?.addEventListener('click', () => {
+        body.querySelector('#setBack')?.addEventListener('click', event => {
+            if (event.currentTarget.dataset.returnToProfile) {
+                _preserveSettingsSubViewOnce = true;
+                _settingsSubView = null;
+                _selectCat(CATS.findIndex(cat=>cat.id==='profile'));
+                _contentIdx = Math.max(0,_contentItems.findIndex(el=>el.id==='btnEditProfileHub'));
+                _setTopbarFocus(false);
+                return;
+            }
             _settingsSubView = 'accountHub';
             _contentIdx = 0;
             document.activeElement?.blur(); 
@@ -214,6 +242,7 @@
         const deleteBtn = body.querySelector('#navDeleteUser');
 
         const refreshSyncUi = () => {
+            if (!photoBtn?.isConnected) return;
             const connected = !!_profileSyncUi.connected;
             const busy = !!_profileSyncUi.busy;
             const status = body.querySelector('#navProfileSyncStatus');
@@ -223,7 +252,7 @@
             if (status) {
                 status.textContent = busy
                     ? _t('profileSyncWorking', 'Sincronizando...')
-                    : (_profileSyncUi.message || (connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', 'Não conectado')));
+                    : (_profileSyncUi.message || (connected ? _t('profileSyncConnected', 'Sincronizado') : _t('profileSyncDisconnected', _t('steam.disconnected'))));
                 status.classList.toggle('connected', connected && !busy);
             }
             if (connect) connect.style.display = connected ? 'none' : 'flex';
@@ -232,20 +261,131 @@
             if (connect) connect.disabled = busy;
             if (syncNow) syncNow.disabled = busy;
             if (disconnect) disconnect.disabled = busy;
-            _contentItems = [
-                body.querySelector('#setBack'), body.querySelector('#navProfilePhoto'),
-                body.querySelector('#navProfName'), body.querySelector('#navProfPin'),
-                body.querySelector('#navProfApi'), body.querySelector('#navApiPaste'),
-                body.querySelector('#navApiLink'), body.querySelector('#navProfileSyncConnect'),
-                body.querySelector('#navProfileSyncNow'), body.querySelector('#navProfileSyncDisconnect'),
-                body.querySelector('#navApplicationHistory'),
-                body.querySelector('#navAccountSharing'), body.querySelector('#navDeleteUser')
-            ].filter(item => item && item.offsetWidth > 0 && item.offsetHeight > 0);
+            const focused = _contentItems[_contentIdx];
+            _contentItems = [...body.querySelectorAll('button,input')].filter(item => !item.disabled && item.offsetWidth && item.offsetHeight);
+            if (_contentItems.includes(focused)) _contentIdx = _contentItems.indexOf(focused);
             _contentIdx = Math.min(_contentIdx, Math.max(0, _contentItems.length - 1));
         };
         window._refreshProfileSyncAccountUi = refreshSyncUi;
         refreshSyncUi();
+        _contentIdx = Math.max(0,_contentItems.indexOf(body.querySelector('[data-art-part=avatar]')));
+        if (_initialAccountSection === 'connections') {
+            _contentIdx = Math.max(0,_contentItems.indexOf(body.querySelector('#navSteamManage')));
+            _initialAccountSection = 'identity';
+        }
         postToHost?.({ action: 'profileSyncStatus' });
+        body.querySelector('#navSteamManual')?.addEventListener('click', event => {
+            const controls = body.querySelector('#navSteamControls');
+            controls.hidden = !controls.hidden;
+            event.currentTarget.setAttribute('aria-expanded', String(!controls.hidden));
+            refreshSyncUi();
+        });
+        body.querySelector('#navSteamManage')?.addEventListener('click', () => {
+            postToHost?.(_steamConnectPayload());
+        });
+        const steamAccount = body.querySelector('#navSteamAccount');
+        let steamState = { hasKey: false, busy: false };
+        const refreshSteam = data => {
+            if (body.querySelector('#navSteamAccount') !== steamAccount) return;
+            if (data && data.profileId !== String(_menuData.user.Id || _menuData.user.id || '')) return;
+            if (data) {
+                steamState = { ...steamState, ...data };
+                if (Array.isArray(data.achievementIndex)) body.querySelector('.nav-editor-preview')?.refreshArtwork?.();
+            }
+            if (data?.manualKeyRequired) {
+                const controls = body.querySelector('#navSteamControls');
+                if (controls) controls.hidden = false;
+                body.querySelector('#navSteamManual')?.setAttribute('aria-expanded', 'true');
+            }
+            if (data?.hasKey && !data.busy) { const field = body.querySelector('#navSteamManualKey'); if (field) field.value = ''; }
+            if (steamAccount) steamAccount.disabled = !!steamState.busy;
+            const status = body.querySelector('#navSteamStatus');
+            if (status) status.textContent = steamState.message || _t('steam.configureHint');
+            const progress = body.querySelector('#navSteamProgress');
+            if (progress) {
+                progress.hidden = !steamState.busy;
+                const counts = String(steamState.message || '').match(/conquistas:\s*(\d+)\/(\d+)/i);
+                if (counts) { progress.max = Math.max(1, Number(counts[2])); progress.value = Number(counts[1]); }
+                else progress.removeAttribute('value');
+            }
+            if (steamAccount && (steamState.account || (!steamAccount.value && steamState.steamId))) steamAccount.value = steamState.account || steamState.steamId;
+            const totals = body.querySelector('#navSteamTotals');
+            if (totals) totals.textContent = steamState.steamId ? _t('steam.summary','',steamState.displayName || _t('steam.profile'),steamState.gameCount || 0,steamState.achievementCount || 0) : '';
+            const preview = body.querySelector('#navSteamData');
+            if (preview && Array.isArray(steamState.games)) {
+                preview.replaceChildren();
+                const heading = document.createElement('p');
+                heading.textContent = _t('steam.previewLimit');
+                preview.append(heading);
+                steamState.games.forEach(game => {
+                    const row = document.createElement('div');
+                    const name = document.createElement('strong');
+                    name.textContent = game.Name || _t('steam.gameFallback');
+                    const description = document.createElement('p');
+                    const hours = (Math.max(0, Number(game.PlaytimeMinutes) || 0) / 60).toLocaleString(undefined, { maximumFractionDigits: 1 });
+                    description.textContent = `${_t('steam.hours','',hours)} · ${game.total ? _t('steam.progress','',game.unlocked,game.total) : _t('steam.achievementsUnavailable')}`;
+                    const recent = document.createElement('p');
+                    recent.textContent = (game.achievements || []).join(' · ');
+                    row.append(name, description, recent);
+                    preview.append(row);
+                });
+            }
+            const view = body.querySelector('#navSteamView');
+            if (view) view.disabled = !!steamState.busy || !steamState.steamId;
+            body.querySelectorAll('[data-steam-action]').forEach(button => {
+                const operation = button.dataset.steamAction;
+                button.disabled = !!steamState.busy || (operation === 'import' && (!steamState.hasKey || !steamAccount?.value.trim())) || (operation === 'disconnect' && !steamState.hasKey);
+            });
+            const identity = body.querySelector('#navSteamIdentity');
+            if (identity) identity.textContent = steamState.displayName || (steamState.steamId ? _t('steam.importedProfile') : _t('steam.publicProfile'));
+            const manage = body.querySelector('#navSteamManage span');
+            if (manage) manage.textContent = steamState.hasKey && steamState.account ? _t('steam.anotherAccount') : _t('steam.connect');
+            const primary = body.querySelector('#navSteamManage');
+            if (primary) primary.disabled = !!steamState.busy;
+            const connectionState = body.querySelector('#navSteamConnectionState');
+            if (connectionState) connectionState.textContent = steamState.busy ? _t('steam.updating') : steamState.hasKey && (steamState.account || steamState.steamId) ? _t('steam.connected') : _t('steam.disconnected');
+            if (connectionState && !steamState.busy && /não foi|não pôde|mudou|cancelad|inválid|restrit|privad|indispon|configure primeiro/i.test(steamState.message || '')) connectionState.textContent = steamState.message;
+            refreshSyncUi();
+        };
+        window._refreshSteamAccountUi = refreshSteam;
+        body.querySelector('#navSteamSaveManualKey')?.addEventListener('click', () => {
+            const field = body.querySelector('#navSteamManualKey');
+            const key = field?.value.trim() || '';
+            if (!/^[a-f0-9]{32}$/i.test(key)) {
+                const status = body.querySelector('#navSteamStatus');
+                if (status) status.textContent = _t('steam.invalidKey');
+                return;
+            }
+            postToHost?.({ action: 'steamSaveManualKey', key });
+            field.value = '';
+        });
+        body.querySelector('#navSteamManualKey')?.addEventListener('click', event => {
+            const field = event.currentTarget;
+            if (window._doorpiShouldOpenVkbFromEvent?.(event)) window._vkbOpen?.(field, { onOk: () => window._vkbForceClose?.(), onCancel: () => window._vkbForceClose?.() });
+        });
+        body.querySelector('#navSteamView')?.addEventListener('click', event => {
+            const preview = body.querySelector('#navSteamData');
+            preview.hidden = !preview.hidden;
+            event.currentTarget.setAttribute('aria-expanded', String(!preview.hidden));
+        });
+        body.querySelectorAll('[data-steam-action]').forEach(button => button.addEventListener('click', () => {
+            const operation = button.dataset.steamAction;
+            if (operation === 'getKey') {
+                postToHost?.(_steamConnectPayload());
+                return;
+            }
+            steamState.busy = true;
+            refreshSteam();
+            postToHost?.({ action: ({ pasteKey: 'steamPasteKey', pasteAccount: 'steamPasteAccount', import: 'steamImport', disconnect: 'steamDisconnect' })[operation], account: steamAccount?.value.trim() || '' });
+        }));
+        steamAccount?.addEventListener('input', () => refreshSteam());
+        steamAccount?.addEventListener('click', event => {
+            steamAccount.removeAttribute('readonly');
+            if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
+            window._vkbOpen?.(steamAccount, { onOk: () => { steamAccount.setAttribute('readonly', ''); window._vkbForceClose?.(); refreshSteam(); }, onCancel: () => { steamAccount.setAttribute('readonly', ''); window._vkbForceClose?.(); } });
+        });
+        refreshSteam();
+        postToHost?.({ action: 'steamProfileStatus' });
 
         body.querySelector('#navProfileSyncConnect')?.addEventListener('click', () => {
             _profileSyncUi.busy = true;
@@ -280,15 +420,64 @@
             }
         };
 
-        photoBtn?.addEventListener('click', () => {
+        const rankedArt = () => {
+            const {gameTotals} = _profileLibraryRanking(_menuData.games || []);
+            return _profileGameRows(gameTotals,{..._steamView(),gameOrder:'hours'}).find(game=>game.minutes>0);
+        };
+        const refreshArt = () => {
+            const game = rankedArt();
+            const preview = body.querySelector('.nav-editor-cover');
+            const source = user.CoverBase64 ? 'data:image/jpeg;base64,'+user.CoverBase64 : _profileBanner(game);
+            preview.onerror = () => {
+                const fallback = game && _profileGameArt(game);
+                preview.onerror = () => { preview.hidden = true; };
+                if (fallback && !user.CoverBase64 && fallback !== source) preview.src = fallback;
+                else preview.hidden = true;
+            };
+            if (source) preview.src = source;
+            preview.hidden = !source;
+            for (const btn of body.querySelectorAll('[data-art-mode]')) {
+                const auto = btn.dataset.artPart === 'avatar' ? user.AvatarFromGame : !user.CoverBase64;
+                btn.setAttribute('aria-pressed', String((btn.dataset.artMode === 'game') === !!auto));
+            }
+        };
+        body.querySelector('.nav-editor-preview').refreshArtwork = refreshArt;
+        refreshArt();
+        for (const button of body.querySelectorAll('[data-art-part]')) button.onclick = () => {
+            const cover = button.dataset.artPart === 'cover';
+            if (button.dataset.artMode === 'image') { pickImage(cover,button); return; }
+            const game = rankedArt();
+            _setProfileArtwork(cover?'cover':'avatarGame',cover || !game ? '' : _profileGameArt(game));
+            if (!cover && game) {
+                const image = document.createElement('img');
+                image.alt = '';
+                image.src = _profileGameArt(game);
+                photoBtn.replaceChildren(image);
+            }
+            refreshArt();
+            _showSavedFeedback();
+        };
+        function pickImage(cover,returnFocus) {
+            const target = user.Id;
+            const revision = _menuReloadToken;
             if (typeof window.openDoorpiProfilePhotoPicker !== 'function') {
                 console.error('[ProfilePhoto] Seletor de foto não foi carregado.');
                 return;
             }
             window.openDoorpiProfilePhotoPicker({
                 hasApiKey: apiConfigured,
-                returnFocus: photoBtn,
+                cover, returnFocus,
+                favoriteTitles: cover ? _profileGameRows(_profileLibraryRanking(_menuData.games || []).gameTotals,
+                    {..._steamView(),gameOrder:'hours'}).filter(game=>game.minutes>0).slice(0,5).map(game=>game.name) : [],
                 onApply: result => {
+                    if (!returnFocus.isConnected || target !== window._doorpiCurrentUserId || revision !== _menuReloadToken) return;
+                    if (cover) {
+                        _setProfileArtwork('cover',result.base64);
+                        refreshArt();
+                        _showSavedFeedback();
+                        return;
+                    }
+                    _menuData.user.AvatarFromGame = false;
                     _menuData.user.PhotoBase64 = result.base64;
                     _menuData.user.PhotoSource = result.photoSource;
                     _menuData.user.PhotoSourceUrl = result.photoSourceUrl;
@@ -299,7 +488,7 @@
                     if (window._doorpiProfile) Object.assign(window._doorpiProfile, _menuData.user);
                     window._applyDoorpiTopProfile?.(window._doorpiProfile || _menuData.user);
                     postToHost({
-                        action: 'saveUserProfile',
+                        action: 'saveUserProfile', userId: target,
                         name: _menuData.user.Name || '',
                         photoBase64: result.base64,
                         photoSource: result.photoSource,
@@ -314,9 +503,10 @@
                     if (photoBtn) photoBtn.innerHTML = imgTag;
                     document.querySelectorAll('.nav-profile-avatar-large').forEach(avatar => { avatar.innerHTML = imgTag; });
                     _showSavedFeedback();
+                    refreshArt();
                 }
             });
-        });
+        }
 
         linkBtn?.addEventListener('click', () => {
             if (typeof postToHost === 'function') postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
@@ -448,12 +638,10 @@
             _showSavedFeedback();
         };
 
-        _contentItems.forEach((el, idx) => {
-            el.addEventListener('mouseenter', () => {
-                _topbarFocus = false;
-                _contentIdx = idx;
-                _updateContentFocus();
-            });
-        });
+        body.querySelectorAll('button,input').forEach(el => el.addEventListener('mouseenter', () => {
+            const index = _contentItems.indexOf(el);
+            if (index < 0) return;
+            _contentIdx = index;
+            _setTopbarFocus(false);
+        }));
     }
-

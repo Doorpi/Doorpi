@@ -31,6 +31,50 @@ assert.ok(closeScope > 0);
 fs.writeFileSync(navFixture, navSource.slice(0, closeScope) + `
 window.previewResetClosedMenu=()=>{++_navMenuLifecycleToken;window.isNavMenuOpen=false;_navMenuPhase='closed';window._navMenuPhase='closed';_preserveSettingsSubViewOnce=false;_overlay.style.display='none';document.body.classList.remove('nav-menu-active','nav-menu-closing');};
 window.previewClearLibrary=()=>_destroyLazyGrid();
+window.previewEnterProfile=()=>_selectCat(CATS.findIndex(cat=>cat.id==='profile'));
+window.previewNewStandardProfile=(hasLibrary)=>{
+    const data=_menuData,steam=_steamProfileView;
+    try {
+        _menuData={...data,games:hasLibrary?[{Name:'Northstar'}]:[],gamesTotal:hasLibrary?1:0,history:[],mediaHistory:[]};
+        _steamProfileView={profileId:steam.profileId,requested:true,games:[]};
+        previewEnterProfile();
+        return {cards:_contentItems.filter(el=>el.dataset.profileCard).map(el=>el.dataset.profileCard),
+            empty:!document.querySelector('.profile-card-empty').hidden,library:document.querySelector('[data-profile-card=gaming]').innerText};
+    } finally {
+        _menuData=data;_steamProfileView=steam;previewEnterProfile();
+    }
+};
+window.previewMediaHighlights=images=>{
+    _menuData.mediaHistory=[['film-series','Cinema','Tideline'],['music','Music','Horizon']].map(([Category,AppName,ContentTitle],i)=>({
+        Category,AppName,AppId:AppName.toLowerCase(),ContentTitle,CreatorName:ContentTitle,
+        LastPlayed:new Date().toISOString(),TotalPlaybackSeconds:3600,ArtworkLocalUrl:images[i]
+    }));
+    if(images[2]){
+        _menuData.mediaHistory[0].ArtworkRemoteUrl=images[0];
+        _menuData.mediaHistory[0].ArtworkLocalUrl='data:image/png;base64,AAAA';
+        _menuData.mediaHistory.push({Category:'video',AppName:'YouTube',AppId:'youtube',ContentTitle:'Ascent',CreatorName:'Ascent',LastPlayed:new Date().toISOString(),TotalPlaybackSeconds:1800,ArtworkLocalUrl:images[2]});
+    }
+    previewEnterProfile();
+};
+window.previewLibraryOnlyIdentity=()=>{
+    const data=_menuData, steam=_steamProfileView;
+    try {
+        _menuData={...data,games:[{Name:'Northstar'}],gamesTotal:1,history:[]};
+        _steamProfileView={profileId:steam.profileId,requested:true,games:[]};
+        _renderContent('profile');
+        return [document.querySelector('.nav-profile-record dt').textContent,document.querySelector('.nav-profile-record dd').textContent];
+    } finally {
+        _menuData=data;_steamProfileView=steam;_renderContent('profile');
+    }
+};
+window.previewProfileHistory=(art,cover)=>{
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=120;
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#7c5344';ctx.fillRect(0,0,120,120);
+    ctx.fillStyle='#f4e3cc';ctx.font='54px sans-serif';ctx.fillText('A',41,78);
+    _menuData.user={..._menuData.user,Name:'Alex',PhotoBase64:canvas.toDataURL().split(',')[1]};
+    _menuData.history=[{Name:'Hollow Knight',SteamAppId:1,TotalPlaytimeMinutes:125,LastSessionMinutes:45,LastPlayed:new Date().toISOString(),GridHorizontalImage:art},{Name:'Jogo Steam 3',SteamAppId:3,TotalPlaytimeMinutes:1,GridHorizontalImage:cover,ProfileBannerLocalImage:cover}];
+    _renderContent('profile');
+};
 
 window.previewOpenSettings = () => {
  _catIdx=CATS.findIndex(cat=>cat.id==='settings');_settingsSubView=null;_contentIdx=0;_topbarFocus=false;
@@ -60,7 +104,7 @@ let previewSavedTheme='default',previewRevision=1,previewDeviceTheme='default',p
 window.chrome.webview={addEventListener:(name,listener)=>previewHostListeners.push(listener),postMessage:text=>{
  const request=JSON.parse(text);if(!['requestThemeSettings','saveThemeSettings','resetThemeSettings','readThemePackage'].includes(request.action))return;
  if(request.action==='resetThemeSettings'){for(const part of Object.keys(previewParts))previewParts[part]='default';previewDeviceTheme='default';previewSavedTheme='default';previewRevision++;}
- if(request.action==='saveThemeSettings'){if(request.part==='login')previewDeviceTheme=request.themeId;else if(request.part==='system'){for(const part of Object.keys(previewParts))previewParts[part]=request.themeId;}else previewParts[request.part||'home']=request.themeId;previewSavedTheme=previewParts.home;previewRevision++;}
+ if(request.action==='saveThemeSettings'){if(request.part==='login')previewDeviceTheme=request.themeId;else if(request.part==='system'){for(const part of Object.keys(previewParts))if(part!=='profile')previewParts[part]=request.themeId;}else previewParts[request.part||'home']=request.themeId;previewSavedTheme=previewParts.home;previewRevision++;}
  queueMicrotask(()=>previewHostListeners.forEach(listener=>listener({data:{type:'themeSettingsState',requestId:request.requestId,profileId:request.profileId,
  ok:!(window.previewRejectSettingsRead&&request.action==='requestThemeSettings'),generation:'1',revision:String(previewRevision),profileRevision:'1',deviceRevision:String(previewRevision),deviceTheme:previewDeviceTheme,parts:{...previewParts},themeId:previewSavedTheme,themes:previewCatalog,package:request.action==='readThemePackage'?window.previewPackagePayload:undefined}})));
 }};
@@ -82,7 +126,7 @@ window.previewSetSheet=async href=>{
  await document.fonts.ready;
  return true;
 };
-</script><script src="${webRoot}themes.js"></script><script>window._doorpiCurrentUserId='preview-profile';</script></body></html>`);
+</script><script src="${webRoot}profile-photo-picker.js"></script><script src="${webRoot}themes.js"></script><script>window._doorpiCurrentUserId='preview-profile';</script></body></html>`);
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(action, description, timeout = 20000) {
@@ -259,7 +303,7 @@ const measure = `(() => {
                 delete window.isDoorpiFileBrowserOpen;
                 return {result,right1,right2,topbar,down,pickerPriority};
             })()`);
-            for(const step of headerNavigation.result)assert.ok(['themeSettingsBack','themeImportPackage','themeRestoreDefault','theme-group-system','theme-area-login','theme-area-system','theme-area-home','theme-area-nav-menu','theme-area-side-panels','theme-area-popups'].includes(step.up),'Up must pass through scope/module/header rows from '+step.area+': '+JSON.stringify(headerNavigation));
+            for(const step of headerNavigation.result)assert.ok(['themeSettingsBack','themeImportPackage','themeRestoreDefault','theme-group-system','theme-area-login','theme-area-system','theme-area-home','theme-area-nav-menu','theme-area-profile','theme-area-side-panels','theme-area-popups'].includes(step.up),'Up must pass through scope/module/header rows from '+step.area+': '+JSON.stringify(headerNavigation));
             assert.equal(headerNavigation.right1,'themeImportPackage');assert.equal(headerNavigation.right2,'themeRestoreDefault');
             assert.ok(headerNavigation.topbar);assert.equal(headerNavigation.down,'themeSettingsBack');assert.ok(headerNavigation.pickerPriority,'File browser owns input above theme settings');
             assert.equal(await evaluate("document.querySelectorAll('.theme-choice').length"),2,'Actual settings entry must show Default and Orbit');
@@ -285,7 +329,7 @@ const measure = `(() => {
         for (const [width,height] of [[1280,720],[1920,1080],[1024,768],[3840,2160]]) {
             await client.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
             await evaluate("previewOpenSettings();_navMenuHandleKey('ArrowDown');_navMenuHandleKey('Enter');");
-            await evaluate("window.previewListHeaderTop=document.querySelector('.theme-settings-header').getBoundingClientRect().top;for(let i=1;i<previewCatalog.length;i++)_navMenuHandleKey('ArrowDown');");
+            await evaluate("window.previewListHeaderTop=document.querySelector('.theme-settings-header').getBoundingClientRect().top;for(let i=1;i<document.getElementById('themeSettingsList').children.length;i++)_navMenuHandleKey('ArrowDown');");
             await waitFor(()=>evaluate("(()=>{const item=document.activeElement.getBoundingClientRect(),list=document.getElementById('themeSettingsList').getBoundingClientRect();return item.top>=list.top-1&&item.bottom<=list.bottom+1;})()"),'Last installed theme revealed by smooth scrolling');
             const many=await evaluate(`(()=>{
                 const list=document.getElementById('themeSettingsList'),header=document.querySelector('.theme-settings-header');
@@ -302,7 +346,7 @@ const measure = `(() => {
             await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
             const screenshot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
             fs.writeFileSync(path.join(output,`settings-many-${width}x${height}.png`),Buffer.from(screenshot.data,'base64'));
-            await evaluate("for(let i=1;i<previewCatalog.length;i++)_navMenuHandleKey('ArrowUp');");
+            await evaluate("for(let i=1;i<document.getElementById('themeSettingsList').children.length;i++)_navMenuHandleKey('ArrowUp');");
             assert.equal(await evaluate('document.activeElement.id'),'theme-choice-default','Up must revisit every installed theme through Default');
             await evaluate("_navMenuHandleKey('ArrowUp');");
             assert.equal(await evaluate('document.activeElement.id'),'theme-area-system','Up returns to the selected area');
@@ -404,6 +448,7 @@ const measure = `(() => {
         await waitFor(()=>evaluate("!!document.getElementById('navExtensionsList')"),'existing settings button still opens Extensions');
         report.push({screen:'extension-notification',checks:['real notification click','real menu open','extension subview remains after RAF','settings button retained']});
         await evaluate("previewResetClosedMenu();openNavMenu(0)");
+        await waitFor(()=>evaluate("window._navMenuPhase==='open'"),'library opening completes before directional input');
         assert.equal(await evaluate("document.getElementById('navContentSub').textContent"),'50 jogos na biblioteca','Complete library total includes artwork-pending items');
         await evaluate("document.querySelector('#navPaneGames [data-library-action=search]').click();const search=document.querySelector('#navPaneGames input[type=search]');search.value='Fixture 1';search.dispatchEvent(new Event('input',{bubbles:true}));");
         assert.equal(await evaluate("document.getElementById('navContentSub').textContent"),'11 de 50 jogos','Search shows matches against the complete collection');
@@ -413,7 +458,7 @@ const measure = `(() => {
             const search=document.querySelector('#navPaneGames input[type=search]');search.value='';search.dispatchEvent(new Event('input',{bubbles:true}));
             document.querySelector('#navPaneGames .nav-library-search-cancel').click();
         })()`);
-        assert.deepEqual(await evaluate('DoorpiThemeSelection.getState().activeParts'),Object.fromEntries(Object.keys(packageContract.parts).map(part=>[part,'orbit'])),'Every built-in component goes through the SDK selector');
+        assert.deepEqual(await evaluate('DoorpiThemeSelection.getState().activeParts'),Object.fromEntries(Object.keys(packageContract.parts).map(part=>[part,orbitPackage.parts[part]?'orbit':'default'])),'Every built-in component goes through the SDK selector');
         for(const [width,height] of [[1280,720],[1920,1080],[2560,1440],[1024,768],[3840,2160]]){
             await client.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
             await evaluate("document.getElementById('navPaneGames').scrollTop=0;document.querySelector('#navPaneGames .nav-vertical-card').dispatchEvent(new Event('mouseenter'))");await sleep(180);
@@ -542,6 +587,244 @@ const measure = `(() => {
         await evaluate('closeNavMenu();window.fetch=previewMenuOriginalFetch');
         await waitFor(()=>evaluate("window._navMenuPhase==='closed'"),'cold nav-menu closing complete');
         report.push({screen:'cold-nav-menu',loading,checks:['delayed native reads','Home visible during preparation','header and cards composed before reveal','partial artwork hydration','inactive pane does not load artwork','last artwork loads on scroll']});
+        console.log('Checking Steam profile presentation...');
+        await evaluate(`(()=>{
+            document.querySelectorAll('.edit-modal-overlay,.context-menu,[data-game-id="fixture-editor"]').forEach(element=>element.remove());
+            isEditModalOpen=false;isCtxMenuOpen=false;isModalOpen=false;
+            window.previewSteamRequests=[];const original=chrome.webview.postMessage;
+            chrome.webview.postMessage=text=>{previewSteamRequests.push(JSON.parse(text));original(text);};
+            postToHost=payload=>chrome.webview.postMessage(JSON.stringify(payload));
+            window.previewSteamSend=data=>previewHostListeners.forEach(fn=>fn({data:JSON.stringify(data)}));
+            previewResetClosedMenu();openNavMenu(3);
+        })()`);
+        await waitFor(()=>evaluate("window._navMenuPhase==='open'&&!!document.querySelector('.nav-unified-identity')"),'profile medal summary');
+        await evaluate(`previewProfileHistory(${JSON.stringify(art('HOLLOW KNIGHT','#356070'))},${JSON.stringify(art('NORTHSTAR','#87664a'))})`);
+        await evaluate(`previewSteamSend({type:'steamProfileStatus',profileId:'preview-profile',steamId:'76561198000000000',displayName:'Steam Player',hasKey:true,achievementCount:128,completedGames:3,achievementGames:20,medals:{gold:2,silver:6,bronze:20,iron:100},achievementIndex:Array.from({length:24},(_,i)=>({AppId:i+1,Name:i===0?'Hollow Knight':'Jogo Steam '+(i+1),unlocked:i===0?8:4,total:10,PlaytimeMinutes:i===2?300:125,LastPlayedUnix:i===1?1800000000:0,medals:{gold:1,silver:2,bronze:1,iron:i===0?4:0}}))})`);
+        assert.equal(await evaluate("document.querySelector('.nav-profile-summary')"),null);
+        assert.equal(await evaluate("document.querySelector('.profile-card-activity')"),null);
+        assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('[data-profile-card]:not([hidden])'),el=>el.dataset.profileCard)"),['trophies','gaming']);
+        const libraryOnly=await evaluate('previewNewStandardProfile(true)');
+        assert.deepEqual(libraryOnly.cards,['gaming']);assert.match(libraryOnly.library,/Northstar/);assert.equal(libraryOnly.empty,false);
+        const empty=await evaluate('previewNewStandardProfile(false)');
+        assert.deepEqual(empty.cards,[]);assert.equal(empty.empty,true);
+        await evaluate("DoorpiThemeSelection.select('default','nav-menu')");
+        async function profileShot(name) {
+            const shot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+            fs.writeFileSync(path.join(output,name+'.png'),Buffer.from(shot.data,'base64'));
+        }
+        await evaluate(`previewMediaHighlights(${JSON.stringify([art('TIDELINE','#38586a'),art('HORIZON','#765a53'),art('ASCENT','#385747')])})`);
+        assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('[data-profile-card]:not([hidden])'),el=>el.dataset.profileCard)"),['trophies','gaming','film-series','streaming','music']);
+        await waitFor(()=>evaluate("Array.from(document.querySelectorAll('.profile-media-picture img')).every(img=>img.naturalWidth>0)"),'Film uses its second artwork candidate and all media pictures load');
+        assert.ok(await evaluate(`(()=>{
+            const [platinum,...tiers]=Array.from(document.querySelectorAll('[data-profile-card=trophies] .nav-medal'),el=>el.getBoundingClientRect());
+            return tiers.length===4 && tiers.every(r=>r.top>=platinum.bottom && Math.abs(r.top-tiers[0].top)<1);
+        })()`),'Platinum above four aligned trophy tiers');
+        await evaluate("document.querySelector('#btnEditProfileHub').dispatchEvent(new Event('mouseenter'));_navMenuHandleKey('ArrowUp')");
+        assert.equal(await evaluate("document.activeElement.matches('.nav-cat-item.active')"),true);
+        const identityPositions = "['.nav-unified-avatar','.nav-unified-tabs','.profile-card-grid'].map(selector=>document.querySelector(selector).getBoundingClientRect().top)";
+        const expandedProfile = await evaluate(identityPositions);
+        await evaluate("_navMenuHandleKey('ArrowDown')");
+        await waitFor(()=>evaluate("navTopbar.inert && document.querySelector('.nav-category-track').getBoundingClientRect().height < 1"),'category row retracts');
+        assert.deepEqual(await evaluate(identityPositions),expandedProfile,'Collapsing categories keeps profile and cards anchored');
+        assert.ok(await evaluate("document.querySelector('.nav-category-shortcut').getBoundingClientRect().bottom < innerHeight * .15"));
+        assert.ok(await evaluate("(()=>{const r=document.querySelector('.nav-profile-cover').getBoundingClientRect();return Math.abs(r.left)<1 && Math.abs(r.top)<1 && Math.abs(r.right-innerWidth)<1})()"),'Profile art spans the viewport top');
+        await profileShot('profile-overview-default');
+        const bounds=await evaluate("document.querySelector('[data-profile-card=trophies]').getBoundingClientRect().toJSON()");
+        const trophyShot=await client.send('Page.captureScreenshot',{format:'png',clip:{x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height,scale:1}});
+        fs.writeFileSync(path.join(output,'profile-trophy-design.png'),Buffer.from(trophyShot.data,'base64'));
+        const beforeProfile=await evaluate("DoorpiThemeSelection.getState().activeParts");
+        await evaluate("document.querySelector('[data-profile-tab=overview]').dispatchEvent(new Event('mouseenter'));_navMenuHandleKey('ArrowDown');_navMenuHandleKey('ArrowRight')");
+        assert.equal(await evaluate("document.activeElement.dataset.profileCard"),'gaming');
+
+        await evaluate("_navMenuHandleKey('Enter')");
+        await waitFor(()=>evaluate("!!document.querySelector('.nav-achievement-game-list')"),'overview game tile opens Games');
+        assert.ok(await evaluate("!!document.querySelector('.nav-profile-sort-trigger') && !!document.querySelector('[data-profile-tab=overview]')"));
+        await waitFor(()=>evaluate("!document.documentElement.dataset.profileTransition"),'overview navigation complete');
+        await evaluate("_navMenuHandleKey('Escape')");
+        assert.equal(await evaluate("document.activeElement.dataset.profileCard"),'gaming');
+        assert.deepEqual(await evaluate("previewLibraryOnlyIdentity()"),['Jogos na biblioteca','1']);
+        assert.equal(await evaluate("document.querySelector('.nav-profile-record dd').textContent"),'52h 55min');
+        await evaluate("previewSteamSend({type:'steamProfileStatus',profileId:'preview-profile',completedGames:0})");
+        assert.equal(await evaluate("document.querySelector('.nav-profile-record dd').textContent"),'52h 55min');
+        await evaluate("previewSteamSend({type:'steamProfileStatus',profileId:'preview-profile',completedGames:3})");
+        const afterProfile=await evaluate("DoorpiThemeSelection.getState().activeParts");
+        assert.deepEqual(afterProfile,beforeProfile);
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('.nav-profile-record')).display"),'flex');
+        assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('.nav-profile-favorites li small'),el=>el.textContent)"),['5h 00min','2h 05min','2h 05min']);
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('.nav-profile-favorites ol')).display"),'none');
+        await evaluate("const currentTab=document.querySelector('.nav-unified-tab.is-active');currentTab.id='previewCurrentProfileTab';previewFocusTheme(currentTab.id);");
+        assert.ok(await evaluate("(()=>{const img=document.querySelector('.nav-profile-cover'),banner=img.closest('header').getBoundingClientRect(),r=img.getBoundingClientRect();return getComputedStyle(img).objectFit==='cover' && r.height>0 && r.width>=banner.width-1 && r.bottom>banner.bottom && r.height<innerHeight/2 && banner.bottom<=document.querySelector('.nav-unified-tabs').getBoundingClientRect().top+1;})()"));
+        assert.ok(await evaluate("document.querySelector('.nav-unified-tab.is-active').matches('.nav-focused-el') && getComputedStyle(document.querySelector('.nav-unified-tab.is-active'),'::after').display==='none'"));
+
+        assert.equal(await evaluate("document.querySelector('[data-profile-tab=achievements]')"),null);
+        await evaluate("document.querySelector('[data-profile-tab=gaming]').click()");
+        await waitFor(()=>evaluate("!!document.querySelector('.nav-achievements-profile')"),'achievement tab transition');
+        assert.equal(await evaluate("document.querySelectorAll('[data-steam-game]').length"),24,'All games are reachable, not only the old top twenty');
+        assert.ok(await evaluate("document.querySelector('[data-steam-game] progress').value===8 && document.querySelector('[data-steam-game]').textContent.includes('2h 05min')"));
+        await evaluate("_navMenuHandleKey('Y');_navMenuHandleKey('ArrowDown');_navMenuHandleKey('Escape')");
+        assert.equal(await evaluate("document.querySelector('.nav-profile-sort-dialog').open"),false);
+        assert.equal(await evaluate("document.querySelector('[data-steam-game]').dataset.steamGame"),'1');
+        for (const [offset,expected] of [[1,'2'],[1,'3'],[-2,'1']]) {
+            await evaluate("_navMenuHandleKey('Y')");
+            assert.ok(await evaluate("(()=>{const a=document.querySelector('.nav-profile-sort-trigger').getBoundingClientRect(),d=document.querySelector('.nav-profile-sort-dialog[open]').getBoundingClientRect();return Math.abs(a.right-d.right)<2 && (Math.abs(d.top-a.bottom-8)<2 || Math.abs(a.top-d.bottom-8)<2)})()"),'Sort options are anchored to the controller hint');
+            assert.ok(await evaluate("!!document.querySelector('.nav-profile-sort-dialog[open]')"));
+            await evaluate(`for(let i=0;i<${Math.abs(offset)};i++)_navMenuHandleKey('${offset>0?'ArrowDown':'ArrowUp'}');_navMenuHandleKey('Enter')`);
+            assert.equal(await evaluate("document.querySelector('[data-steam-game]').dataset.steamGame"),expected);
+        }
+        assert.equal(await evaluate("previewSteamRequests.filter(item=>item.action==='steamProfileAchievements').length"),0);
+        await waitFor(()=>evaluate("!document.documentElement.dataset.profileTransition"),'Games transition finished');
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('.nav-achievement-game-list')).gridTemplateColumns.split(' ').length"),2);
+        await evaluate("document.querySelector('[data-game-row]').dispatchEvent(new Event('mouseenter'));_navMenuHandleKey('ArrowRight')");
+        assert.equal(await evaluate("document.activeElement.dataset.gameRow"),'1');
+        await evaluate("_navMenuHandleKey('ArrowDown')");
+        assert.equal(await evaluate("Number(document.activeElement.dataset.gameRow)"),await evaluate("1+getComputedStyle(document.querySelector('.nav-achievement-game-list')).gridTemplateColumns.split(' ').length"));
+        assert.ok(await evaluate("getComputedStyle(document.querySelector('.nav-profile-game-art img')).objectFit==='contain'"));
+        await evaluate(`Promise.all(Array.from(document.querySelectorAll('.nav-profile-game-art img')).slice(0,6).map(async (img,i)=>{
+            img.src=${JSON.stringify(games.map(([name,color])=>art(name,color)))}[i]; img.hidden=false; await img.decode();
+        }))`);
+        async function checkProfileGridHold(selector,direction) {
+            const grid = 'document.querySelector('+JSON.stringify(selector)+')';
+            const key = JSON.stringify(direction==='UP'?'ArrowUp':'ArrowDown');
+            await evaluate(`window.previewOriginalHold=window.isDoorpiNativeDirectionHeld;
+                window.isDoorpiNativeDirectionHeld=d=>d===${JSON.stringify(direction)};_navMenuHandleKey(${key})`);
+            try {
+                await waitFor(()=>evaluate(grid+".classList.contains('nav-rapid-navigation')"),'held '+direction+' in '+selector);
+                await evaluate(`for(let i=0;i<4;i++) _navMenuHandleKey(${key})`);
+                assert.ok(await evaluate(`(()=>{const list=${grid},r=document.activeElement.getBoundingClientRect(),v=list.getBoundingClientRect();
+                    return list.contains(document.activeElement) && r.top>=v.top-1 && r.bottom<=v.bottom+1;})()`));
+            } finally {
+                await evaluate("window.isDoorpiNativeDirectionHeld=window.previewOriginalHold");
+            }
+            await waitFor(()=>evaluate("!"+grid+".classList.contains('nav-rapid-navigation')"),'released '+direction+' in '+selector);
+        }
+        const gamesShot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+        fs.writeFileSync(path.join(output,'profile-games-standard.png'),Buffer.from(gamesShot.data,'base64'));
+        await checkProfileGridHold('.nav-achievement-game-list','DOWN');
+        await checkProfileGridHold('.nav-achievement-game-list','UP');
+        await evaluate("document.querySelector('[data-steam-game]').click()");
+        const request=await evaluate("previewSteamRequests.findLast(item=>item.action==='steamProfileAchievements')");
+        assert.equal(request.appId,1);assert.equal(request.offset,0);
+        await evaluate(`previewSteamSend({type:'steamProfileAchievements',profileId:'other',requestId:${JSON.stringify(request.requestId)},appId:1,items:[{Name:'Wrong profile'}]})`);
+        assert.equal(await evaluate("document.querySelectorAll('.nav-achievement-item').length"),0,'Other profile details are ignored');
+        await evaluate(`previewSteamSend({type:'steamProfileAchievements',profileId:'preview-profile',requestId:${JSON.stringify(request.requestId)},appId:1,total:45,items:Array.from({length:40},(_,i)=>({Name:i===39?'<img onerror=attack()>':['O último guardião','Cartógrafo','Além do horizonte','Primeira vitória'][i]||'Conquista '+i,Description:'Explore uma nova região do jogo.',Unlocked:i<8,UnlockTimeUnix:1700000000,GlobalUnlockPercent:i===0?.5:i===1?3:i===2?8:i===39?null:22}))})`);
+        assert.equal(await evaluate("document.activeElement.dataset.steamFocus"),'trophy-0','Opening a game focuses its first trophy');
+        await checkProfileGridHold('.nav-achievement-detail-list','DOWN');
+        await evaluate("document.querySelector('[data-steam-focus=trophy-0]').dispatchEvent(new Event('mouseenter'));document.querySelector('.nav-achievement-detail-list').scrollTop=0");
+        assert.equal(await evaluate("document.querySelector('[data-steam-focus=trophy-39] h4').textContent"),'<img onerror=attack()>');
+        assert.equal(await evaluate("document.querySelectorAll('.nav-achievement-item img').length"),0,'Steam titles are escaped');
+        assert.ok(await evaluate("document.querySelector('.nav-achievement-item small').textContent.includes('Ouro')"));
+        assert.ok(await evaluate(`(() => {
+            const art = document.querySelector('[data-steam-focus=trophy-8] .nav-trophy-art');
+            const cup = art.querySelector('svg');
+            const unlocked = document.querySelector('.is-unlocked.'+art.parentElement.className.split(' ').find(name=>name.startsWith('nav-medal-'))+' svg');
+            const image = document.createElement('img');
+            art.append(image);
+            const colored = Number(getComputedStyle(art).opacity) < Number(getComputedStyle(unlocked.parentElement).opacity) && getComputedStyle(art).filter === 'none' &&
+                getComputedStyle(cup).color === getComputedStyle(unlocked).color &&
+                getComputedStyle(cup).zIndex === '1' && getComputedStyle(image).filter !== 'none';
+            image.hidden = true;
+            const fallback = getComputedStyle(cup).position !== 'absolute';
+            image.remove();
+            return colored && fallback;
+        })()`),'Locked trophies retain their tier color with and without Steam artwork');
+        for(const [width,height] of [[1280,720],[2560,1440],[3840,2160]]){
+            await client.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await sleep(150);
+            assert.ok(await evaluate("(()=>{const a=document.querySelector('.nav-unified-name').getBoundingClientRect(),b=document.querySelector('.nav-unified-avatar').getBoundingClientRect(),c=document.querySelector('.nav-achievement-details').getBoundingClientRect();return a.left>=b.right&&a.right<=innerWidth&&c.bottom<=innerHeight&&c.width>0;})()"),'Medals and details fit viewport');
+            const shot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(output,`steam-achievements-${width}x${height}.png`),Buffer.from(shot.data,'base64'));
+        }
+        await evaluate("document.querySelector('[data-steam-focus=trophy-38]').dispatchEvent(new Event('mouseenter'));_navMenuHandleKey('ArrowRight')");
+        assert.equal(await evaluate("previewSteamRequests.findLast(item=>item.action==='steamProfileAchievements').offset"),40,'Detail pages remain bounded');
+        await evaluate(`(()=>{const req=previewSteamRequests.findLast(item=>item.action==='steamProfileAchievements');
+            const focused=document.activeElement;
+            previewSteamSend({type:'steamProfileAchievements',profileId:'preview-profile',requestId:req.requestId,appId:1,offset:40,total:45,items:Array.from({length:5},(_,i)=>({Name:'Conquista '+(40+i),Unlocked:false}))});
+            window.previewTrophyFocusRetained=focused===document.activeElement;})()`);
+        assert.equal(await evaluate("document.querySelectorAll('.nav-achievement-item').length"),45);
+        assert.ok(await evaluate("previewTrophyFocusRetained"),'Appending the next batch retains the focused card');
+        await evaluate("_navMenuHandleKey('Escape')");
+        assert.equal(await evaluate("document.activeElement.dataset.steamGame"),'1','Back restores the game');
+        await evaluate("DoorpiThemeSelection.select('default','profile')");
+        assert.deepEqual(await evaluate("DoorpiThemeSelection.getState().activeParts"),beforeProfile);
+        await evaluate('previewEnterProfile()');
+        await profileShot('profile-games');
+        await evaluate("document.querySelector('[data-profile-tab=overview]').click();document.getElementById('btnEditProfileHub').click()");
+        assert.equal(await evaluate("document.querySelector('[data-account-panel=connections]').hidden"),false);
+        assert.equal(await evaluate("document.querySelectorAll('[data-art-part]').length"),4);
+        assert.equal(await evaluate("document.querySelectorAll('[data-account-section]').length"),0);
+        assert.equal(await evaluate("document.activeElement.dataset.artPart"),'avatar','Editor enters on the first appearance action');
+        for (const [key,selector] of [['ArrowRight','[data-art-part=avatar][data-art-mode=game]'],['ArrowDown','[data-art-part=cover][data-art-mode=game]'],['ArrowDown','#navProfName'],['ArrowDown','#navProfPin'],['ArrowUp','#navProfName']]) {
+            await evaluate(`_navMenuHandleKey('${key}')`);
+            assert.ok(await evaluate(`document.activeElement.matches('${selector}')`),selector);
+        }
+        for (const cover of [true,false]) {
+            await evaluate(`openDoorpiProfilePhotoPicker({cover:${cover},hasApiKey:true}); document.querySelector('[data-source=steamgrid]').click()`);
+            const req=await evaluate("previewSteamRequests.at(-1)");
+            assert.equal(req.artworkType,cover?'hero':'avatar');
+            await evaluate(`window._profilePhotoPickerHandleMessage({type:'profilePhotoArtworkResults',suggestions:true,requestId:${JSON.stringify(req.requestId)},heroes:[{id:1,url:'hero'}],squares:[{id:2,url:'square'}]})`);
+            assert.deepEqual(await evaluate("Array.from(document.querySelectorAll('.profile-photo-choice'),b=>b.dataset.url)"),[cover?'hero':'square']);
+            await evaluate("document.querySelector('.profile-photo-picker-close').click()");
+        }
+        for (const part of ['cover','avatar']) {
+            await evaluate(`document.querySelector('[data-art-part="${part}"][data-art-mode=image]').click();
+                document.querySelector('[data-source=local]').click();
+                window._profilePhotoPickerHandleMessage({type:'profilePhotoSourceLoaded',requestId:previewSteamRequests.at(-1).requestId,dataUrl:${JSON.stringify(art('TEST','#426575'))}})`);
+            await waitFor(()=>evaluate("!!document.querySelector('#profilePhotoCropStage img')?.naturalWidth"),'Image loaded for crop');
+            await evaluate("document.getElementById('profilePhotoConfirm').click()");
+            const result = await evaluate("previewSteamRequests.at(-1)");
+            assert.equal(result.userId,'preview-profile');
+            assert.equal(result.action,part==='cover'?'setProfileArtwork':'saveUserProfile');
+            const bytes = result.value || result.photoBase64;
+            assert.deepEqual(await evaluate(`(async()=>{const image=new Image();image.src='data:image/jpeg;base64,'+${JSON.stringify(bytes)};await image.decode();return [image.width,image.height]})()`),part==='cover'?[1920,640]:[1024,1024]);
+            await evaluate(`document.querySelector('[data-art-part="${part}"][data-art-mode=game]').click()`);
+            assert.equal(await evaluate("previewSteamRequests.at(-1).part"),part==='cover'?'cover':'avatarGame');
+        }
+        assert.equal(await evaluate("document.getElementById('navSteamControls').hidden"),true,'Connection configuration is initially compact');
+        await evaluate("document.getElementById('navSteamManage').click()");
+        assert.equal(await evaluate("previewSteamRequests.at(-1).action"),'steamConnect','Primary configuration starts the automatic flow');
+        assert.equal(await evaluate("document.getElementById('navSteamControls').hidden"),true,'Primary flow does not expose manual credential fields');
+        await evaluate("document.getElementById('navProfApi').dispatchEvent(new Event('mouseenter'));_navMenuHandleKey('ArrowRight')");
+        assert.equal(await evaluate("document.activeElement.id"),'navApiPaste','Right reaches the adjacent paste action');
+        await evaluate("_navMenuHandleKey('ArrowDown')");
+        assert.notEqual(await evaluate("document.activeElement.id"),'navApiLink','Down leaves the API row');
+        await evaluate("document.getElementById('navSteamManual').click()");
+        assert.equal(await evaluate("document.getElementById('navSteamControls').hidden"),false);
+        assert.ok(await evaluate("!!document.querySelector('#navSteamManage svg')"),'Steam action carries the service icon');
+        await evaluate("document.getElementById('navSteamManual').dispatchEvent(new Event('mouseenter'));_navMenuHandleKey('ArrowDown')");
+        assert.equal(await evaluate("document.activeElement.id"),'navSteamManualKey','Expanded Steam fields are reachable by controller');
+        await client.send('Emulation.setDeviceMetricsOverride',{width:2560,height:1440,deviceScaleFactor:1,mobile:false});
+        await evaluate("document.getElementById('navSteamManual').click();document.getElementById('navContentBody').scrollTop=0");
+        await sleep(300);
+        const accountShot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(output,'steam-account-settings-1440p.png'),Buffer.from(accountShot.data,'base64'));
+        await evaluate("_navMenuHandleKey('Escape')");
+        assert.equal(await evaluate("document.activeElement.id"),'btnEditProfileHub','Back from direct editor returns to the profile');
+        report.push({screen:'steam-profile',checks:['persistent medal counts','full game index','on-demand bounded details','profile isolation','escaped provider content','medal percentages','three viewport sizes','compact provider configuration','Steam icon']});
+        console.log('Checking Steam export button in real DOM...');
+        await evaluate(`(()=>{
+            const original=chrome.webview.postMessage;window.previewExportMessages=[];
+            chrome.webview.postMessage=text=>{if(text.startsWith('doorpi_steam_connect:'))previewExportMessages.push(JSON.parse(text.slice('doorpi_steam_connect:'.length)));else original(text);};
+            const screen=document.createElement('div');screen.id='bodyContents';screen.style.cssText='position:fixed;inset:0;z-index:2147483640;background:#1b2838;color:white;padding:100px;overflow:auto;font:18px Arial';screen.innerHTML='<h2>Steam Web API</h2><div id="delayed-key-container"></div>';document.body.appendChild(screen);
+            window.g_steamID='76561198000000000';
+            const location={origin:'https://steamcommunity.com',pathname:'/dev/apikey'};
+            const nonce='export-fixture',styles=${JSON.stringify(fs.readFileSync(path.join(frontend,'web-scripts/steam-connect.css'),'utf8'))};
+            const copy=Object.fromEntries(['export','exporting','identifying','saving','unavailable','captureError'].map(key=>[key,t('steam.'+key)]));
+            ${fs.readFileSync(path.join(frontend,'web-scripts/steam-connect.js'),'utf8')}
+        })()`);
+        assert.equal(await evaluate("!!document.getElementById('doorpi-steam-export')"),false,'No export button before a real key is detected');
+        await evaluate("document.getElementById('delayed-key-container').innerHTML='<p>Chave: <span>0123456789abcdef0123456789abcdef</span></p>'");
+        await waitFor(()=>evaluate("!!document.getElementById('doorpi-steam-export')"),'button appears for late nested key paragraph');
+        assert.equal(await evaluate("document.getElementById('doorpi-steam-export').textContent"),'Exportar chave');
+        for(const [width,height] of [[1280,720],[2560,1440]]){
+            await client.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await sleep(150);
+            assert.ok(await evaluate("(()=>{const r=document.getElementById('doorpi-steam-export').getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;})()"),'Export button fits after resizing');
+            const shot=await client.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(output,`steam-export-${width}x${height}.png`),Buffer.from(shot.data,'base64'));
+        }
+        await evaluate("document.getElementById('doorpi-steam-export').click()");
+        await waitFor(()=>evaluate("previewExportMessages.length===1"),'explicit export transmits connection');
+        assert.equal(await evaluate("previewExportMessages[0].account"),'76561198000000000');
+        assert.equal(await evaluate("document.getElementById('doorpi-steam-export').disabled"),true);
+        await evaluate("previewSteamSend({type:'steamConnectResult',nonce:'export-fixture',message:t('steam.changed')})");
+        assert.equal(await evaluate("document.getElementById('doorpi-steam-export').disabled"),false,'Native failure permits retry');
+        assert.equal(await evaluate("document.getElementById('doorpi-steam-export-status').hidden"),false,'Failure feedback is visible in the Steam page');
+        report.push({screen:'steam-export-button',checks:['real nested DOM','late key detection','PT localized label','two viewport sizes','explicit button capture','native error feedback and retry']});
         fs.writeFileSync(path.join(output,'validation.json'),JSON.stringify({renderer:'isolated headless Chromium',defaultComparedWithBaseline:fs.existsSync(baseline),limitations:['Fixture with actual CSS/runtime; not a complete Doorpi/controller/WebView2 session.','Animations disabled only in the fixture for deterministic comparison.','Trailer geometry/identity checked without external streaming playback.'],cases:report},null,2));
         console.log(`PASS: ${report.length} cases, real settings selection, portrait cards, CSS validation and component/focus geometry${fs.existsSync(baseline)?'; exact computed default-style comparison at four resolutions':''}. Output: ${path.relative(root,output)}`);
         await client.send('Browser.close');

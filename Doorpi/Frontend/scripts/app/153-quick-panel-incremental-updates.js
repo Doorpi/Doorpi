@@ -128,7 +128,7 @@
             });
             const usedPercent = Math.round(Math.max(0, Math.min(100, Number(drive.usedBytes || 0) / Math.max(1, Number(drive.totalBytes || 0)) * 100)));
             const usedPercentLabel = contentEl.querySelector('[data-storage-used-percent]');
-            if (usedPercentLabel) usedPercentLabel.textContent = `${usedPercent}% do disco em uso`;
+            if (usedPercentLabel) usedPercentLabel.textContent = `${usedPercent}% ${t('quickDiskUsed')}`;
             const bar = contentEl.querySelector('.dq-storage-bar');
             if (bar) bar.innerHTML = storageSegmentsMarkup(drive);
             const legend = contentEl.querySelector('.dq-storage-legend');
@@ -218,12 +218,12 @@
             return true;
         }
 
-        function patchStorageProgramsList() {
+        function patchStorageProgramsList(resetScroll = false) {
             const overlay = document.getElementById('doorpiQuickPanel');
             const contentEl = overlay?.querySelector('.dq-storage-programs-page');
             const list = contentEl?.querySelector('.dq-program-list');
             if (!contentEl || !list || section !== 'storage' || storageView !== 'programs') return false;
-            const programs = storageProgramsForSelectedDrive();
+            const programs = filterStorageProgramsByName(storageProgramsForSelectedDrive(), storageProgramQuery);
             if (selectedStorageProgramId && !programs.some(program => program.id === selectedStorageProgramId))
                 selectedStorageProgramId = '';
             const bytes = programs.reduce((sum, program) => sum + Math.max(0, Number(program.sizeBytes || 0)), 0);
@@ -231,11 +231,16 @@
             const total = contentEl.querySelector('[data-storage-program-total]');
             if (count) count.textContent = `${programs.length} ${programs.length === 1 ? 'programa' : 'programas'}`;
             if (total) total.textContent = storageSizeText(bytes, 'Tamanho não informado');
-            const focusedId = document.activeElement?.closest?.('[data-storage-program]')?.dataset.storageProgram || '';
-            const scrollTop = list.scrollTop;
-            list.innerHTML = storageProgramRowsMarkup(programs) || `<div class="dq-storage-message">${esc(storagePrograms?.error || (storagePrograms ? 'Nenhum programa identificado nesta unidade.' : 'Carregando programas do Windows…'))}</div>`;
+            const focusedId = document.activeElement?.closest?.('.dq-program-row')?.querySelector('[data-storage-program]')?.dataset.storageProgram || '';
+            const scrollTop = resetScroll ? 0 : list.scrollTop;
+            list.innerHTML = storageProgramListMarkup(programs);
             list.scrollTop = scrollTop;
-            if (focusedId) requestAnimationFrame(() => list.querySelector(`[data-storage-program="${CSS.escape(focusedId)}"]`)?.focus());
+            if (focusedId) requestAnimationFrame(() => {
+                const next = list.querySelector(`[data-storage-program="${CSS.escape(focusedId)}"]`)
+                    || list.querySelector('[data-storage-program]')
+                    || contentEl.querySelector('[data-storage-program-search]');
+                next?.focus();
+            });
             return true;
         }
 

@@ -1454,6 +1454,8 @@ document.addEventListener('keydown', e => {
     }
 
     if (window.isGlobalLoading) { e.preventDefault(); return; }
+    if (e.target?.matches?.('[data-storage-program-search]') &&
+        (e.isComposing || !['ArrowUp', 'ArrowDown', 'Escape'].includes(e.key))) return;
     if (window.isDoorpiOverlayOpen?.() && !isVkbOpenForNavigation()) {
         const dirMapOverlay = { ArrowRight: 'RIGHT', ArrowLeft: 'LEFT', ArrowDown: 'DOWN', ArrowUp: 'UP' };
         if (dirMapOverlay[e.key]) {
@@ -1713,6 +1715,11 @@ function isDoorpiGameInputSuppressed() {
 }
 
 window.requestDoorpiBackAction = function () {
+    if (window._doorpiMediaPermanentDialogBack?.()) {
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (window.isEmulatorDiscSelectorOpen?.()) {
         window.closeEmulatorDiscSelector?.(true);
         window.DoorpiUiSound?.play('back');
@@ -2205,6 +2212,15 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
         const { GAMEPAD } = NAV, buttons = gamepad.buttons;
         const thr = GAMEPAD.AXIS_THRESHOLD, now = performance.now();
 
+        if (window._doorpiMediaPermanentDialogIsOpen?.()) {
+            _currentDirection = null;
+            _moveState = 0;
+            if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
+            if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL))
+                window.requestDoorpiBackAction?.();
+            return;
+        }
+
         if (window.isDoorpiFileBrowserOpen?.() && !isVkbOpenForNavigation()) {
             _currentDirection = null;
             _moveState = 0;
@@ -2441,6 +2457,12 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                     return;
                 }
                 else {
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_TRIANGLE], GAMEPAD.BTN_TRIANGLE)) window._navMenuHandleKey?.('Y');
+                    if (document.querySelector('.nav-profile-sort-dialog[open]')) {
+                        if (primaryJustPressed(buttons, GAMEPAD)) window._navMenuHandleKey?.('Enter');
+                        if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) window._navMenuHandleKey?.('Escape');
+                        return;
+                    }
                     if (primaryJustPressed(buttons, GAMEPAD)) window._navMenuHandleKey?.('Enter');
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
                         if (window.requestDoorpiBackAction?.()) return;
@@ -2476,8 +2498,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             }
             if (primaryJustPressed(buttons, GAMEPAD)) document.activeElement?.click();
             if (buttonJustPressed(buttons[GAMEPAD.BTN_CANCEL], GAMEPAD.BTN_CANCEL)) {
-                if (window.requestDoorpiBackAction?.()) return;
                 window._vkbCancel?.();
+                return;
             }
             if (buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START)) window._vkbConfirm?.();
 

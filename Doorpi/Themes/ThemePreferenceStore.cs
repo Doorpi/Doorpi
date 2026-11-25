@@ -60,11 +60,17 @@ internal sealed class ThemePreferenceStore(string dataFolder)
     {
         var parts = new Dictionary<string, string>();
         foreach (string part in ThemePackage.Parts) if (part != "login") parts[part] = "default";
+        if (settings.ContainsKey("profileThemeId"))
+        {
+            if (settings["profileThemeId"] is not JsonValue value || !value.TryGetValue<string>(out var id) || string.IsNullOrWhiteSpace(id) || id.Length > 64)
+                throw new InvalidDataException("Invalid profile appearance.");
+            parts["profile"] = id is "vitrine" or "retrato" ? "default" : id;
+        }
         if (!settings.ContainsKey("themeParts")) { parts["home"] = legacy; parts["side-panels"] = legacy; return parts; }
         if (settings["themeParts"] is not JsonObject source) throw new InvalidDataException("Invalid theme components.");
         foreach (var item in source)
         {
-            if (!parts.ContainsKey(item.Key) || item.Value is not JsonValue value || !value.TryGetValue<string>(out string? id) || string.IsNullOrWhiteSpace(id) || id.Length > 64)
+            if (item.Key == "profile" || !parts.ContainsKey(item.Key) || item.Value is not JsonValue value || !value.TryGetValue<string>(out string? id) || string.IsNullOrWhiteSpace(id) || id.Length > 64)
                 throw new InvalidDataException("Invalid theme component preference.");
             parts[item.Key] = id;
         }
@@ -84,12 +90,14 @@ internal sealed class ThemePreferenceStore(string dataFolder)
         {
             var parts = ReadParts(settings, settings["themeId"]?.GetValue<string>() ?? "default");
             if (part == "system")
-                foreach (string key in parts.Keys.ToArray()) parts[key] = themeId;
+                foreach (string key in parts.Keys.Where(key => key != "profile").ToArray()) parts[key] = themeId;
             else
             {
                 if (!parts.ContainsKey(part)) throw new InvalidDataException("Invalid profile theme component.");
                 parts[part] = themeId;
             }
+            settings["profileThemeId"] = parts["profile"];
+            parts.Remove("profile");
             settings["themeParts"] = JsonSerializer.SerializeToNode(parts);
             settings["themeId"] = parts["home"];
         }
@@ -142,6 +150,8 @@ internal sealed class ThemePreferenceStore(string dataFolder)
         foreach (string part in parts.Keys.ToArray()) parts[part] = "default";
         settings["themePreferenceVersion"] = 1;
         settings["themeId"] = "default";
+        settings.Remove("profileThemeId");
+        parts.Remove("profile");
         settings["themeParts"] = JsonSerializer.SerializeToNode(parts);
         device["version"] = 1;
         device["login"] = "default";

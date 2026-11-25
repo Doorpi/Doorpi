@@ -3,15 +3,38 @@
         window.chrome.webview.addEventListener('message', e => {
             try {
                 const data = JSON.parse(e.data);
+                if (data.type === 'steamProfileStatus') {
+                    _acceptSteamPresentation(data);
+                    window._refreshSteamAccountUi?.(data);
+                }
+                if (data.type === 'steamGameHeader') acceptSteamHeader(data);
+                if (data.type === 'steamProfileAchievements') _acceptSteamPresentation(data);
 
                 if (data.type === 'gameHistoryDeleted' && data.removed) {
                     const deletedName = String(data.gameName || '');
-                    _menuData.history = (_menuData.history || []).filter(entry =>
-                        String(entry?.Name || '').localeCompare(
+                    const deletedId = String(data.gameId || '');
+                    _menuData.history = (_menuData.history || []).filter(entry => deletedId
+                        ? String(entry?.Id || '') !== deletedId
+                        : String(entry?.Name || '').localeCompare(
                             deletedName,
                             undefined,
                             { sensitivity: 'base' }) !== 0);
 
+                    if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile') {
+                        const previousIndex = _contentIdx;
+                        _renderContent('profile');
+                        _contentIdx = Math.max(0, Math.min(previousIndex, _contentItems.length - 1));
+                        _setTopbarFocus(false);
+                        _updateContentFocus();
+                    }
+                }
+
+                if (data.type === 'mediaHistoryDeleted' && data.removed) {
+                    const same = (left, right) => String(left || '').trim().toLocaleLowerCase() === String(right || '').trim().toLocaleLowerCase();
+                    _menuData.mediaHistory = (_menuData.mediaHistory || []).filter(item =>
+                        !(same(item.AppId, data.appId) && (data.seriesTitle && data.category === 'film-series'
+                            ? same(item.SeriesTitle, data.seriesTitle) || same(item.ContentTitle, data.contentTitle)
+                            : same(item.ContentTitle, data.contentTitle) && same(item.CreatorName, data.creatorName))));
                     if (window.isNavMenuOpen && CATS[_catIdx]?.id === 'profile') {
                         const previousIndex = _contentIdx;
                         _renderContent('profile');
