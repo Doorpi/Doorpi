@@ -249,7 +249,9 @@
     function _userSwitchAvatarHtml(user = {}) {
         const photo = user.PhotoBase64 || user.photoBase64 || '';
         const name = user.Name || user.name || '';
-        if (photo) return `<div class="logout-avatar"><img src="${escapeHtml(_normalizeUserPhotoSrc(photo))}" alt=""></div>`;
+        const image = window._doorpiProfilePhotoMarkup?.(user, '', '') ||
+            (photo ? `<img src="${escapeHtml(_normalizeUserPhotoSrc(photo))}" alt="">` : '');
+        if (image || user.PhotoSourceUrl) return `<div class="logout-avatar">${image}</div>`;
         const initial = (name || 'D').trim().charAt(0).toUpperCase() || 'D';
         return `<div class="logout-avatar logout-avatar-fallback">${escapeHtml(initial)}</div>`;
     }
@@ -264,6 +266,49 @@
         return `data:image/png;base64,${value}`;
     }
     window._doorpiUserPhotoSrc = _normalizeUserPhotoSrc;
+
+    function _profilePhotoMarkup(user = {}, className = '', alt = '') {
+        const photo = user.PhotoBase64 || user.photoBase64 || '';
+        const localSrc = /^(https?:|blob:)/i.test(String(photo)) ? '' : _normalizeUserPhotoSrc(photo);
+        const remoteCandidate = user.AvatarFromGame
+            ? (/^https:\/\//i.test(String(photo)) ? photo : '')
+            : (user.PhotoSourceUrl || (/^https:\/\//i.test(String(photo)) ? photo : ''));
+        let remoteSrc = '';
+        try {
+            const parsed = new URL(String(remoteCandidate || ''));
+            if (parsed.protocol === 'https:') remoteSrc = parsed.href;
+        } catch { }
+
+        const src = remoteSrc && navigator.onLine ? remoteSrc : (localSrc || remoteSrc);
+        if (!src) return '';
+        const attr = value => String(value || '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[char]));
+        return `<img${className ? ` class="${attr(className)}"` : ''} src="${attr(src)}" alt="${attr(alt)}" data-doorpi-profile-photo="true" data-doorpi-photo-url="${attr(remoteSrc)}" data-doorpi-photo-local="${attr(localSrc)}">`;
+    }
+    window._doorpiProfilePhotoMarkup = _profilePhotoMarkup;
+
+    document.addEventListener('error', event => {
+        const image = event.target;
+        if (!(image instanceof HTMLImageElement) || image.dataset.doorpiProfilePhoto !== 'true') return;
+        const localSrc = image.dataset.doorpiPhotoLocal || '';
+        if (localSrc && image.src !== localSrc) {
+            image.src = localSrc;
+            return;
+        }
+        image.hidden = true;
+    }, true);
+
+    window.addEventListener('online', () => {
+        document.querySelectorAll('img[data-doorpi-profile-photo="true"][data-doorpi-photo-url]')
+            .forEach(image => {
+                const remoteSrc = image.dataset.doorpiPhotoUrl || '';
+                if (remoteSrc && image.src !== remoteSrc) {
+                    image.hidden = false;
+                    image.src = remoteSrc;
+                }
+            });
+    });
 
     function _ensureUserSwitchLogoutOverlay(mode = 'switch', user = {}) {
         const copy = _getUserSwitchOverlayCopy(mode);

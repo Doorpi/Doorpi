@@ -59,7 +59,9 @@
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
         let applicationHistoryEnabled = _menuData.user.ApplicationHistoryEnabled !== false && _menuData.user.applicationHistoryEnabled !== false;
         const user = _menuData.user;
-        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64 || '';
+        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64 || user.PhotoSourceUrl || '';
+        const photoMarkup = window._doorpiProfilePhotoMarkup?.(user) ||
+            (photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉');
 
         const maskApi = () => apiConfigured
             ? _t('navApiConfigured', 'Chave configurada')
@@ -127,7 +129,7 @@
                     <h3>${_t('profileAppearance')}</h3>
                     <div class="nav-editor-preview"><img class="nav-editor-cover" alt="" hidden>
                     <div class="nav-profile-photo" id="navProfilePhoto">
-                        ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
+                        ${photoMarkup}
                     </div>
 
                     <strong class="nav-account-identity-name">${_esc(pendingName || _t('navSetAccount', 'Perfil'))}</strong>

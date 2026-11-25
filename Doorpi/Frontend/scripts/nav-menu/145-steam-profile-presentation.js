@@ -77,8 +77,9 @@
     function _profileIdentityMarkup() {
         const user = _menuData.user || {};
         const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64;
-        const src = photo && (window._doorpiUserPhotoSrc?.(photo) || 'data:image/png;base64,'+photo);
-        return `<div class="nav-unified-avatar">${src?'<img alt="" src="'+_esc(src)+'">':'◎'}</div>
+        const image = window._doorpiProfilePhotoMarkup?.(user) ||
+            (photo ? '<img alt="" src="'+_esc(window._doorpiUserPhotoSrc?.(photo) || 'data:image/png;base64,'+photo)+'">' : '');
+        return `<div class="nav-unified-avatar">${image || '◎'}</div>
             <div class="nav-unified-name"><h2>${_esc(user.Name || 'Doorpi')}</h2></div>
             <dl class="nav-profile-record"></dl>
             <section class="nav-profile-favorites"><h3>${_esc(_t('navMostPlayedGames'))}</h3><ol></ol></section>`;

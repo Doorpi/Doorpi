@@ -722,6 +722,9 @@ namespace Doorpi
             Directory.CreateDirectory(iconCacheFolder);
 
             using (BootStartupTrace.Measure("user-storage")) InitializeUserStorage();
+            // Começa a aquecer os caches de foto enquanto o WebView/intro termina
+            // o boot, para o seletor de contas já receber a versão mais recente.
+            RefreshCloudProfilePhotosForPicker(LoadUserProfiles());
 
             DoorpiBootDiagnostics.Log("mainwindow-constructor-ready", $"bootMode={GetBootMode()} locked={DoorpiBootDiagnostics.IsWorkstationLocked()}");
             StartDoorpiRuntimeWhenSessionUnlocked();
@@ -2049,7 +2052,8 @@ namespace Doorpi
 
         private void SendUsersToUI(bool requireSelection)
         {
-            var users = LoadUserProfiles().OrderByDescending(u => u.LastUsed).Select(UserProfilePickerPayload).ToList();
+            var profileSnapshot = LoadUserProfiles().OrderByDescending(u => u.LastUsed).ToList();
+            var users = profileSnapshot.Select(UserProfilePickerPayload).ToList();
             bool sessionActive = _interactiveUserSessionStarted;
             bool effectiveRequireSelection = requireSelection || !sessionActive;
             string activeUserId = sessionActive ? currentUserId : "";
@@ -2062,6 +2066,7 @@ namespace Doorpi
                     sessionActive,
                     requireSelection = effectiveRequireSelection
                 })));
+            RefreshCloudProfilePhotosForPicker(profileSnapshot);
         }
 
         private void SendUsersDataToUI()
@@ -2081,6 +2086,8 @@ namespace Doorpi
             user.Id,
             user.Name,
             PhotoBase64 = user.AvatarFromGame && user.GameAvatarUrl.Length > 0 ? user.GameAvatarUrl : user.PhotoBase64,
+            user.AvatarFromGame,
+            user.GameAvatarUrl,
             user.PhotoSource,
             user.PhotoSourceUrl,
             user.PhotoSteamGridAssetId,

@@ -23,6 +23,8 @@ public partial class MainWindow
         new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _profileArtworkWorkers =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _profilePhotoRefreshWorkers =
+        new(StringComparer.OrdinalIgnoreCase);
     private GoogleDriveSyncService? _profileSyncService;
     private string? _profileSyncDeviceId;
     private int _profileSyncApplyingRemote;
@@ -467,6 +469,114 @@ public partial class MainWindow
             message = status.Message
         });
     }
+
+    private void RefreshCloudProfilePhotosForPicker(IEnumerable<UserProfile> profiles)
+    {
+        if (LocalTestMode.Enabled) return;
+        foreach (string profileId in profiles
+                     .Select(profile => NormalizeProfileSyncId(profile.Id))
+                     .Where(id => !string.IsNullOrWhiteSpace(id))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!_profilePhotoRefreshWorkers.TryAdd(profileId, 0)) continue;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await WithProfileSyncOperationAsync(
+                        profileId,
+                        RefreshCloudProfilePhotoCacheAsync).ConfigureAwait(false);
+                }
+                catch (Exception ex) { Debug.WriteLine($"[ProfilePhoto] Nuvem indisponível para {profileId}: {ex.Message}"); }
+                finally { _profilePhotoRefreshWorkers.TryRemove(profileId, out _); }
+            });
+        }
+    }
+
+    private async Task RefreshCloudProfilePhotoCacheAsync(string profileId)
+    {
+        string capturedProfileId = NormalizeProfileSyncId(profileId);
+        if (string.IsNullOrWhiteSpace(capturedProfileId)) return;
+        UserProfile? capturedProfile = FindProfileForSync(capturedProfileId);
+        if (capturedProfile == null) return;
+
+        // O arquivo do Drive está em appDataFolder e não tem URL pública estável.
+        // Baixamos por OAuth e mantemos o cache local como fallback offline.
+        RemoteProfilePhotoPayload? remote = await ProfileSyncService
+            .DownloadProfilePhotoAsync(
+                capturedProfileId,
+                onMetadataReady: photo => ApplyCloudProfilePhotoUpdate(capturedProfileId, capturedProfile, photo, null))
+            .ConfigureAwait(false);
+        if (remote?.Photo == null || remote.Content is not { Length: > 0 } photoBytes) return;
+
+        string actualHash = ProfileSyncSerializer.ComputeBinaryHash(photoBytes);
+        if (!string.IsNullOrWhiteSpace(remote.Photo.ContentHash) &&
+            !string.Equals(actualHash, remote.Photo.ContentHash, StringComparison.OrdinalIgnoreCase)) return;
+
+        ApplyCloudProfilePhotoUpdate(capturedProfileId, capturedProfile, remote.Photo, photoBytes);
+    }
+
+    private void ApplyCloudProfilePhotoUpdate(
+        string profileId,
+        UserProfile capturedProfile,
+        CloudProfilePhotoV1 remotePhoto,
+        byte[]? photoBytes)
+    {
+        UserProfile? latest = FindProfileForSync(profileId);
+        if (latest == null || !SameProfilePhotoContent(capturedProfile, latest)) return;
+        string? encodedPhoto = photoBytes is { Length: > 0 } ? Convert.ToBase64String(photoBytes) : null;
+        bool unchanged = (encodedPhoto == null || string.Equals(latest.PhotoBase64, encodedPhoto, StringComparison.Ordinal)) &&
+                         string.Equals(latest.PhotoSource, remotePhoto.Source ?? "", StringComparison.Ordinal) &&
+                         string.Equals(latest.PhotoSourceUrl, remotePhoto.SourceUrl ?? "", StringComparison.Ordinal) &&
+                         latest.PhotoSteamGridAssetId == remotePhoto.SteamGridAssetId &&
+                         latest.PhotoCropX.Equals(remotePhoto.CropX) &&
+                         latest.PhotoCropY.Equals(remotePhoto.CropY) &&
+                         latest.PhotoZoom.Equals(remotePhoto.Zoom > 0 ? remotePhoto.Zoom : 1);
+        if (unchanged) return;
+
+        string userPath = Path.Combine(dataFolder, "users", profileId, "user.json");
+        var paths = new[] { profilesFile, userPath };
+        var currentSnapshot = StateStorage.ReadSnapshot(paths);
+        List<UserProfile> users = LoadUserProfiles();
+        int index = users.FindIndex(user => string.Equals(user.Id, profileId, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return;
+        UserProfile current = users[index];
+        if (!SameProfilePhotoContent(capturedProfile, current)) return;
+
+        if (encodedPhoto != null) current.PhotoBase64 = encodedPhoto;
+        current.PhotoSource = remotePhoto.Source ?? "";
+        current.PhotoSourceUrl = remotePhoto.SourceUrl ?? "";
+        current.PhotoSteamGridAssetId = remotePhoto.SteamGridAssetId;
+        current.PhotoCropX = remotePhoto.CropX;
+        current.PhotoCropY = remotePhoto.CropY;
+        current.PhotoZoom = remotePhoto.Zoom > 0 ? remotePhoto.Zoom : 1;
+
+        var writes = new Dictionary<string, string?>
+        {
+            [profilesFile] = JsonSerializer.Serialize(users.Select(CloneUserProfileForStorage).ToList(), IndentedJsonOptions),
+            [userPath] = JsonSerializer.Serialize(CloneUserProfileForStorage(current), IndentedJsonOptions)
+        };
+        StateStorage.WriteBatchIfRevision(writes, currentSnapshot.Revisions);
+
+        var message = new Dictionary<string, object?>
+        {
+            ["type"] = "profilePhotoCloudUpdated",
+            ["profileId"] = profileId,
+            ["photoSource"] = current.PhotoSource,
+            ["photoSourceUrl"] = current.PhotoSourceUrl,
+            ["photoSteamGridAssetId"] = current.PhotoSteamGridAssetId,
+            ["photoCropX"] = current.PhotoCropX,
+            ["photoCropY"] = current.PhotoCropY,
+            ["photoZoom"] = current.PhotoZoom
+        };
+        if (encodedPhoto != null) message["photoBase64"] = current.PhotoBase64;
+        PostProfileSyncMessage(message);
+    }
+
+    private static bool SameProfilePhotoContent(UserProfile left, UserProfile right)
+        => string.Equals(left.PhotoBase64, right.PhotoBase64, StringComparison.Ordinal) &&
+           left.AvatarFromGame == right.AvatarFromGame &&
+           string.Equals(left.GameAvatarUrl, right.GameAvatarUrl, StringComparison.Ordinal);
 
     private async Task WithProfileSyncOperationAsync(string profileId, Func<string, Task> operation,
         CancellationToken cancellationToken = default)

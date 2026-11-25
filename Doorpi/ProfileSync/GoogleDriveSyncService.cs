@@ -284,6 +284,60 @@ public sealed class GoogleDriveSyncService
         }
     }
 
+    public async Task<RemoteProfilePhotoPayload?> DownloadProfilePhotoAsync(
+        string profileId,
+        Action<CloudProfilePhotoV1>? onMetadataReady = null,
+        CancellationToken cancellationToken = default)
+    {
+        SemaphoreSlim gate = Gate(profileId);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using GoogleOAuthSession? session = await RequireSessionAsync(profileId, cancellationToken)
+                .ConfigureAwait(false);
+            if (session == null) return null;
+
+            using var drive = new GoogleDriveAppDataClient(session, _applicationName);
+            RemoteFileContent? profileFile = await drive.DownloadFileAsync(RemoteProfileFileName, cancellationToken)
+                .ConfigureAwait(false);
+            if (profileFile == null) return null;
+
+            CloudProfileV1? profile = ProfileSyncSerializer.DeserializeProfile(
+                Encoding.UTF8.GetString(profileFile.Content));
+            if (profile == null ||
+                profile.SchemaVersion < 1 ||
+                profile.SchemaVersion > ProfileSyncSnapshotFactory.CurrentSchemaVersion)
+                throw new InvalidDataException("O perfil remoto usa um formato inválido ou incompatível.");
+
+            CloudProfilePhotoV1 photo = profile.ProfilePhoto ?? new CloudProfilePhotoV1();
+            if (photo.HasPhoto) onMetadataReady?.Invoke(photo);
+            if (!photo.HasPhoto)
+                return new RemoteProfilePhotoPayload(photo, null);
+
+            RemoteFileContent? photoFile = await drive.DownloadFileAsync(RemoteProfilePhotoFileName, cancellationToken)
+                .ConfigureAwait(false);
+            if (photoFile == null)
+                throw new InvalidDataException("A foto declarada no perfil remoto não foi encontrada.");
+            if (photoFile.Content.Length is 0 or > 8_000_000)
+                throw new InvalidDataException("A foto remota excede o limite permitido ou está vazia.");
+
+            string actualHash = ProfileSyncSerializer.ComputeBinaryHash(photoFile.Content);
+            if (!string.IsNullOrWhiteSpace(photo.ContentHash) &&
+                !string.Equals(actualHash, photo.ContentHash, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("A foto remota não corresponde ao hash informado pelo perfil.");
+
+            return new RemoteProfilePhotoPayload(photo, photoFile.Content);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public async Task<byte[]?> DownloadProfileCoverAsync(
         string profileId,
         string expectedContentHash,

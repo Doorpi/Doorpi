@@ -5348,8 +5348,9 @@ window.isNavMenuOpen = false;
     function _profileIdentityMarkup() {
         const user = _menuData.user || {};
         const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64;
-        const src = photo && (window._doorpiUserPhotoSrc?.(photo) || 'data:image/png;base64,'+photo);
-        return `<div class="nav-unified-avatar">${src?'<img alt="" src="'+_esc(src)+'">':'◎'}</div>
+        const image = window._doorpiProfilePhotoMarkup?.(user) ||
+            (photo ? '<img alt="" src="'+_esc(window._doorpiUserPhotoSrc?.(photo) || 'data:image/png;base64,'+photo)+'">' : '');
+        return `<div class="nav-unified-avatar">${image || '◎'}</div>
             <div class="nav-unified-name"><h2>${_esc(user.Name || 'Doorpi')}</h2></div>
             <dl class="nav-profile-record"></dl>
             <section class="nav-profile-favorites"><h3>${_esc(_t('navMostPlayedGames'))}</h3><ol></ol></section>`;
@@ -6775,7 +6776,9 @@ window.isNavMenuOpen = false;
     function _renderLegacyProfile(body) {
         const prof = _menuData.user || {};
         const name = prof.Name || '—';
-        const photo = prof.PhotoBase64 || '';
+        const photo = prof.PhotoBase64 || prof.PhotoSourceUrl || '';
+        const photoMarkup = window._doorpiProfilePhotoMarkup?.(prof) ||
+            (photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉');
         const games = _menuData.games || [];
         const history = (_menuData.history || [])
             .filter(item => item?.Name && (Number(item.TotalPlaytimeMinutes) || 0) >= 1);
@@ -6851,7 +6854,7 @@ window.isNavMenuOpen = false;
                 </button>
                 <div class="nav-profile-header">
                 <div class="nav-profile-avatar-large">
-                    ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
+                    ${photoMarkup}
                 </div>
                 <div class="nav-profile-info">
                     <h2 class="nav-profile-name">${name}</h2>
@@ -8387,7 +8390,9 @@ window.isNavMenuOpen = false;
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
         let applicationHistoryEnabled = _menuData.user.ApplicationHistoryEnabled !== false && _menuData.user.applicationHistoryEnabled !== false;
         const user = _menuData.user;
-        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64 || '';
+        const photo = user.AvatarFromGame && user.GameAvatarUrl || user.PhotoBase64 || user.PhotoSourceUrl || '';
+        const photoMarkup = window._doorpiProfilePhotoMarkup?.(user) ||
+            (photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉');
 
         const maskApi = () => apiConfigured
             ? _t('navApiConfigured', 'Chave configurada')
@@ -8455,7 +8460,7 @@ window.isNavMenuOpen = false;
                     <h3>${_t('profileAppearance')}</h3>
                     <div class="nav-editor-preview"><img class="nav-editor-cover" alt="" hidden>
                     <div class="nav-profile-photo" id="navProfilePhoto">
-                        ${photo ? `<img src="${window._doorpiUserPhotoSrc?.(photo) || `data:image/png;base64,${photo}`}" />` : '◉'}
+                        ${photoMarkup}
                     </div>
 
                     <strong class="nav-account-identity-name">${_esc(pendingName || _t('navSetAccount', 'Perfil'))}</strong>
