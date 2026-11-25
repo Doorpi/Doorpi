@@ -623,8 +623,9 @@ function _renderSetupUsers() {
     // Adicionar Novo Usuário
     bar.querySelector('#btnSetupAddUser').addEventListener('click', () => {
         const newUser = {
-            id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+            id: Date.now(), name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
             photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+            coverSource: '', coverSourceUrl: '', coverSteamGridAssetId: 0, coverUsesMostPlayedGame: null,
             photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0
         };
         _setupUsers.push(newUser);
@@ -940,8 +941,9 @@ function _setupReturnToAuth() {
     _setupCloudProfileId = '';
     if (wasCloudProfile) {
         _setupUsers = [{
-            id: '', name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+            id: '', name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
             photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+            coverSource: '', coverSourceUrl: '', coverSteamGridAssetId: 0, coverUsesMostPlayedGame: null,
             photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0,
             syncConnected: false, importCloud: false
         }];
@@ -976,6 +978,7 @@ function _setupShowRegistration(preferredSectionId = '') {
 function _setupApplyRemoteProfile(data) {
     const profile = data.profile || {};
     const photo = profile.profilePhoto || profile.ProfilePhoto || {};
+    const cover = profile.cover || profile.Cover || {};
     _setupCloudProfileId = data.profileId || _setupCloudProfileId;
     if (!_currUser) return;
     _currUser.id = _setupCloudProfileId;
@@ -983,6 +986,11 @@ function _setupApplyRemoteProfile(data) {
     _currUser.pin = profile.pinCode || profile.PinCode || '';
     _currUser.apiKey = profile.steamGridApiKey || profile.SteamGridApiKey || '';
     _currUser.photoBase64 = data.photoBase64 || '';
+    _currUser.coverBase64 = data.coverBase64 || '';
+    _currUser.coverSource = cover.source || cover.Source || '';
+    _currUser.coverSourceUrl = cover.sourceUrl || cover.SourceUrl || '';
+    _currUser.coverSteamGridAssetId = Number(cover.steamGridAssetId || cover.SteamGridAssetId || 0);
+    _currUser.coverUsesMostPlayedGame = cover.useMostPlayedGame ?? cover.UseMostPlayedGame ?? !_currUser.coverBase64;
     _currUser.photoSource = photo.source || photo.Source || '';
     _currUser.photoSourceUrl = photo.sourceUrl || photo.SourceUrl || '';
     _currUser.photoSteamGridAssetId = Number(photo.steamGridAssetId || photo.SteamGridAssetId || 0);
@@ -1044,8 +1052,9 @@ function openSetup(isAddingUser = false) {
     _setupSyncMessage = '';
     _setupLayoutConfirmed = !!isAddingUser;
     _setupUsers = [{
-        id: '', name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+        id: '', name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
         photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+        coverSource: '', coverSourceUrl: '', coverSteamGridAssetId: 0, coverUsesMostPlayedGame: null,
         photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0,
         syncConnected: false, importCloud: false
     }];
@@ -1285,6 +1294,11 @@ function _validateAndFinish() {
                 name: u.name,
                 pin: u.pin || '',
                 photoBase64: u.photoBase64,
+                coverBase64: u.coverBase64 || '',
+                coverSource: u.coverSource || '',
+                coverSourceUrl: u.coverSourceUrl || '',
+                coverSteamGridAssetId: u.coverSteamGridAssetId || 0,
+                coverUsesMostPlayedGame: u.coverUsesMostPlayedGame ?? (!u.coverBase64 && !u.coverSourceUrl),
                 photoSource: u.photoSource || '',
                 photoSourceUrl: u.photoSourceUrl || '',
                 photoSteamGridAssetId: Number(u.photoSteamGridAssetId || 0),

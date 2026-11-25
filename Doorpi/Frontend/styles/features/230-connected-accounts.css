@@ -33,6 +33,17 @@
 @media(max-width:1100px) { .nav-profile-sync.nav-connected-account { grid-template-columns:1fr; } .nav-connected-account>.nav-profile-sync-actions,.nav-connected-account>.nav-provider-manage,.nav-connected-account>.nav-profile-sync-status,.nav-connected-account>.nav-steam-controls { grid-column:1; grid-row:auto; text-align:left; } }
 .nav-connected-account .nav-profile-sync-actions .nav-icon-btn svg { width:22px; height:22px; flex:none; }
 .nav-connected-account .nav-profile-sync-actions .nav-icon-btn { gap:8px; }
+.nav-connected-account[data-provider=steam] { grid-template-columns:minmax(0,1fr); }
+.nav-connected-account[data-provider=steam] > * { grid-column:1; grid-row:auto; max-width:none; text-align:start; }
+.nav-connected-account[data-provider=steam] .nav-provider-heading { width:100%; }
+.nav-connected-account[data-provider=steam] .nav-provider-heading > span:nth-child(2) { margin-inline-end:auto; }
+.nav-connected-account[data-provider=steam] .nav-steam-header-sync { display:inline-flex; align-items:center; gap:8px; flex:none; }
+.nav-connected-account[data-provider=steam] .nav-steam-header-sync[hidden] { display:none; }
+.nav-connected-account[data-provider=steam] #navSteamManage[style*="display: none"] { display:none!important; }
+.nav-connected-account[data-provider=steam] #navSteamProgress { width:100%; height:7px; accent-color:#75a9d2; }
+.nav-connected-account[data-provider=steam] #navSteamProgress.is-pending { accent-color:#e6b15c; }
+.nav-connected-account[data-provider=steam] .nav-steam-sync-message { color:rgba(255,255,255,.82); }
+.nav-connected-account[data-provider=steam] .nav-steam-first-sync-hint { color:rgba(255,255,255,.64); line-height:1.45; }
 
 
 /* Keep integration status beside its provider and leave actions in a single column. */

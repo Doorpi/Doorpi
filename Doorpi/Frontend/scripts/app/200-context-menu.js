@@ -45,6 +45,7 @@
     let _ctxCard = null;
     let _ctxReturnKey = null;
     let _mediaPermanentDialog = null;
+    let _doorpiGameCloseReturnTarget = null;
 
     function _closeMediaPermanentDialog(options = {}) {
         if (!_mediaPermanentDialog) return false;
@@ -150,6 +151,22 @@
         target._startInteraction?.();
         return document.activeElement === target;
     }
+
+    window._doorpiRestoreGameCloseReturnFocus = () => {
+        const target = _doorpiGameCloseReturnTarget;
+        _doorpiGameCloseReturnTarget = null;
+        return target ? _restoreCtxReturnFocus(target.card, target.key) : false;
+    };
+
+    window._doorpiGetGameCloseVisualContext = () => {
+        const card = _doorpiGameCloseReturnTarget?.card;
+        if (!card) return {};
+        return {
+            gridImage: card.dataset.staticVertical || card.dataset.vertical ||
+                card.dataset.staticHorizontal || card.dataset.horizontal || '',
+            heroImage: card.dataset.staticHero || card.dataset.hero || ''
+        };
+    };
 
     function _isCtxItemVisible(el) {
         return !!el && el.style.display !== 'none' && getComputedStyle(el).display !== 'none';
@@ -513,13 +530,18 @@
         event?.stopPropagation?.();
         window._doorpiSuppressPointer?.(360);
         const card = _ctxCard;
+        const returnKey = _ctxReturnKey;
         const isRunning = window.isCardRuntimeRunning?.(card) === true;
         _closeCtxMenu({ restoreFocus: false });
         if (!card) return;
+        window.resetDoorpiGamepadInputState?.();
 
         if (card.dataset.gpuUpdaterCard === 'true' || card.dataset.bluetoothDeviceCard === 'true') {
             card.click();
         } else if (isRunning) {
+            const isGame = card.dataset.channel === 'games';
+            if (isGame) _doorpiGameCloseReturnTarget = { card, key: returnKey };
+            else _restoreCtxReturnFocus(card, returnKey);
             postToHost({
                 action: 'closeRunningItem',
                 id: card.dataset.gameId || card.dataset.appId || card.dataset.id || '',

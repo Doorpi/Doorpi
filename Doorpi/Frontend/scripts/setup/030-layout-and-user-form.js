@@ -140,8 +140,9 @@ function _renderSetupUsers() {
     // Adicionar Novo Usuário
     bar.querySelector('#btnSetupAddUser').addEventListener('click', () => {
         const newUser = {
-            id: Date.now(), name: '', pin: '', photoBase64: '', apiKey: '', folders: [],
+            id: Date.now(), name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
             photoSource: '', photoSourceUrl: '', photoSteamGridAssetId: 0,
+            coverSource: '', coverSourceUrl: '', coverSteamGridAssetId: 0, coverUsesMostPlayedGame: null,
             photoCropX: 0, photoCropY: 0, photoZoom: 1, totalPlaytimeSeconds: 0
         };
         _setupUsers.push(newUser);

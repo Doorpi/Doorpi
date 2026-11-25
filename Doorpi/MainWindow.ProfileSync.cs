@@ -305,7 +305,7 @@ public partial class MainWindow
         }
     }
 
-    private (CloudProfileV1 Snapshot, byte[]? Photo)? CreateLocalProfileSyncSnapshot(string profileId)
+    private (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? CreateLocalProfileSyncSnapshot(string profileId)
     {
         UserProfile? profile = FindProfileForSync(profileId);
         if (profile == null) return null;
@@ -319,7 +319,7 @@ public partial class MainWindow
             controls.Assignments,
             LoadProfileMediaHistoryForSync(profileId));
         snapshot.Steam = Doorpi.Steam.SteamProfileStore.Read(Path.Combine(dataFolder, "users", profileId));
-        return (snapshot, DecodeProfilePhoto(profile.PhotoBase64));
+        return (snapshot, DecodeProfilePhoto(profile.PhotoBase64), DecodeProfilePhoto(profile.CoverBase64));
     }
 
     private void StartProfileOAuthInputMode()
@@ -521,10 +521,11 @@ public partial class MainWindow
                 }
                 else
                 {
-                    (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+                    (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? local = CreateLocalProfileSyncSnapshot(profileId);
                     ProfileSyncResult result = local == null
                         ? new ProfileSyncResult { Status = SyncStatus.Failed, Message = "Perfil local não encontrado." }
-                        : await ProfileSyncService.UploadProfileAsync(profileId, local.Value.Snapshot, local.Value.Photo)
+                        : await ProfileSyncService.UploadProfileAsync(profileId, local.Value.Snapshot, local.Value.Photo,
+                            profileCover: local.Value.Cover)
                             .ConfigureAwait(false);
                     PostProfileSyncResult(profileId, result);
                 }
@@ -571,6 +572,9 @@ public partial class MainWindow
                     profile = remote.RemoteProfile,
                     photoBase64 = remote.RemoteProfilePhoto is { Length: > 0 }
                         ? Convert.ToBase64String(remote.RemoteProfilePhoto)
+                        : "",
+                    coverBase64 = remote.RemoteProfileCover is { Length: > 0 }
+                        ? Convert.ToBase64String(remote.RemoteProfileCover)
                         : ""
                 });
                 return;
@@ -646,14 +650,15 @@ public partial class MainWindow
         if (Volatile.Read(ref _profileSyncApplyingRemote) > 0) return;
         if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
         var sourceRevisions = CaptureProfileSyncRevisions(profileId);
-        (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+        (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? local = CreateLocalProfileSyncSnapshot(profileId);
         if (local == null) return;
 
         ProfileSyncResult result = await ProfileSyncService.SyncAsync(
                 profileId,
                 local.Value.Snapshot,
                 local.Value.Photo,
-                cancellationToken)
+                cancellationToken,
+                local.Value.Cover)
             .ConfigureAwait(false);
         if (!string.Equals(profileId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
         if (result.LocalArtworkEnrichment != null && result.Status != SyncStatus.Downloaded)
@@ -813,7 +818,7 @@ public partial class MainWindow
             ProfileSyncResult remote = await ProfileSyncService.DownloadProfileAsync(profileId).ConfigureAwait(false);
             if (remote.RemoteProfile != null)
             {
-                (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+                (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? local = CreateLocalProfileSyncSnapshot(profileId);
                 if (local != null)
                     ProfileSyncEngine.MergeMissingArtwork(local.Value.Snapshot, remote.RemoteProfile);
                 await ApplyRemoteProfileAsync(profileId, remote, sourceRevisions).ConfigureAwait(false);
@@ -825,7 +830,7 @@ public partial class MainWindow
 
         if (string.Equals(choice, "local", StringComparison.OrdinalIgnoreCase))
         {
-            (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+            (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? local = CreateLocalProfileSyncSnapshot(profileId);
             _profileSyncConflicts.TryGetValue(profileId, out ProfileSyncResult? conflict);
             ProfileSyncResult result = local == null
                 ? new ProfileSyncResult { Status = SyncStatus.Failed, Message = "Perfil local não encontrado." }
@@ -833,7 +838,8 @@ public partial class MainWindow
                     profileId,
                     local.Value.Snapshot,
                     local.Value.Photo,
-                    conflict?.RemoteRevision).ConfigureAwait(false);
+                    conflict?.RemoteRevision,
+                    profileCover: local.Value.Cover).ConfigureAwait(false);
             PostProfileSyncResult(profileId, result);
         }
     }
@@ -857,7 +863,7 @@ public partial class MainWindow
         Interlocked.Increment(ref _profileSyncApplyingRemote);
         try
         {
-            (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+            (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? local = CreateLocalProfileSyncSnapshot(profileId);
             if (local != null)
             {
                 var store = new ProfileSyncLocalStore(Path.Combine(dataFolder, "users", profileId));
@@ -889,7 +895,27 @@ public partial class MainWindow
             profile.DateCreated = remote.CreatedAtUtc?.LocalDateTime ?? profile.DateCreated;
             if (remote.SchemaVersion >= 7)
             {
-                profile.CoverBase64 = remote.CoverBase64;
+                if (remote.SchemaVersion >= 8)
+                {
+                    bool localHasSameCover = local?.Snapshot.Cover is { HasCover: true } localCover &&
+                        string.Equals(localCover.ContentHash, remote.Cover.ContentHash, StringComparison.OrdinalIgnoreCase) &&
+                        DecodeProfilePhoto(profile.CoverBase64) is { Length: > 0 };
+                    profile.CoverBase64 = remote.Cover.HasCover && result.RemoteProfileCover is { Length: > 0 }
+                        ? Convert.ToBase64String(result.RemoteProfileCover)
+                        : localHasSameCover ? profile.CoverBase64 : "";
+                    profile.CoverSource = remote.Cover.Source ?? "";
+                    profile.CoverSourceUrl = remote.Cover.SourceUrl ?? "";
+                    profile.CoverSteamGridAssetId = remote.Cover.SteamGridAssetId;
+                    profile.CoverContentHash = remote.Cover.ContentHash ?? "";
+                    profile.CoverUsesMostPlayedGame = remote.Cover.UseMostPlayedGame;
+                }
+                else
+                {
+                    profile.CoverBase64 = remote.CoverBase64;
+                    profile.CoverSource = string.IsNullOrEmpty(remote.CoverBase64) ? "" : "legacy";
+                    profile.CoverContentHash = "";
+                    profile.CoverUsesMostPlayedGame = string.IsNullOrEmpty(remote.CoverBase64);
+                }
                 profile.AvatarFromGame = remote.AvatarFromGame;
             }
             profile.PhotoSource = remote.ProfilePhoto.Source ?? "";
@@ -1053,6 +1079,7 @@ public partial class MainWindow
                 profile, appliedHistory, deviceId, DateTimeOffset.UtcNow,
                 appliedControls.Profiles, appliedControls.Assignments, appliedMediaHistory);
             appliedSnapshot.Steam = appliedSteam;
+            appliedSnapshot.Cover = remote.Cover;
             uploadPreservedSteamData = appliedSteam != null && (Doorpi.Steam.SteamProfileMerge.Fingerprint(appliedSteam) != Doorpi.Steam.SteamProfileMerge.Fingerprint(remote.Steam)
                 || appliedHistory.Any(entry =>
                 {
@@ -1065,7 +1092,7 @@ public partial class MainWindow
                 }));
             await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision,
                 localWrites: writes, expectedRevisions: expectedRevisions,
-                remoteBaseline: uploadPreservedSteamData ? remote : null).ConfigureAwait(false);
+                remoteBaseline: remote).ConfigureAwait(false);
 
             await Dispatcher.InvokeAsync(() =>
             {
@@ -1083,6 +1110,9 @@ public partial class MainWindow
             });
 
             ResumeProfileSyncArtworkDownloads(profileId, initialDelayMs: 3500);
+            if (remote.Cover?.HasCover == true && result.RemoteProfileCover == null &&
+                !string.IsNullOrWhiteSpace(remote.Cover.ContentHash))
+                _ = Task.Run(() => CompleteRemoteProfileCoverDownloadAsync(profileId, remote.Cover));
 
         }
         finally
@@ -1090,6 +1120,64 @@ public partial class MainWindow
             Interlocked.Decrement(ref _profileSyncApplyingRemote);
             _profileRemoteApplyGate.Release();
             if (uploadPreservedSteamData) ScheduleProfileSync(profileId);
+        }
+    }
+
+    private async Task CompleteRemoteProfileCoverDownloadAsync(string profileId, CloudProfileCoverV1 cover)
+    {
+        string targetId = GoogleOAuthClient.SafeProfileId(profileId);
+        string userPath = Path.Combine(dataFolder, "users", targetId, "user.json");
+        string[] guardedPaths = { profilesFile, userPath };
+        try
+        {
+            var before = StateStorage.ReadSnapshot(guardedPaths);
+            UserProfile? current = FindProfileForSync(targetId);
+            if (current == null || !string.IsNullOrEmpty(current.CoverBase64) ||
+                current.CoverUsesMostPlayedGame == true ||
+                !string.Equals(current.CoverSourceUrl ?? "", cover.SourceUrl ?? "", StringComparison.Ordinal) ||
+                !string.Equals(current.CoverSource ?? "", cover.Source ?? "", StringComparison.Ordinal) ||
+                current.CoverSteamGridAssetId != cover.SteamGridAssetId)
+                return;
+
+            byte[]? bytes = await ProfileSyncService.DownloadProfileCoverAsync(targetId, cover.ContentHash)
+                .ConfigureAwait(false);
+            if (bytes is not { Length: > 0 } ||
+                !string.Equals(ProfileSyncSerializer.ComputeBinaryHash(bytes), cover.ContentHash, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!string.Equals(targetId, currentUserId, StringComparison.OrdinalIgnoreCase)) return;
+            var after = StateStorage.ReadSnapshot(guardedPaths);
+            foreach (var expected in before.Revisions)
+                if (!after.Revisions.TryGetValue(expected.Key, out long revision) || revision != expected.Value)
+                    return;
+
+            current = FindProfileForSync(targetId);
+            if (current == null || !string.IsNullOrEmpty(current.CoverBase64) ||
+                current.CoverUsesMostPlayedGame == true ||
+                !string.Equals(current.CoverSourceUrl ?? "", cover.SourceUrl ?? "", StringComparison.Ordinal) ||
+                !string.Equals(current.CoverSource ?? "", cover.Source ?? "", StringComparison.Ordinal) ||
+                current.CoverSteamGridAssetId != cover.SteamGridAssetId)
+                return;
+            current.CoverBase64 = Convert.ToBase64String(bytes);
+            current.CoverContentHash = cover.ContentHash;
+            current.CoverUsesMostPlayedGame = cover.UseMostPlayedGame;
+            List<UserProfile> users = LoadUserProfiles();
+            int index = users.FindIndex(item => string.Equals(item.Id, targetId, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) return;
+            users[index] = current;
+            var writes = new Dictionary<string, string?>
+            {
+                [profilesFile] = JsonSerializer.Serialize(users.Select(CloneUserProfileForStorage).ToList(), IndentedJsonOptions),
+                [userPath] = JsonSerializer.Serialize(CloneUserProfileForStorage(current), IndentedJsonOptions)
+            };
+            StateStorage.WriteBatchIfRevision(writes, after.Revisions);
+            if (string.Equals(targetId, currentUserId, StringComparison.OrdinalIgnoreCase))
+                await Dispatcher.InvokeAsync(() => webView?.CoreWebView2?.PostWebMessageAsString(
+                    JsonSerializer.Serialize(BuildCurrentUserPayload(current))));
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("[ProfileSync] Download da capa do perfil falhou: " + ex.Message);
         }
     }
 
@@ -1537,12 +1625,13 @@ public partial class MainWindow
             return;
         }
 
-        (CloudProfileV1 Snapshot, byte[]? Photo)? local = CreateLocalProfileSyncSnapshot(profileId);
+        (CloudProfileV1 Snapshot, byte[]? Photo, byte[]? Cover)? local = CreateLocalProfileSyncSnapshot(profileId);
         if (local == null) return;
         ProfileSyncResult uploaded = await ProfileSyncService.UploadProfileAsync(
             profileId,
             local.Value.Snapshot,
-            local.Value.Photo).ConfigureAwait(false);
+            local.Value.Photo,
+            profileCover: local.Value.Cover).ConfigureAwait(false);
         PostProfileSyncResult(profileId, uploaded);
     }
 }

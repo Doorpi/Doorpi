@@ -56,15 +56,22 @@
         return _steamProfileView;
     }
     const _steamMedalNames = () => Object.fromEntries(['gold','silver','bronze','iron'].map(key=>[key,_t('steam.'+key)]));
-    function _setProfileArtwork(part,value) {
+    function _setProfileArtwork(part,value,metadata={}) {
         const user = _menuData.user;
         if (!user.Id || user.Id !== window._doorpiCurrentUserId) return;
         if (part === 'avatarGame' && value && !/^https:\/\/[^"<>\s]+$/i.test(value)) value = '';
         if (part === 'avatarGame' && user.AvatarFromGame && user.GameAvatarUrl === value) return;
-        const patch = part === 'cover' ? {CoverBase64:value} : {AvatarFromGame:true,GameAvatarUrl:value};
+        const patch = part === 'cover' ? {
+            CoverBase64:value, CoverSource:metadata.source || '', CoverSourceUrl:metadata.sourceUrl || '',
+            CoverSteamGridAssetId:Number(metadata.steamGridAssetId || 0),
+            CoverUsesMostPlayedGame:!!metadata.useMostPlayedGame
+        } : {AvatarFromGame:true,GameAvatarUrl:value};
         Object.assign(user,patch);
         if (window._doorpiProfile?.Id === user.Id) Object.assign(window._doorpiProfile,patch);
-        postToHost({action:'setProfileArtwork',userId:user.Id,part,value});
+        postToHost({action:'setProfileArtwork',userId:user.Id,part,value,...(part==='cover'?{
+            source:patch.CoverSource, sourceUrl:patch.CoverSourceUrl, steamGridAssetId:patch.CoverSteamGridAssetId,
+            useMostPlayedGame:patch.CoverUsesMostPlayedGame
+        }:{})});
         if (part === 'avatarGame') window._applyDoorpiTopProfile?.(user);
     }
     function _profileIdentityMarkup() {
@@ -99,11 +106,11 @@
                 avatar?.replaceChildren(img);
             }
             list.parentElement.querySelector('.nav-profile-cover')?.remove();
-            if (user.CoverBase64) {
+            if (user.CoverBase64 || user.CoverSourceUrl) {
                 const cover = document.createElement('img');
                 cover.alt = '';
                 cover.className = 'nav-profile-cover';
-                cover.src = 'data:image/jpeg;base64,' + user.CoverBase64;
+                cover.src = user.CoverBase64 ? 'data:image/jpeg;base64,' + user.CoverBase64 : user.CoverSourceUrl;
                 list.before(cover);
             }
             list.replaceChildren(...games.map((game,index)=>{
@@ -121,7 +128,7 @@
                     img.onerror = () => { if (!img.dataset.steamHeader) img.remove(); };
                     img.src = art;
                     item.append(img);
-                    if (index===0 && !user.CoverBase64) {
+                    if (index===0 && !user.CoverBase64 && !user.CoverSourceUrl) {
                         const cover = img.cloneNode();
                         cover.src = _profileBanner(game);
                         cover.className = 'nav-profile-cover';
@@ -172,8 +179,9 @@
         const state = _steamView();
         if (!state.profileId || String(data.profileId) !== state.profileId) return;
         if (data.type === 'steamProfileStatus') {
-            for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message'])
+            for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message','phase','progressCurrent','progressTotal','progressPercent','firstSync','pending'])
                 if (data[key] != null) state[key] = data[key];
+            window._refreshSteamProfileSyncUi?.();
             if (Array.isArray(data.achievementIndex)) state.games = [...data.achievementIndex].sort((a,b) => b.unlocked-a.unlocked || b.total-a.total || a.Name.localeCompare(b.Name));
             if (Array.isArray(data.achievementIndex) && !state.games.some(game => game.AppId === _steamAchievementGame)) {
                 if (_steamAchievementGame) state.openGame = null;
@@ -334,8 +342,8 @@
             <div class="nav-achievement-detail-list nav-profile-grid" aria-label="${_t('steam.list')}">
             ${items.map(_steamTrophyCard).join('') || '<p class="nav-achievement-empty" role="status">'+_esc(detail?.error || (selected.steam?.total && !detail?_t('steam.loading'):_t('steam.noTrophies')))+'</p>'}</div>
             ${items.length && detail.error?'<p role="status">'+_esc(detail.error)+'</p>':''}</section>`
-            : `<section class="nav-achievement-games"><header><div><h3>${_t('steam.yourGames')}</h3></div>${compact?'':_steamSummaryMarkup()}${sortBar}
-            ${!state.steamId?'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>':''}</header>
+            : `<section class="nav-achievement-games"><header><div class="nav-steam-games-heading"><span class="nav-steam-games-logo" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><div><h3>${_t('steam.yourGames')}</h3><small id="navSteamGamesStatus" role="status" aria-live="polite"></small></div>${state.steamId?'<button type="button" data-steam-focus="sync" id="btnSteamSyncNow" class="nav-steam-sync-button" tabindex="-1" aria-label="'+_esc(_t('steam.syncNow'))+'" title="'+_esc(_t('steam.syncNow'))+'">↻ <span>'+_esc(_t('steam.syncNow'))+'</span></button>':'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>'}</div>${compact?'':_steamSummaryMarkup()}${sortBar}</header>
+            <div class="nav-steam-games-progress" id="navSteamGamesProgress" hidden><progress id="navSteamGamesProgressBar" max="100" value="0" aria-label="${_esc(_t('steam.syncProgress'))}"></progress><small id="navSteamGamesProgressHint"></small><span id="navSteamGamesFirstSyncHint" hidden>${_esc(_t('steam.firstSyncHint'))}</span></div>
             <div class="nav-achievement-game-list nav-profile-grid">${rows.map((row,i)=>_profileGameRow(row,i,fmtSeconds)).join('') || '<p class="nav-achievement-empty">'+_t('navGameHistoryEmpty')+'</p>'}</div></section>`;
         body.innerHTML = `<div class="nav-unified-profile nav-achievements-profile${entry==='standard'?' profile-standard':''}">
             <header class="nav-unified-identity">${_profileIdentityMarkup()}${compact?'<button class="nav-unified-edit" data-steam-focus="edit" tabindex="-1">'+_esc(_t('navEditProfileBtn'))+'</button>':''}</header>
@@ -346,6 +354,40 @@
         const editButton = body.querySelector('[data-steam-focus=edit]');
         if (editButton) _contentItems.push(editButton);
         _contentItems.forEach(_bindSteamFocus);
+        const syncButton = body.querySelector('#btnSteamSyncNow');
+        if (syncButton) syncButton.onclick = () => {
+            if (state.busy) return;
+            state.busy = true;
+            state.phase = 'starting';
+            state.progressPercent = 0;
+            state.message = state.firstSync ? _t('steam.firstSyncStarting') : _t('steam.syncStarting');
+            window._refreshSteamProfileSyncUi?.();
+            postToHost?.({action:'steamImport'});
+        };
+        window._refreshSteamProfileSyncUi = () => {
+            const activeState = _steamView();
+            const status = document.querySelector('#navSteamGamesStatus');
+            if (status) status.textContent = activeState.busy ? activeState.message || _t('steam.updating') : activeState.pending ? activeState.message || _t('steam.resumeHint') : '';
+            const progress = document.querySelector('#navSteamGamesProgress');
+            const bar = document.querySelector('#navSteamGamesProgressBar');
+            const hint = document.querySelector('#navSteamGamesProgressHint');
+            const firstHint = document.querySelector('#navSteamGamesFirstSyncHint');
+            const isRunning = !!activeState.busy;
+            if (progress) progress.hidden = !isRunning && !activeState.pending;
+            if (bar) {
+                bar.value = Math.max(0, Math.min(100, Number(activeState.progressPercent) || 0));
+                bar.classList.toggle('is-pending', !isRunning && !!activeState.pending);
+            }
+            if (hint) hint.textContent = activeState.progressTotal > 0
+                ? `${activeState.progressCurrent || 0} / ${activeState.progressTotal} · ${activeState.message || ''}`
+                : activeState.message || '';
+            if (firstHint) {
+                firstHint.hidden = !activeState.firstSync || (!isRunning && !activeState.pending);
+                firstHint.textContent = activeState.pending && !isRunning ? _t('steam.resumeHint') : _t('steam.firstSyncHint');
+            }
+            if (syncButton) syncButton.disabled = !!activeState.busy || !activeState.hasKey;
+        };
+        window._refreshSteamProfileSyncUi();
         editButton?.addEventListener('click',_openProfileEditor);
         const dialog = body.querySelector('.nav-profile-sort-dialog');
         const trigger = body.querySelector('.nav-profile-sort-trigger');

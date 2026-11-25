@@ -273,10 +273,13 @@
         }, new Map()).values()].sort((a,b) => b.seconds - a.seconds);
         const groupFilmTitles = entries => [...entries.reduce((map, item) => {
             const title = mediaPrimaryTitle(item);
-            const key = `${String(item.AppId || '').toLowerCase()}\u001f${title.toLocaleLowerCase()}`;
-            const current = map.get(key) || { title, seconds:0, entries:[], latest:null };
+            // Content identity spans services: the same movie or series must not
+            // be counted separately just because it was watched in another app.
+            const key = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase();
+            const current = map.get(key) || { title, seconds:0, entries:[], latest:null, platforms:new Set() };
             current.seconds += Number(item.TotalPlaybackSeconds) || 0;
             current.entries.push(item);
+            current.platforms.add(appName(item.AppId));
             if (!current.latest || new Date(item.LastPlayed || 0) > new Date(current.latest.LastPlayed || 0)) current.latest = item;
             map.set(key, current);
             return map;
@@ -296,12 +299,12 @@
             artChain:[gameArt(mostPlayedGame)].filter(Boolean),
             appId:''
         } : null;
-        const topFilm = groupFilmTitles(filmPlatform?.entries || [])[0];
+        const topFilm = groupFilmTitles(films)[0];
         const filmHighlight = topFilm?.latest ? (() => {
             const chain = mediaArtChain(topFilm.latest);
             return {
                 kind:'film-series',
-                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(filmPlatform.id)}`,
+                kicker:_t('navMostWatched','Mais assistido'),
                 title:topFilm.title,
                 meta:filmHighlightMeta(topFilm),
                 art:chain[0] || appArt(appFor(filmPlatform.id)),
@@ -332,7 +335,7 @@
             const chain = mediaArtChain(favoriteCreatorEntry);
             return {
                 kind:'streaming',
-                kicker:`${_t('navMostWatched','Mais assistido')} · ${appName(favoriteCreatorEntry.AppId)}`,
+                kicker:_t('navMostWatched','Mais assistido'),
                 title:favoriteCreator.label,
                 meta:`${fmtSeconds(favoriteCreator.seconds)} ${_t('navProfileTotalSuffix','no total')}`,
                 art:chain[0] || appArt(appFor(favoriteCreatorEntry.AppId)),
@@ -356,7 +359,7 @@
             const chain = mediaArtChain(topMusicEntry);
             return {
                 kind:'music',
-                kicker:`${_t('navMostListened','Mais ouvido')} · ${appName(topMusicEntry.AppId)}`,
+                kicker:_t('navMostListened','Mais ouvido'),
                 title:topMusicArtist[0],
                 meta:`${fmtSeconds(topMusicArtist[1])} ${_t('navProfileTotalSuffix','no total')}`,
                 art:chain[0] || appArt(appFor(topMusicEntry.AppId)),

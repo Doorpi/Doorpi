@@ -4366,6 +4366,36 @@ namespace Doorpi
             catch (Exception ex) { Debug.WriteLine($"[LaunchMediaApp] Erro: {ex.Message}"); }
         }
 
+        private void ScheduleYouTubeCursorParking(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    int previousDelay = 0;
+                    foreach (int delay in new[] { 120, 400, 900, 1700 })
+                    {
+                        await Task.Delay(delay - previousDelay).ConfigureAwait(false);
+                        previousDelay = delay;
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (!_isCurrentSiteYouTube || _webAppWindow == null ||
+                                _webAppWindow.WindowState == WindowState.Minimized ||
+                                Interlocked.Read(ref _activeWebAppWindowHandleValue) != hwnd.ToInt64() ||
+                                GetForegroundWindow() != hwnd || !IsWindow(hwnd))
+                                return;
+
+                            if (!IsSystemCursorHidden()) EnsureCursorHidden();
+                            _mainScreenMouseVisible = false;
+                            ParkCursorAtPrimaryScreenBottomLeft();
+                        });
+                    }
+                }
+                catch { }
+            });
+        }
+
         private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
         {
             e.Handled = true;
@@ -7083,7 +7113,9 @@ namespace Doorpi
                         {
                             if (!IsSystemCursorHidden()) EnsureCursorHidden();
                             _mainScreenMouseVisible = false;
-                            ParkCursorOutsideWindow(new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle);
+                            IntPtr youtubeWindow = new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle;
+                            ParkCursorAtPrimaryScreenBottomLeft();
+                            ScheduleYouTubeCursorParking(youtubeWindow);
                         }
                         _webAppWindow.Activate();
                         _ytWebView.Focus();
@@ -7153,6 +7185,9 @@ namespace Doorpi
 
                 ReleaseDoorpiTopmost();
                 _ = TrySuspendDoorpiHomeWebViewAsync();
+
+                if (isYouTube && _webAppWindow != null)
+                    ScheduleYouTubeCursorParking(new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle);
 
                 if (this.WindowState != WindowState.Minimized)
                     this.WindowState = WindowState.Minimized;
@@ -7254,7 +7289,9 @@ namespace Doorpi
                 {
                     if (!IsSystemCursorHidden()) EnsureCursorHidden();
                     _mainScreenMouseVisible = false;
-                    ParkCursorOutsideWindow(new IntPtr(Interlocked.Read(ref _activeWebAppWindowHandleValue)));
+                    IntPtr youtubeWindow = new(Interlocked.Read(ref _activeWebAppWindowHandleValue));
+                    ParkCursorAtPrimaryScreenBottomLeft();
+                    ScheduleYouTubeCursorParking(youtubeWindow);
                 }
                 LogMediaControllerDiagnostic(
                     "web-window-handle-ready",
@@ -7506,7 +7543,7 @@ namespace Doorpi
             {
                 if (!IsSystemCursorHidden()) EnsureCursorHidden();
                 _mainScreenMouseVisible = false;
-                ParkCursorOutsideWindow(new IntPtr(Interlocked.Read(ref _activeWebAppWindowHandleValue)));
+                ParkCursorAtPrimaryScreenBottomLeft();
             }
             else if (_mainScreenMouseVisible)
             {
@@ -7520,6 +7557,8 @@ namespace Doorpi
                 _ytWebView.Focus();
 
             StartMediaControllerMode();
+            if (isYouTube && _webAppWindow != null)
+                ScheduleYouTubeCursorParking(new System.Windows.Interop.WindowInteropHelper(_webAppWindow).Handle);
             if (isGenericBrowser)
                 _ = PrewarmDoorpiFileBrowserOverlayAsync();
             SendRuntimeSessionsToUI();

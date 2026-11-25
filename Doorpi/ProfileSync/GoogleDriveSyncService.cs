@@ -13,6 +13,7 @@ public sealed class GoogleDriveSyncService
 {
     public const string RemoteProfileFileName = "doorpi-profile.json";
     public const string RemoteProfilePhotoFileName = "doorpi-profile-photo.jpg";
+    public const string RemoteProfileCoverFileName = "doorpi-profile-cover.jpg";
 
     private readonly string _dataFolder;
     private readonly string _applicationName;
@@ -163,6 +164,7 @@ public sealed class GoogleDriveSyncService
                 using var drive = new GoogleDriveAppDataClient(session, _applicationName);
                 await drive.DeleteFileAsync(RemoteProfileFileName, cancellationToken).ConfigureAwait(false);
                 await drive.DeleteFileAsync(RemoteProfilePhotoFileName, cancellationToken).ConfigureAwait(false);
+                await drive.DeleteFileAsync(RemoteProfileCoverFileName, cancellationToken).ConfigureAwait(false);
             }
 
             await _oauth.DisconnectAsync(profileId, revoke: true, cancellationToken).ConfigureAwait(false);
@@ -216,7 +218,8 @@ public sealed class GoogleDriveSyncService
         CloudProfileV1 profileData,
         byte[]? profilePhoto = null,
         string? expectedRemoteRevision = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        byte[]? profileCover = null)
     {
         ArgumentNullException.ThrowIfNull(profileData);
         SemaphoreSlim gate = Gate(profileId);
@@ -233,7 +236,8 @@ public sealed class GoogleDriveSyncService
                 profilePhoto,
                 expectedRemoteRevision,
                 drive,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                cover: profileCover).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -280,11 +284,36 @@ public sealed class GoogleDriveSyncService
         }
     }
 
+    public async Task<byte[]?> DownloadProfileCoverAsync(
+        string profileId,
+        string expectedContentHash,
+        CancellationToken cancellationToken = default)
+    {
+        SemaphoreSlim gate = Gate(profileId);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using GoogleOAuthSession? session = await RequireSessionAsync(profileId, cancellationToken).ConfigureAwait(false);
+            if (session == null) return null;
+            using var drive = new GoogleDriveAppDataClient(session, _applicationName);
+            RemoteFileContent? file = await drive.DownloadFileAsync(RemoteProfileCoverFileName, cancellationToken).ConfigureAwait(false);
+            if (file == null) return null;
+            if (file.Content.Length > 24_000_000)
+                throw new InvalidDataException("A capa remota excede o limite permitido.");
+            string actualHash = ProfileSyncSerializer.ComputeBinaryHash(file.Content);
+            if (!string.Equals(actualHash, expectedContentHash, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("A capa remota mudou durante o download.");
+            return file.Content;
+        }
+        finally { gate.Release(); }
+    }
+
     public async Task<ProfileSyncResult> SyncAsync(
         string profileId,
         CloudProfileV1 localProfile,
         byte[]? localProfilePhoto = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        byte[]? localProfileCover = null)
     {
         ArgumentNullException.ThrowIfNull(localProfile);
         SemaphoreSlim gate = Gate(profileId);
@@ -306,6 +335,7 @@ public sealed class GoogleDriveSyncService
                 profileId,
                 localProfile,
                 localProfilePhoto,
+                localProfileCover,
                 store,
                 state,
                 remote,
@@ -330,6 +360,7 @@ public sealed class GoogleDriveSyncService
                     profileId,
                     localProfile,
                     localProfilePhoto,
+                    localProfileCover,
                     store,
                     state,
                     remote,
@@ -367,6 +398,7 @@ public sealed class GoogleDriveSyncService
         string profileId,
         CloudProfileV1 localProfile,
         byte[]? localProfilePhoto,
+        byte[]? localProfileCover,
         ProfileSyncLocalStore store,
         ProfileSyncState state,
         RemoteProfilePayload remote,
@@ -392,7 +424,7 @@ public sealed class GoogleDriveSyncService
             {
                 Status = SyncStatus.Conflict, Action = ProfileSyncAction.Conflict,
                 Message = "A aplicação da nuvem foi interrompida e o perfil local mudou. Escolha qual versão preservar.",
-                RemoteProfile = remote.Profile, RemoteProfilePhoto = remote.Photo,
+                RemoteProfile = remote.Profile, RemoteProfilePhoto = remote.Photo, RemoteProfileCover = remote.Cover,
                 RemoteRevision = remote.ProfileFile.Revision, Differences = comparison.Differences
             };
         }
@@ -429,6 +461,7 @@ public sealed class GoogleDriveSyncService
                 RemoteProfile = remote.Profile,
                 LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
                 RemoteProfilePhoto = remote.Photo,
+                RemoteProfileCover = remote.Cover,
                 RemoteRevision = remote.ProfileFile.Revision,
                 Differences = merge.Conflicts,
                 ConflictPromptDeferred = state.ConflictPromptDeferred
@@ -449,6 +482,19 @@ public sealed class GoogleDriveSyncService
             localProfile,
             localProfilePhoto,
             remote);
+        byte[]? mergedCover = SelectMergedProfileCover(merged, localProfile, localProfileCover, remote);
+        if (merge.RemoteNeedsUpdate && merged.Cover?.HasCover == true && mergedCover == null &&
+            string.IsNullOrWhiteSpace(merged.Cover.SourceUrl))
+        {
+            RemoteFileContent? coverFile = await drive.DownloadFileAsync(RemoteProfileCoverFileName, cancellationToken)
+                .ConfigureAwait(false);
+            if (coverFile?.Content is { Length: > 0 } downloadedCover &&
+                string.Equals(ProfileSyncSerializer.ComputeBinaryHash(downloadedCover), merged.Cover.ContentHash,
+                    StringComparison.OrdinalIgnoreCase))
+                mergedCover = downloadedCover;
+            else
+                throw new InvalidDataException("A capa personalizada não está disponível para combinar as alterações.");
+        }
 
         if (merge.RemoteNeedsUpdate)
         {
@@ -460,7 +506,8 @@ public sealed class GoogleDriveSyncService
                 drive,
                 cancellationToken,
                 deferLocalConfirmation: merge.LocalNeedsUpdate,
-                pendingLocalContentHash: localContentHash).ConfigureAwait(false);
+                pendingLocalContentHash: localContentHash,
+                cover: mergedCover).ConfigureAwait(false);
             if (!merge.LocalNeedsUpdate)
                 return WithLocalArtworkEnrichment(
                     upload,
@@ -474,6 +521,7 @@ public sealed class GoogleDriveSyncService
                 RemoteProfile = merged,
                 LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
                 RemoteProfilePhoto = mergedPhoto,
+                RemoteProfileCover = mergedCover,
                 RemoteRevision = upload.RemoteRevision
             };
         }
@@ -486,6 +534,8 @@ public sealed class GoogleDriveSyncService
             state.RemoteProfileRevision = remote.ProfileFile.Revision;
             state.RemotePhotoFileId = remote.PhotoFile?.Id ?? "";
             state.RemotePhotoRevision = remote.PhotoFile?.Revision ?? "";
+            state.RemoteCoverFileId = remote.CoverFile?.Id ?? "";
+            state.RemoteCoverRevision = remote.CoverFile?.Revision ?? "";
             await store.SavePendingAsync(state, merged, cancellationToken).ConfigureAwait(false);
             return new ProfileSyncResult
             {
@@ -495,6 +545,7 @@ public sealed class GoogleDriveSyncService
                 RemoteProfile = merged,
                 LocalArtworkEnrichment = artworkMerge.LocalChanged ? localProfile : null,
                 RemoteProfilePhoto = mergedPhoto,
+                RemoteProfileCover = mergedCover,
                 RemoteRevision = remote.ProfileFile.Revision
             };
         }
@@ -560,6 +611,18 @@ public sealed class GoogleDriveSyncService
         return localPhoto is { Length: > 0 } ? localPhoto : remote.Photo;
     }
 
+    private static byte[]? SelectMergedProfileCover(CloudProfileV1 merged, CloudProfileV1 local,
+        byte[]? localCover, RemoteProfilePayload remote)
+    {
+        if (merged.Cover?.HasCover != true) return null;
+        string hash = merged.Cover.ContentHash ?? "";
+        if (localCover is { Length: > 0 } && string.Equals(hash, local.Cover?.ContentHash ?? "", StringComparison.Ordinal))
+            return localCover;
+        if (remote.Cover is { Length: > 0 } && string.Equals(hash, remote.Profile.Cover?.ContentHash ?? "", StringComparison.Ordinal))
+            return remote.Cover;
+        return localCover is { Length: > 0 } ? localCover : remote.Cover;
+    }
+
     private static CloudProfileV1 CloneProfile(CloudProfileV1 profile)
         => ProfileSyncSerializer.DeserializeProfile(ProfileSyncSerializer.SerializeProfile(profile))
            ?? throw new InvalidOperationException("Não foi possível clonar o perfil sincronizado.");
@@ -575,6 +638,7 @@ public sealed class GoogleDriveSyncService
             RemoteProfile = result.RemoteProfile,
             LocalArtworkEnrichment = localArtworkEnrichment,
             RemoteProfilePhoto = result.RemoteProfilePhoto,
+            RemoteProfileCover = result.RemoteProfileCover,
             RemoteRevision = result.RemoteRevision,
             Differences = result.Differences,
             ConflictPromptDeferred = result.ConflictPromptDeferred
@@ -641,7 +705,8 @@ public sealed class GoogleDriveSyncService
         GoogleDriveAppDataClient drive,
         CancellationToken cancellationToken,
         bool deferLocalConfirmation = false,
-        string? pendingLocalContentHash = null)
+        string? pendingLocalContentHash = null,
+        byte[]? cover = null)
     {
         ProfileSyncLocalStore store = Store(profileId);
         ProfileSyncState state = await store.LoadStateAsync(cancellationToken).ConfigureAwait(false);
@@ -695,6 +760,32 @@ public sealed class GoogleDriveSyncService
             photoFile = null;
         }
 
+        RemoteAppDataFile? coverFile = await drive.FindFileAsync(RemoteProfileCoverFileName, cancellationToken)
+            .ConfigureAwait(false);
+        if (profile.Cover?.HasCover == true)
+        {
+            if (cover is { Length: > 0 })
+            {
+                string actualHash = ProfileSyncSerializer.ComputeBinaryHash(cover);
+                if (!string.IsNullOrWhiteSpace(profile.Cover.ContentHash) &&
+                    !string.Equals(actualHash, profile.Cover.ContentHash, StringComparison.Ordinal))
+                    throw new InvalidDataException("A capa local não corresponde ao hash do perfil.");
+                string driveHash = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(cover)).ToLowerInvariant();
+                bool coverAlreadyCurrent = coverFile != null &&
+                    string.Equals(coverFile.ContentHash, driveHash, StringComparison.OrdinalIgnoreCase);
+                if (!coverAlreadyCurrent)
+                    coverFile = await drive.UploadFileAsync(RemoteProfileCoverFileName, "image/jpeg", cover,
+                        coverFile?.Revision, cancellationToken).ConfigureAwait(false);
+            }
+            else if (coverFile == null && string.IsNullOrWhiteSpace(profile.Cover.SourceUrl))
+                throw new InvalidDataException("A capa do perfil ainda não está disponível para envio.");
+        }
+        else if (coverFile != null)
+        {
+            await drive.DeleteFileAsync(RemoteProfileCoverFileName, cancellationToken).ConfigureAwait(false);
+            coverFile = null;
+        }
+
         profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
         byte[] json = Encoding.UTF8.GetBytes(ProfileSyncSerializer.SerializeProfile(profile));
         RemoteAppDataFile profileFile = await drive.UploadFileAsync(
@@ -710,6 +801,8 @@ public sealed class GoogleDriveSyncService
         state.RemoteProfileRevision = profileFile.Revision;
         state.RemotePhotoFileId = photoFile?.Id ?? "";
         state.RemotePhotoRevision = photoFile?.Revision ?? "";
+        state.RemoteCoverFileId = coverFile?.Id ?? "";
+        state.RemoteCoverRevision = coverFile?.Revision ?? "";
         if (deferLocalConfirmation)
         {
             state.PendingAction = ProfileSyncAction.DownloadRemote;
@@ -731,6 +824,7 @@ public sealed class GoogleDriveSyncService
             Status = SyncStatus.Uploaded,
             Action = ProfileSyncAction.UploadLocal,
             Message = "Perfil enviado ao Google Drive.",
+            RemoteProfileCover = cover,
             RemoteRevision = profileFile.Revision
         };
     }
@@ -748,7 +842,7 @@ public sealed class GoogleDriveSyncService
             profile.SchemaVersion < 1 ||
             profile.SchemaVersion > ProfileSyncSnapshotFactory.CurrentSchemaVersion)
             throw new InvalidDataException("O perfil remoto usa um formato inválido ou incompatível.");
-        if (profile.SchemaVersion >= 7 && (profile.CoverBase64 == null || profile.CoverBase64.Length > 4_000_000 ||
+        if (profile.SchemaVersion is >= 7 and < 8 && (profile.CoverBase64 == null || profile.CoverBase64.Length > 32_000_000 ||
             (profile.CoverBase64.Length != 0 && (!profile.CoverBase64.StartsWith("/9j/", StringComparison.Ordinal) ||
             !Convert.TryFromBase64String(profile.CoverBase64, new byte[profile.CoverBase64.Length], out _)))))
             throw new InvalidDataException("A capa do perfil remoto é inválida.");
@@ -757,6 +851,23 @@ public sealed class GoogleDriveSyncService
         // Version 1 snapshots have no controller configuration. Explicit nulls
         // written by intermediate builds are optional empty sections as well.
         profile.ProfilePhoto ??= new CloudProfilePhotoV1();
+        profile.Cover ??= new CloudProfileCoverV1();
+        byte[]? legacyCoverBytes = null;
+        if (profile.SchemaVersion < 8 && !string.IsNullOrEmpty(profile.CoverBase64))
+        {
+            byte[] legacyCover = Convert.FromBase64String(profile.CoverBase64);
+            legacyCoverBytes = legacyCover;
+            profile.Cover = new CloudProfileCoverV1
+            {
+                UseMostPlayedGame = false,
+                HasCover = legacyCover.Length > 0,
+                Source = "legacy",
+                ContentHash = ProfileSyncSerializer.ComputeBinaryHash(legacyCover),
+                CloudFileName = RemoteProfileCoverFileName
+            };
+            profile.SchemaVersion = 8;
+            profile.CoverBase64 = "";
+        }
         profile.Games ??= new List<CloudGameHistoryEntryV1>();
         profile.ControlProfiles ??= new List<CloudControlProfileV1>();
         profile.ControlAssignments ??= new List<CloudControlAssignmentV1>();
@@ -801,11 +912,20 @@ public sealed class GoogleDriveSyncService
         RemoteFileContent? photo = profile.ProfilePhoto.HasPhoto
             ? await drive.DownloadFileAsync(RemoteProfilePhotoFileName, cancellationToken).ConfigureAwait(false)
             : null;
+        RemoteFileContent? cover = profile.SchemaVersion < 8 && profile.Cover.HasCover
+            ? await drive.DownloadFileAsync(RemoteProfileCoverFileName, cancellationToken).ConfigureAwait(false)
+            : null;
+        byte[]? coverBytes = cover?.Content ?? legacyCoverBytes;
+        if (coverBytes is { Length: > 0 } &&
+            !string.Equals(ProfileSyncSerializer.ComputeBinaryHash(coverBytes), profile.Cover.ContentHash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("A capa do perfil remoto não corresponde ao hash informado.");
         return new RemoteProfilePayload(
             profile,
             profileFile.File,
             photo?.Content,
-            photo?.File);
+            photo?.File,
+            coverBytes,
+            cover?.File);
     }
 
     private static bool IsLegacyGeneratedPointerBinding(
@@ -846,6 +966,8 @@ public sealed class GoogleDriveSyncService
         state.RemoteProfileRevision = remote.ProfileFile.Revision;
         state.RemotePhotoFileId = remote.PhotoFile?.Id ?? "";
         state.RemotePhotoRevision = remote.PhotoFile?.Revision ?? "";
+        state.RemoteCoverFileId = remote.CoverFile?.Id ?? "";
+        state.RemoteCoverRevision = remote.CoverFile?.Revision ?? "";
         state.LastSyncedContentHash = ProfileSyncSerializer.ComputeContentHash(synchronizedProfile);
         state.LastSyncedAtUtc = DateTimeOffset.UtcNow;
         state.PendingAction = null;
@@ -879,6 +1001,8 @@ public sealed class GoogleDriveSyncService
         state.RemoteProfileRevision = remote.ProfileFile.Revision;
         state.RemotePhotoFileId = remote.PhotoFile?.Id ?? "";
         state.RemotePhotoRevision = remote.PhotoFile?.Revision ?? "";
+        state.RemoteCoverFileId = remote.CoverFile?.Id ?? "";
+        state.RemoteCoverRevision = remote.CoverFile?.Revision ?? "";
         await store.SavePendingAsync(state, remote.Profile, cancellationToken).ConfigureAwait(false);
     }
 
@@ -910,6 +1034,7 @@ public sealed class GoogleDriveSyncService
                 : "Perfil baixado do Google Drive.",
             RemoteProfile = remote.Profile,
             RemoteProfilePhoto = remote.Photo,
+            RemoteProfileCover = remote.Cover,
             RemoteRevision = remote.ProfileFile.Revision
         };
 
@@ -1081,5 +1206,7 @@ public sealed class GoogleDriveSyncService
         CloudProfileV1 Profile,
         RemoteAppDataFile ProfileFile,
         byte[]? Photo,
-        RemoteAppDataFile? PhotoFile);
+        RemoteAppDataFile? PhotoFile,
+        byte[]? Cover,
+        RemoteAppDataFile? CoverFile);
 }

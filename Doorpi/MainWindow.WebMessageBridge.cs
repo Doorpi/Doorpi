@@ -22,6 +22,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Xml.Linq;
+using Doorpi.ProfileSync;
 
 namespace Doorpi
 {
@@ -1725,6 +1726,13 @@ namespace Doorpi
                     {
                         bool isFirstAdmin = !existingUsers.Any(u => u.IsAdmin) && savedProfiles.Count == 0;
                         string requestedProfileId = NormalizeProfileSyncId(GetStr(userEl, "id"));
+                        string setupCoverBase64 = GetStr(userEl, "coverBase64");
+                        string setupCoverUrl = GetStr(userEl, "coverSourceUrl");
+                        if (setupCoverBase64.Length > 32_000_000 || (setupCoverBase64.Length > 0 &&
+                            (!setupCoverBase64.StartsWith("/9j/", StringComparison.Ordinal) ||
+                             !Convert.TryFromBase64String(setupCoverBase64, new byte[setupCoverBase64.Length], out _)))) return;
+                        if (setupCoverUrl.Length > 4096 || (setupCoverUrl.Length > 0 &&
+                            (!Uri.TryCreate(setupCoverUrl, UriKind.Absolute, out var setupCoverUri) || setupCoverUri.Scheme != "https"))) return;
                         var profile = new UserProfile
                         {
                             Id = string.IsNullOrWhiteSpace(requestedProfileId)
@@ -1738,6 +1746,16 @@ namespace Doorpi
                             PhotoCropX = userEl.TryGetProperty("photoCropX", out var setupPhotoCropXEl) && setupPhotoCropXEl.TryGetDouble(out double setupPhotoCropX) ? setupPhotoCropX : 0,
                             PhotoCropY = userEl.TryGetProperty("photoCropY", out var setupPhotoCropYEl) && setupPhotoCropYEl.TryGetDouble(out double setupPhotoCropY) ? setupPhotoCropY : 0,
                             PhotoZoom = userEl.TryGetProperty("photoZoom", out var setupPhotoZoomEl) && setupPhotoZoomEl.TryGetDouble(out double setupPhotoZoom) ? setupPhotoZoom : 1,
+                            CoverBase64 = setupCoverBase64,
+                            CoverSource = GetStr(userEl, "coverSource"),
+                            CoverSourceUrl = setupCoverUrl,
+                            CoverSteamGridAssetId = userEl.TryGetProperty("coverSteamGridAssetId", out var setupCoverAssetEl) && setupCoverAssetEl.TryGetInt32(out int setupCoverAssetId) ? Math.Max(0, setupCoverAssetId) : 0,
+                            CoverContentHash = setupCoverBase64.Length > 0
+                                ? ProfileSyncSerializer.ComputeBinaryHash(Convert.FromBase64String(setupCoverBase64))
+                                : "",
+                            CoverUsesMostPlayedGame = userEl.TryGetProperty("coverUsesMostPlayedGame", out var setupUseGameEl) &&
+                                (setupUseGameEl.ValueKind == JsonValueKind.True || setupUseGameEl.ValueKind == JsonValueKind.False)
+                                ? setupUseGameEl.GetBoolean() : string.IsNullOrEmpty(setupCoverBase64) && string.IsNullOrEmpty(setupCoverUrl),
                             SteamGridApiKey = GetStr(userEl, "apiKey"),
                             PinCode = NormalizePinCode(GetStr(userEl, "pin")),
                             IsAdmin = isFirstAdmin,
@@ -1841,9 +1859,23 @@ namespace Doorpi
                     switch (GetStr(root, "part"))
                     {
                         case "cover":
-                            if (value.Length > 4_000_000 || (value.Length != 0 &&
+                            if (value.Length > 32_000_000 || (value.Length != 0 &&
                                 (!value.StartsWith("/9j/", StringComparison.Ordinal) || !Convert.TryFromBase64String(value, new byte[value.Length], out _)))) return;
+                            string coverUrl = GetStr(root, "sourceUrl");
+                            if (coverUrl.Length > 4096 || (coverUrl.Length > 0 &&
+                                (!Uri.TryCreate(coverUrl, UriKind.Absolute, out var coverUri) || coverUri.Scheme != Uri.UriSchemeHttps ||
+                                 coverUrl.Any(c => char.IsControl(c) || c == '"' || c == '<' || c == '>')))) return;
                             user.CoverBase64 = value;
+                            user.CoverContentHash = value.Length > 0
+                                ? ProfileSyncSerializer.ComputeBinaryHash(Convert.FromBase64String(value))
+                                : "";
+                            user.CoverSource = GetStr(root, "source");
+                            user.CoverSourceUrl = coverUrl;
+                            user.CoverSteamGridAssetId = root.TryGetProperty("steamGridAssetId", out var coverAssetEl) && coverAssetEl.TryGetInt32(out int coverAssetId)
+                                ? Math.Max(0, coverAssetId) : 0;
+                            user.CoverUsesMostPlayedGame = root.TryGetProperty("useMostPlayedGame", out var useMostPlayedEl) &&
+                                (useMostPlayedEl.ValueKind == JsonValueKind.True || useMostPlayedEl.ValueKind == JsonValueKind.False)
+                                ? useMostPlayedEl.GetBoolean() : string.IsNullOrEmpty(value) && string.IsNullOrEmpty(coverUrl);
                             break;
                         case "avatarGame":
                             if (value.Length > 4096 || (value.Length > 0 &&

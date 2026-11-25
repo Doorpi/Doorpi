@@ -76,6 +76,7 @@ public sealed class CloudProfileV1
     public long TotalPlaytimeSeconds { get; set; }
     public long TotalMediaPlaybackSeconds { get; set; }
     public string CoverBase64 { get; set; } = "";
+    public CloudProfileCoverV1 Cover { get; set; } = new();
     public bool AvatarFromGame { get; set; }
     public CloudProfilePhotoV1 ProfilePhoto { get; set; } = new();
     public List<CloudGameHistoryEntryV1> Games { get; set; } = new();
@@ -153,6 +154,17 @@ public sealed class CloudProfilePhotoV1
     public string CloudFileName { get; set; } = "profile-photo.jpg";
 }
 
+public sealed class CloudProfileCoverV1
+{
+    public bool UseMostPlayedGame { get; set; }
+    public bool HasCover { get; set; }
+    public string Source { get; set; } = "";
+    public string SourceUrl { get; set; } = "";
+    public int SteamGridAssetId { get; set; }
+    public string ContentHash { get; set; } = "";
+    public string CloudFileName { get; set; } = "doorpi-profile-cover.jpg";
+}
+
 public sealed class CloudGameHistoryEntryV1
 {
     public string GameKey { get; set; } = "";
@@ -211,6 +223,8 @@ public sealed class ProfileSyncState
     public string RemoteProfileRevision { get; set; } = "";
     public string RemotePhotoFileId { get; set; } = "";
     public string RemotePhotoRevision { get; set; } = "";
+    public string RemoteCoverFileId { get; set; } = "";
+    public string RemoteCoverRevision { get; set; } = "";
     public string LastSyncedContentHash { get; set; } = "";
     public DateTimeOffset? LastSyncedAtUtc { get; set; }
     public ProfileSyncAction? PendingAction { get; set; }
@@ -272,6 +286,7 @@ public sealed class ProfileSyncResult
     public CloudProfileV1? RemoteProfile { get; init; }
     public CloudProfileV1? LocalArtworkEnrichment { get; init; }
     public byte[]? RemoteProfilePhoto { get; init; }
+    public byte[]? RemoteProfileCover { get; init; }
     public string RemoteRevision { get; init; } = "";
     public IReadOnlyList<ProfileDifference> Differences { get; init; } = Array.Empty<ProfileDifference>();
     public bool ConflictPromptDeferred { get; init; }

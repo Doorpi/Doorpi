@@ -62,7 +62,7 @@ public sealed class SteamWebApiClient(HttpClient http)
         }
     }
 
-    public async Task<SteamProfileData> ImportAsync(string account, string key, SteamProfileData? previous, IProgress<string>? progress, CancellationToken token, int? targetAppId = null, bool recentOnly = false, IReadOnlyDictionary<int,string>? localGames = null)
+    public async Task<SteamProfileData> ImportAsync(string account, string key, SteamProfileData? previous, IProgress<SteamImportProgressUpdate>? progress, CancellationToken token, int? targetAppId = null, bool recentOnly = false, IReadOnlyDictionary<int,string>? localGames = null)
     {
         try { return await ImportCoreAsync(account, key, previous, progress, token, targetAppId, recentOnly, localGames).ConfigureAwait(false); }
         catch (Exception exception) when (exception is JsonException or KeyNotFoundException or OverflowException or FormatException)
@@ -71,9 +71,10 @@ public sealed class SteamWebApiClient(HttpClient http)
         }
     }
 
-    private async Task<SteamProfileData> ImportCoreAsync(string account, string key, SteamProfileData? previous, IProgress<string>? progress, CancellationToken token, int? targetAppId, bool recentOnly, IReadOnlyDictionary<int,string>? localGames)
+    private async Task<SteamProfileData> ImportCoreAsync(string account, string key, SteamProfileData? previous, IProgress<SteamImportProgressUpdate>? progress, CancellationToken token, int? targetAppId, bool recentOnly, IReadOnlyDictionary<int,string>? localGames)
     {
         if (!IsValidKey(key)) throw new InvalidDataException("Chave Steam inválida. A chave SteamGridDB não serve para esta integração.");
+        progress?.Report(new("account", "Identificando o perfil Steam…", Percent: 0));
         string steamId = ParseAccount(account);
         if (!steamId.All(char.IsDigit))
         {
@@ -84,6 +85,7 @@ public sealed class SteamWebApiClient(HttpClient http)
             if (!steamId.All(char.IsDigit) || ParseAccount(steamId) != steamId) throw new InvalidDataException("A Steam retornou uma identidade inválida.");
         }
         var result = new SteamProfileData { SteamId = steamId };
+        progress?.Report(new("library", "Consultando biblioteca e horas na Steam…", Percent: 3));
         var known = previous?.SteamId == steamId ? previous.Games.FirstOrDefault(game => game.AppId == targetAppId) : null;
         if (known != null)
             result.Games.Add(new() { AppId = known.AppId, Id = known.Id, Name = known.Name, PlaytimeMinutes = known.PlaytimeMinutes, LastPlayedUnix = known.LastPlayedUnix });
@@ -136,7 +138,7 @@ public sealed class SteamWebApiClient(HttpClient http)
                 localCandidates.Add(id);
             }
         }
-        int completed = 0, unavailable = 0;
+        int unavailable = 0;
         bool limited = false;
         // Borrowed games may report lifetime minutes in recent activity only.
         if (!recentOnly && localCandidates.Count > 0)
@@ -157,10 +159,15 @@ public sealed class SteamWebApiClient(HttpClient http)
         }
         var pendingGames = result.Games.Where(game => (game.PlaytimeMinutes > 0 || targetAppId.HasValue || localGames?.ContainsKey(game.AppId) == true) && (!targetAppId.HasValue || game.AppId == targetAppId)
             && (recentOnly || targetAppId.HasValue || !oldGames.TryGetValue(game.AppId, out var cached) || (localCandidates.Contains(game.AppId) && cached.Achievements.Count == 0) || cached.AchievementsCheckedUtc <= DateTimeOffset.UtcNow.AddHours(-24) || cached.AchievementsCheckedUtc == null || cached.PlaytimeMinutes != game.PlaytimeMinutes || cached.Achievements.Any(item => !item.GlobalUnlockPercent.HasValue || item.IconUrl == null))).ToList();
+        progress?.Report(new("achievements", pendingGames.Count > 0
+            ? $"Importando troféus: 0 de {pendingGames.Count} jogos concluídos…"
+            : "Troféus já estão atualizados.", 0, pendingGames.Count, pendingGames.Count == 0 ? 98 : 5));
+        int achievementsCompleted = 0;
         foreach (var game in pendingGames)
         {
             if (limited) break;
-            progress?.Report($"Consultando conquistas: {++completed}/{pendingGames.Count} — {game.Name}");
+            progress?.Report(new("achievements", $"Importando troféus de {game.Name} ({achievementsCompleted + 1} de {pendingGames.Count})…",
+                achievementsCompleted, pendingGames.Count, 5 + (pendingGames.Count == 0 ? 93 : achievementsCompleted * 93 / pendingGames.Count)));
             try
             {
                 using var achievements = await GetAsync("ISteamUserStats/GetPlayerAchievements/v1", "steamid=" + steamId + "&appid=" + game.AppId + "&l=portuguese", key, token);
@@ -207,13 +214,17 @@ public sealed class SteamWebApiClient(HttpClient http)
             }
             catch (RateLimitedException) { limited = true; break; }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException) { unavailable++; }
+            achievementsCompleted++;
+            progress?.Report(new("achievements", $"Troféus importados: {achievementsCompleted} de {pendingGames.Count} jogos concluídos.",
+                achievementsCompleted, pendingGames.Count, 5 + achievementsCompleted * 93 / Math.Max(1, pendingGames.Count)));
             await Task.Delay(200, token).ConfigureAwait(false);
             if (limited) break;
         }
         result.Games.RemoveAll(game => localCandidates.Contains(game.AppId) && game.Achievements.Count == 0 && game.PlaytimeMinutes == 0);
         if (unlisted != null && (string.IsNullOrWhiteSpace(unlisted.Name) || unlisted.Achievements.Count == 0)) result.Games.Remove(unlisted);
-        progress?.Report(limited ? "Horas importadas. A Steam limitou a atualização das conquistas; as anteriores foram preservadas."
-            : unavailable == 0 ? "Dados Steam importados." : $"Dados importados. Conquistas indisponíveis em {unavailable} jogo(s); dados anteriores preservados.");
+        string completionMessage = limited ? "Horas importadas. A Steam limitou a atualização dos troféus; os dados anteriores foram preservados."
+            : unavailable == 0 ? "Dados Steam importados." : $"Dados importados. Troféus indisponíveis em {unavailable} jogo(s); dados anteriores foram preservados.";
+        progress?.Report(new("complete", completionMessage, pendingGames.Count, pendingGames.Count, limited || unavailable > 0 ? 98 : 100));
         var merged = SteamProfileMerge.Merge(previous?.SteamId == steamId ? previous : null, result)!;
         merged.RetryRequired = limited || ((recentOnly || targetAppId.HasValue) && (unavailable > 0 || (targetAppId.HasValue && !result.Games.Any(game => game.AppId == targetAppId))));
         return merged;

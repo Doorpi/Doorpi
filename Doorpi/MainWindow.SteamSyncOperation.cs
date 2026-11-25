@@ -10,6 +10,11 @@ public partial class MainWindow
         public bool Pending { get; set; }
         public string Account { get; set; } = "";
         public string Message { get; set; } = "";
+        public string Phase { get; set; } = "";
+        public int Current { get; set; }
+        public int Total { get; set; }
+        public int Percent { get; set; }
+        public bool FirstSync { get; set; }
         public DateTimeOffset UpdatedUtc { get; set; }
     }
     private readonly HashSet<string> _steamResumeAttempts = new(StringComparer.OrdinalIgnoreCase);
@@ -126,8 +131,15 @@ public partial class MainWindow
         }
         finally { _steamRefreshRunning = false; }
     }
-    private void SaveSteamOperation(string directory, string account, bool pending, string message)
-        => StateStorage.WriteAllText(Path.Combine(directory, "steam-sync-operation.json"), JsonSerializer.Serialize(new SteamSyncOperation { Pending = pending, Account = account, Message = message, UpdatedUtc = DateTimeOffset.UtcNow }), keepBackup: false);
+    private void SaveSteamOperation(string directory, string account, bool pending, string message,
+        SteamImportProgressUpdate? progress = null, bool firstSync = false)
+        => StateStorage.WriteAllText(Path.Combine(directory, "steam-sync-operation.json"), JsonSerializer.Serialize(new SteamSyncOperation
+        {
+            Pending = pending, Account = account, Message = message, Phase = progress?.Phase ?? "",
+            Current = progress?.Current ?? 0, Total = progress?.Total ?? 0,
+            Percent = Math.Clamp(progress?.Percent ?? 0, 0, 100), FirstSync = firstSync,
+            UpdatedUtc = DateTimeOffset.UtcNow
+        }), keepBackup: false);
     private void NotifySteamOperation(string owner, string message, bool pending)
         => PostProfileSyncMessage(new { type = "doorpiNotification", id = "steam-import-" + owner, category = "profile-sync", profileId = owner, title = pending ? "Sincronizando Steam" : "Sincronização Steam", message, persistent = true });
     private void ResumePendingSteamImport(string owner)
