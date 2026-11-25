@@ -1,51 +1,45 @@
 {
   "schemaVersion": 1,
   "channel": "beta",
-  "manifestVersion": 1795638744506,
-  "publishedAt": "2026-11-25T20:34:03.1959942Z",
-  "expiresAt": "2026-12-09T20:34:03.1959942Z",
+  "manifestVersion": 1795641317128,
+  "publishedAt": "2026-11-25T21:16:54.1800923Z",
+  "expiresAt": "2026-12-09T21:16:54.1800923Z",
   "minimumSupportedManifestVersion": 1,
   "doorpi": {
-    "version": "0.6.31",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.31/doorpi-0.6.31.doorpiupdate.zip",
-    "sha256": "e37969f73b17a6d6ce30dffab452921bbd6a0cf8de3b87acb00c4a8db40e18ac",
-    "sizeBytes": 138126535,
+    "version": "0.6.32",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.32/doorpi-0.6.32.doorpiupdate.zip",
+    "sha256": "4ea3b1202f3b03bd92e391ee094591a07ad53dc4d12e30bbbf2379c2a5428f74",
+    "sizeBytes": 138129837,
     "minUpdaterVersion": "0.1.3",
     "forceUpdate": false,
     "allowRollback": false
   },
   "updater": {
     "version": "0.1.3",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.31/updater-0.1.3.doorpiupdate.zip",
-    "sha256": "916f512defebc740e6687b358bb0dd7f5848e2f75138f6bf3e433bda05a427e2",
-    "sizeBytes": 73560309,
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.32/updater-0.1.3.doorpiupdate.zip",
+    "sha256": "289bb28aaa42c022f7f956bc09bd0773b17e924d120bdac21908ee875dd9e266",
+    "sizeBytes": 73560313,
     "forceUpdate": false,
     "allowRollback": false
   },
   "changelog": [
     {
-      "version": "0.6.31",
-      "title": "Doorpi 0.6.31",
+      "version": "0.6.32",
+      "title": "Doorpi 0.6.32",
       "items": [
-        "Corrigida a sincronização da conta Doorpi.",
-        "Corrigidos diversos pequenos bugs.",
-        "Melhorias de qualidade de vida ao fechar e iniciar jogos."
+        "Melhorias na sincronização de perfil na nuvem."
       ],
       "locales": {
         "pt-BR": {
-          "title": "Doorpi 0.6.31",
+          "title": "Doorpi 0.6.32",
           "items": [
-            "Corrigida a sincronização da conta Doorpi.",
-            "Corrigidos diversos pequenos bugs.",
-            "Melhorias de qualidade de vida ao fechar e iniciar jogos."
+            "Melhorias na sincronização de perfil na nuvem."
           ]
         },
         "en": {
-          "title": "Doorpi 0.6.31",
+          "title": "Doorpi 0.6.32",
           "items": [
-            "Fixed Doorpi account synchronization.",
-            "Fixed several minor bugs.",
-            "Quality-of-life improvements when closing and launching games."
+            "Improved cloud profile synchronization."
           ]
         }
       }
@@ -54,6 +48,6 @@
   "signature": {
     "algorithm": "RSA-SHA256-PKCS1",
     "keyId": "6b65ba1c963d49d6",
-    "value": "eVRsFM+QdOf8OX2h4g6Cplncp0Ch9EGtJ4xEvP+DgvMQBAsiiYIUxHFx9Q9+6fU5Appb6znrsAnWgCP/GklBwKJRXK3+dmgQABPzbwustIZkP3ZkvfwUAOgwCpKE65UfVIxAIMa3IG9AEuvECp5YHVKNT0h2KvRrSfOvCPCxfvqPBC9y943sg7VC+2JSpp3NGS0BHCplBh/pH0zQl3e8BlbULoxaj+aErM+QUrKa9cL/PDNoL8siPsb4tjAGCxvHmagB1NVrxNqJYDucAXIOviCxb3KEKZ64ddOAEwmt60P3h9m8l/AzWTfjJ3EnnTvgpvigb/K9XXes32mEjaF9R2gAIW7ynsbSE0aZyX0JNYSrYWJoGMePm7FBUSjmhnV60Tad7HjbSC+FPPmm5UrPfxc0pSyWm/CbV9xxaxJLQpLRrkihlksT0WicxuVFeWYlEY3T1MjI06gBFDnttE9gWXnMik873XstGK5JsLYguN/oQlGm8TVKKDTeTzghP5Yn"
+    "value": "IjHMnX3z2i7P68OpE+U4/wbnB/111u8cDn/QX03O60zVNKvgaiYd8KsxyPRD9F3ql5B1NW1w+c9UoGNdhJSeQl+rosvkjO/BTzh4tu62myXWrhb+9qlOXY/qeDkBK2PqtQX/eijMkttusnev7SRZmEYcuBkPuPEDhMkodg4jDhSe3vgQd0WzKxjY3aDCcwZ6XG9n5ZkIaz6J8BOgrIUgtRx6Q9MW6pYgVHnWjMw28FDvb7D7d+DQMtmdV8Es6axjr5xAWfc2o8cUxx1W/eJ+A1iXHGc/XxCx2trFFhKjuVR1OeUakWP9Fd7pT7d18WRxNFvzil9Mhs1ZvR83GMVsBMSfuloGBTr5VIc+FJGofI2eec5Y1mrn9DPs8EV0mzpVzcJDVfTi1alvuLDlyn+l/GmtgMffvD3IbVFaQB856mEQhKuhhUVd5poBz03Y6n7kl80LYU01kdjCdrAsLICgxBVTFlEiPxmqY/CLVeH+9NNJfhP22ogmOZzF86sGr2XV"
   }
 }
