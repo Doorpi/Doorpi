@@ -1,4 +1,9 @@
 window.requestDoorpiBackAction = function () {
+    if (window.DoorpiScreenshotGallery?.back?.()) {
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (window._doorpiMediaPermanentDialogBack?.()) {
         window.DoorpiUiSound?.play('back');
         return true;

@@ -95,10 +95,31 @@ public partial class MainWindow
             ? ""
             : Path.Combine(currentUserDataFolder, "controls.json");
 
+    private static ControlBinding CreateScreenshotBinding() => new()
+    {
+        Id = "global-screenshot-capture",
+        Name = "Capturar tela do jogo",
+        Enabled = false,
+        Action = new ControlAction { Type = "system", SystemCommand = "screenshot" }
+    };
+
+    private static bool EnsureGlobalScreenshotBinding(ControlProfile profile)
+    {
+        if (!IsGlobalControlProfile(profile) || profile.Bindings.Any(binding =>
+                binding.Action is { Type: "system", SystemCommand: "screenshot" } ||
+                string.Equals(binding.Id, "global-screenshot-capture", StringComparison.OrdinalIgnoreCase)))
+            return false;
+        profile.Bindings.Add(CreateScreenshotBinding());
+        return true;
+    }
+
     private static ControlProfile CreateDefaultGlobalControlProfile()
         => new()
         {
             Id = "global-default",
+            // Generated defaults must sort before any user edit during cloud merge.
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+            UpdatedAtUtc = DateTimeOffset.UnixEpoch,
             Name = "Atalhos globais",
             Category = "global",
             TargetKind = "global",
@@ -126,7 +147,8 @@ public partial class MainWindow
                     SecondaryControllerButtons = new List<string> { "lb", "rb", "r3" },
                     SecondaryTrigger = "press",
                     Action = new ControlAction { Type = "system", SystemCommand = "doorpi-return" }
-                }
+                },
+                CreateScreenshotBinding()
             }
         };
 
@@ -451,6 +473,7 @@ public partial class MainWindow
             foreach (ControlProfile profile in document.Profiles.ToList())
             {
                 NormalizeControlProfile(profile);
+                requiresMigration |= EnsureGlobalScreenshotBinding(profile);
                 bool removedLegacyGeneratedPointerBindings =
                     loadedSchemaVersion < 8 && RemoveLegacyGeneratedPointerBindings(profile);
                 if (removedLegacyGeneratedPointerBindings)
@@ -674,6 +697,11 @@ public partial class MainWindow
                 secondaryLongPressLimit);
             binding.Action ??= new ControlAction();
             NormalizeControlAction(binding.Action);
+            // Older clients cleared unknown system commands. Only the built-in ID
+            // identifies this action unambiguously; keep its chord and enabled flag.
+            if (binding.Id == "global-screenshot-capture" &&
+                binding.Action is { Type: "system", SystemCommand: "" })
+                binding.Action.SystemCommand = "screenshot";
         }
     }
 
@@ -842,6 +870,7 @@ public partial class MainWindow
             "doorpi-return" => "doorpi-return",
             "close-web-app" => "close-web-app",
             "youtube-play-pause" => "youtube-play-pause",
+            "screenshot" => "screenshot",
             _ => ""
         };
     }
@@ -1012,7 +1041,9 @@ public partial class MainWindow
                 ControlConfigurationDocument document = LoadControlConfiguration();
                 document.Profiles.RemoveAll(profile =>
                     string.Equals(profile.TargetKind, "global", StringComparison.OrdinalIgnoreCase));
-                document.Profiles.Insert(0, CreateDefaultGlobalControlProfile());
+                var reset = CreateDefaultGlobalControlProfile();
+                reset.UpdatedAtUtc = DateTimeOffset.UtcNow;
+                document.Profiles.Insert(0, reset);
                 SaveControlConfiguration(document);
             }
             SendGlobalControlEditorToUi();
@@ -2607,6 +2638,10 @@ public partial class MainWindow
             {
                 DispatchYouTubePlayPauseToRenderer();
             }
+            else if (action.SystemCommand == "screenshot")
+            {
+                _ = CaptureActiveGameScreenshotAsync();
+            }
             return;
         }
 
@@ -2872,6 +2907,7 @@ public partial class MainWindow
             result.HasSecondaryActivations = true;
         }
         NormalizeControlProfile(result);
+        EnsureGlobalScreenshotBinding(result);
         return result;
     }
 

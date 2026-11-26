@@ -224,6 +224,7 @@
             transition: opacity 0.13s ease, transform 0.13s ease;
             pointer-events: none;
         }
+        .context-menu.screenshot-context { z-index: 91000; }
         .context-menu.visible {
             opacity: 1; transform: scale(1) translateY(0); pointer-events: all;
         }

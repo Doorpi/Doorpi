@@ -52,6 +52,11 @@
         if (window.isDoorpiFileBrowserOpen?.()) return false;
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        if (window.DoorpiScreenshotGallery?.viewerOpen?.() && !document.querySelector('.context-menu.visible') && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key)) {
+            if (key === 'ArrowLeft' || key === 'ArrowRight')
+                window.DoorpiScreenshotGallery.moveViewer?.(key === 'ArrowLeft' ? 'LEFT' : 'RIGHT');
+            return true;
+        }
         const sortDialog = document.querySelector('.nav-profile-sort-dialog[open]');
         if (sortDialog) {
             if (['Backspace','Escape','y','Y'].includes(key)) sortDialog.close();
@@ -440,6 +445,18 @@
             } else if (key === 'ArrowLeft' && _contentIdx > 0) {
                 _contentIdx = 0;
                 _updateContentFocus();
+            }
+            return true;
+        }
+
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'screenshots' &&
+            ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+            if (window.DoorpiScreenshotGallery?.moveGalleryFocus?.(key.slice(5).toUpperCase())) {
+                const focusIndex = _contentItems.indexOf(document.activeElement);
+                if (focusIndex >= 0) {
+                    _contentIdx = focusIndex;
+                    _updateContentFocus();
+                }
             }
             return true;
         }

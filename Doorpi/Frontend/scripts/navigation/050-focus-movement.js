@@ -1,5 +1,9 @@
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
+    if (window.DoorpiScreenshotGallery?.viewerOpen?.() && !document.querySelector('.context-menu.visible')) {
+        window.DoorpiScreenshotGallery.moveViewer?.(direction);
+        return;
+    }
 
     if (window.DoorpiProfileSync?.isOpen?.()) {
         window.DoorpiProfileSync.moveFocus?.(direction);

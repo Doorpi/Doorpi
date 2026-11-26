@@ -17108,6 +17108,7 @@ namespace Doorpi
                 {
                     var controllerSnapshot = XInputControllerHub.Read();
                     buttonTracker.Update(controllerSnapshot);
+                    ProcessScreenshotShortcut(controllerSnapshot);
                     if (BrowserPermissionDialog.InputCaptured) { Thread.Sleep(16); continue; }
                     if (buttonTracker.TaskSwitcherShortcutJustPressed ||
                         Volatile.Read(ref _nativeTaskSwitcherActive) == 1)
@@ -17309,6 +17310,7 @@ namespace Doorpi
             try { CommitActiveSession(); } catch { }
             try { _playtimeCheckpointTimer?.Dispose(); } catch { }
             _playtimeCheckpointTimer = null;
+            try { StopScreenshotShareSessionForShutdown(); } catch { }
 
             DiscordRpcManager.Instance.Dispose();
             DisposeBluetoothManager();

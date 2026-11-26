@@ -21,6 +21,7 @@
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
             if (section === 'storage') return storageContent();
+            if (section === 'screenshots') return window.DoorpiScreenshotGallery?.renderInto?.(null, 'quick') || `<section class="dq-content"><h1 class="dq-heading">${t('screenshotGalleryTitle')}</h1></section>`;
             if (section === 'sound') return soundContent();
             if (section === 'connectivity') {
                 if (connectivityView === 'bluetooth') return bluetoothContent();
@@ -44,6 +45,7 @@
                 if (storageView === 'category') return '[data-storage-detail-scroll]';
                 return '.dq-drive-tab.active';
             }
+            if (sectionId === 'screenshots') return '.shot-game-card, .shot-photo-card, .shot-empty';
             if (sectionId === 'sound') return '.sound-focus';
             if (sectionId === 'connectivity') {
                 if (connectivityView === 'bluetooth') return '.bluetooth-focus';
@@ -76,6 +78,12 @@
             if (el.dataset?.soundVolumeControl) return `[data-sound-volume-control="${CSS.escape(el.dataset.soundVolumeControl)}"]`;
             if (el.dataset?.soundDeviceOption) return `[data-sound-device-option="${CSS.escape(el.dataset.soundDeviceOption)}"]`;
             if (el.dataset?.soundItem) return `[data-sound-item="${CSS.escape(el.dataset.soundItem)}"]`;
+            if (el.dataset?.shotGame) return `[data-shot-game="${CSS.escape(el.dataset.shotGame)}"]`;
+            if (el.dataset?.shotOpen) return `[data-shot-open="${CSS.escape(el.dataset.shotOpen)}"]`;
+            if (el.matches('[data-shot-back-games]')) return '[data-shot-back-games]';
+            if (el.matches('[data-shot-folder]')) return '[data-shot-folder]';
+            if (el.matches('[data-shot-close]')) return '[data-shot-close]';
+            if (el.matches('.shot-viewer')) return '.shot-viewer';
             if (el.dataset?.soundSlider) return `[data-sound-slider="${CSS.escape(el.dataset.soundSlider)}"]`;
             if (el.dataset?.btMenuId) return `[data-bt-menu-id="${CSS.escape(el.dataset.btMenuId)}"]`;
             if (el.dataset?.deviceId) return `[data-device-id="${CSS.escape(el.dataset.deviceId)}"]`;
@@ -123,6 +131,12 @@
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
             if (section === 'updates' && !sameSection) updateView = 'hub';
             if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
+            if (section === 'screenshots') {
+                window.DoorpiScreenshotGallery?.enter();
+                depth = 'content';
+                render(contentFocusFor(section));
+                return;
+            }
             depth = 'content';
             if (sameSection && depth === 'content') {
                 const target = document.getElementById('doorpiQuickPanel')?.querySelector(contentFocusFor(section));

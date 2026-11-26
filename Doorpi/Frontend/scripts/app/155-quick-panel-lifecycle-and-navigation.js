@@ -128,6 +128,12 @@
 
         function handleDirection(direction) {
             if (!api.isOpen()) return false;
+            if (document.querySelector('.context-menu.visible')) return false;
+            if (window.DoorpiScreenshotGallery?.viewerOpen?.()) {
+                window.DoorpiScreenshotGallery.moveViewer?.(direction);
+                return true;
+            }
+            if (section === 'screenshots') return window.DoorpiScreenshotGallery?.moveGalleryFocus?.(direction) === true;
             if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
             if (section === 'updates' && active?.matches('.dq-release-notes') && (direction === 'DOWN' || direction === 'UP')) {

@@ -176,6 +176,12 @@ internal sealed class BrowserWindowSession : IDisposable
     private readonly bool _canClose;
     private int _closed;
 
+    /// <summary>
+    /// True when the session has a browser window handle that Doorpi can close
+    /// without affecting other browser windows that predated the session.
+    /// </summary>
+    public bool CanCloseLaunchedWindow => _canClose;
+
     private BrowserWindowSession(
         string processName,
         HashSet<nint> windowsBeforeLaunch,
@@ -188,8 +194,9 @@ internal sealed class BrowserWindowSession : IDisposable
         _canClose = canClose;
     }
 
-    public static Task<BrowserWindowSession> OpenAsync(string url, CancellationToken cancellationToken)
+    public static Task<BrowserWindowSession> OpenAsync(string url, CancellationToken cancellationToken, bool fullscreen = false)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         BrowserLaunchInfo browser = BrowserLaunchInfo.Resolve();
         if (browser.UseShellFallback)
         {
@@ -207,13 +214,19 @@ internal sealed class BrowserWindowSession : IDisposable
             UseShellExecute = false
         };
         startInfo.ArgumentList.Add(browser.NewWindowArgument);
+        if (fullscreen && !browser.ProcessName.Equals("firefox", StringComparison.OrdinalIgnoreCase))
+            startInfo.ArgumentList.Add("--start-fullscreen");
         startInfo.ArgumentList.Add(url);
         Process.Start(startInfo)?.Dispose();
 
         Task<nint> handleTask = FindNewWindowAsync(
             browser.ProcessName,
             existingWindows,
-            cancellationToken);
+            // Once the process has been launched, tracking the newly-created
+            // window must outlive the caller's cancellation token. Otherwise a
+            // fast "return" action could cancel discovery before CloseAsync has
+            // a handle to close the window Doorpi just opened.
+            CancellationToken.None);
         return Task.FromResult(new BrowserWindowSession(
             browser.ProcessName,
             existingWindows,
@@ -226,7 +239,7 @@ internal sealed class BrowserWindowSession : IDisposable
         if (Interlocked.Exchange(ref _closed, 1) != 0) return;
         if (!_canClose) return;
         nint handle;
-        try { handle = await _windowHandleTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
+        try { handle = await _windowHandleTask.WaitAsync(TimeSpan.FromSeconds(7)).ConfigureAwait(false); }
         catch { handle = FindLargestNewWindow(_processName, _windowsBeforeLaunch); }
         if (handle != 0 && IsWindow(handle))
         {
@@ -234,6 +247,94 @@ internal sealed class BrowserWindowSession : IDisposable
             for (int attempt = 0; attempt < 25 && IsWindow(handle); attempt++)
                 await Task.Delay(40).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Brings only the window created for this session to the foreground. This
+    /// is intentionally separate from opening the browser so callers can give
+    /// a page a short time to create its first document before sending input.
+    /// </summary>
+    public async Task<bool> TryActivateAsync(CancellationToken cancellationToken)
+    {
+        if (!_canClose || Volatile.Read(ref _closed) != 0) return false;
+
+        nint handle;
+        try
+        {
+            handle = await _windowHandleTask
+                .WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { return false; }
+        catch { handle = FindLargestNewWindow(_processName, _windowsBeforeLaunch); }
+
+        if (handle == 0 || !IsWindow(handle)) return false;
+        if (IsIconic(handle)) ShowWindow(handle, SwRestore);
+        SetForegroundWindow(handle);
+        return GetForegroundWindow() == handle;
+    }
+
+    public async Task<bool> PrepareShareWindowAsync(CancellationToken cancellationToken)
+    {
+        nint handle;
+        try { handle = await _windowHandleTask.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false); }
+        catch (TimeoutException) { return false; }
+        if (handle == 0 || !IsWindow(handle) || Volatile.Read(ref _closed) != 0) return false;
+        await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+        if (!IsWindow(handle) || Volatile.Read(ref _closed) != 0) return false;
+        if (_processName.Equals("chrome", StringComparison.OrdinalIgnoreCase))
+        {
+            // A new window can inherit an existing Chrome process and ignore
+            // --start-fullscreen. Only toggle when it still has a caption;
+            // Chromium's own IDC_FULLSCREEN command targets this HWND alone.
+            if ((GetWindowLong(handle, -16) & 0x00C00000) != 0)
+                PostMessage(handle, 0x0111, 34030, 0); // WM_COMMAND / IDC_FULLSCREEN
+        }
+        else if (_processName.Equals("firefox", StringComparison.OrdinalIgnoreCase))
+            ShowWindow(handle, 3); // SW_MAXIMIZE
+        SetForegroundWindow(handle);
+        await Task.Delay(300, cancellationToken).ConfigureAwait(false);
+        return GetForegroundWindow() == handle;
+    }
+
+    public async Task<bool> WaitForSharePageAsync(CancellationToken cancellationToken)
+    {
+        nint handle;
+        try { handle = await _windowHandleTask.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false); }
+        catch (TimeoutException) { return false; }
+        if (handle == 0) return false;
+        string previous = "";
+        int stable = 0;
+        for (int attempt = 0; attempt < 80 && IsWindow(handle); attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var title = new StringBuilder(512);
+            GetWindowText(handle, title, title.Capacity);
+            string current = title.ToString();
+            // A stable X title is only a readiness hint, not proof that the
+            // page or its editor is ready. Never paste repeatedly.
+            bool looksReady = current.Contains(" / X", StringComparison.OrdinalIgnoreCase) ||
+                              current.Contains("Twitter", StringComparison.OrdinalIgnoreCase);
+            stable = looksReady && current == previous ? stable + 1 : 0;
+            previous = current;
+            if (stable >= 5) return true;
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+        }
+        return false;
+    }
+
+    public async Task<bool> IsShareWindowForegroundAsync()
+    {
+        if (!_windowHandleTask.IsCompletedSuccessfully) return false;
+        nint handle = await _windowHandleTask.ConfigureAwait(false);
+        return handle != 0 && IsWindow(handle) && GetForegroundWindow() == handle;
+    }
+
+    public async Task<bool> IsLaunchedWindowOpenAsync()
+    {
+        if (!_canClose || !_windowHandleTask.IsCompletedSuccessfully) return false;
+        nint handle = await _windowHandleTask.ConfigureAwait(false);
+        return handle != 0 && IsWindow(handle);
     }
 
     public async Task WaitForClosedAsync(CancellationToken cancellationToken)
@@ -305,6 +406,7 @@ internal sealed class BrowserWindowSession : IDisposable
     }
 
     private const uint WmClose = 0x0010;
+    private const int SwRestore = 9;
     private delegate bool EnumWindowsProc(nint hwnd, nint lParam);
 
     [DllImport("user32.dll")]
@@ -324,6 +426,24 @@ internal sealed class BrowserWindowSession : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool PostMessage(nint hwnd, uint message, nint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(nint hwnd, int command);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(nint hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(nint hwnd);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    private static extern int GetWindowLong(nint hwnd, int index);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(nint hwnd, StringBuilder text, int maxCount);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
