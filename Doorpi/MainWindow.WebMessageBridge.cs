@@ -74,6 +74,9 @@ namespace Doorpi
                 if (await TryHandleControlConfigurationWebMessageAsync(action, root).ConfigureAwait(true))
                     return;
 
+                if (await TryHandleScreenshotWebMessageAsync(action, root).ConfigureAwait(true))
+                    return;
+
                 if (await TryHandleDoorpiFileBrowserMessageAsync(action, root).ConfigureAwait(true))
                     return;
 

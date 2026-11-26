@@ -48,6 +48,7 @@
         }
 
         function wire(overlay) {
+            window.DoorpiScreenshotGallery?.wire?.(overlay.querySelector('.dq-screenshot-shell'), 'quick');
             wireBluetooth(overlay.querySelector('.dq-content'));
             wireWifi(overlay.querySelector('.dq-content'));
             wireSound(overlay.querySelector('.dq-content'));
@@ -73,6 +74,11 @@
                             programList.scrollTop + itemRect.top - listRect.top
                             - (programList.clientHeight - itemRect.height) / 2));
                         programList.scrollTop = top;
+                        return;
+                    }
+                    const screenshotCard = target.closest('.shot-game-card, .shot-photo-card, [data-shot-back-games], [data-shot-folder]');
+                    if (screenshotCard) {
+                        window.DoorpiScreenshotGallery?.revealFocus?.(screenshotCard);
                         return;
                     }
                     target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });

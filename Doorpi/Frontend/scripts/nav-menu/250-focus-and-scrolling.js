@@ -312,6 +312,7 @@
                 const isExtensionsView = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions';
                 const isSettingsHome = CATS[_catIdx]?.id === 'settings' && !_settingsSubView;
                 const isThemeSettings = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'themes';
+                const isScreenshotGallery = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'screenshots';
                 const isStorageView = CATS[_catIdx]?.id === 'settings'
                     && _settingsSubView === 'system'
                     && _systemSubView === 'storage';
@@ -322,6 +323,8 @@
                     _revealInsideScrollContainer(focused, focused.closest?.('.nav-settings-home-nav'));
                 } else if (isThemeSettings) {
                     _revealInsideScrollContainer(focused, focused.closest?.('.theme-settings-list'));
+                } else if (isScreenshotGallery) {
+                    window.DoorpiScreenshotGallery?.revealFocus?.(focused);
                 } else if (isExtensionsView) {
                     const list = focused.closest?.('.nav-ext-list');
                     if (list) {

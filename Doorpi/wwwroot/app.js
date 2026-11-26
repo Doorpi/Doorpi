@@ -8007,6 +8007,7 @@ function showUserPicker(users, requireSelection = false) {
             const items = [
                 ['updates', t('updatesTitle'), updateDot],
                 ['storage', t('quickStorageLabel'), ''],
+                ['screenshots', t('screenshotGalleryTitle'), ''],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
                 ['files', t('fileExplorerTitle'), ''],
@@ -8635,6 +8636,7 @@ function showUserPicker(users, requireSelection = false) {
             }
             if (section === 'users') return simpleContent(t('navChangeUser'), t('quickSwitchUserDesc'), t('navChangeUser'), 'open-users');
             if (section === 'storage') return storageContent();
+            if (section === 'screenshots') return window.DoorpiScreenshotGallery?.renderInto?.(null, 'quick') || `<section class="dq-content"><h1 class="dq-heading">${t('screenshotGalleryTitle')}</h1></section>`;
             if (section === 'sound') return soundContent();
             if (section === 'connectivity') {
                 if (connectivityView === 'bluetooth') return bluetoothContent();
@@ -8658,6 +8660,7 @@ function showUserPicker(users, requireSelection = false) {
                 if (storageView === 'category') return '[data-storage-detail-scroll]';
                 return '.dq-drive-tab.active';
             }
+            if (sectionId === 'screenshots') return '.shot-game-card, .shot-photo-card, .shot-empty';
             if (sectionId === 'sound') return '.sound-focus';
             if (sectionId === 'connectivity') {
                 if (connectivityView === 'bluetooth') return '.bluetooth-focus';
@@ -8690,6 +8693,12 @@ function showUserPicker(users, requireSelection = false) {
             if (el.dataset?.soundVolumeControl) return `[data-sound-volume-control="${CSS.escape(el.dataset.soundVolumeControl)}"]`;
             if (el.dataset?.soundDeviceOption) return `[data-sound-device-option="${CSS.escape(el.dataset.soundDeviceOption)}"]`;
             if (el.dataset?.soundItem) return `[data-sound-item="${CSS.escape(el.dataset.soundItem)}"]`;
+            if (el.dataset?.shotGame) return `[data-shot-game="${CSS.escape(el.dataset.shotGame)}"]`;
+            if (el.dataset?.shotOpen) return `[data-shot-open="${CSS.escape(el.dataset.shotOpen)}"]`;
+            if (el.matches('[data-shot-back-games]')) return '[data-shot-back-games]';
+            if (el.matches('[data-shot-folder]')) return '[data-shot-folder]';
+            if (el.matches('[data-shot-close]')) return '[data-shot-close]';
+            if (el.matches('.shot-viewer')) return '.shot-viewer';
             if (el.dataset?.soundSlider) return `[data-sound-slider="${CSS.escape(el.dataset.soundSlider)}"]`;
             if (el.dataset?.btMenuId) return `[data-bt-menu-id="${CSS.escape(el.dataset.btMenuId)}"]`;
             if (el.dataset?.deviceId) return `[data-device-id="${CSS.escape(el.dataset.deviceId)}"]`;
@@ -8737,6 +8746,12 @@ function showUserPicker(users, requireSelection = false) {
             if (section === 'connectivity' && !sameSection) connectivityView = 'hub';
             if (section === 'updates' && !sameSection) updateView = 'hub';
             if (section === 'sound') postToHost?.({ action: 'requestSoundStatus' });
+            if (section === 'screenshots') {
+                window.DoorpiScreenshotGallery?.enter();
+                depth = 'content';
+                render(contentFocusFor(section));
+                return;
+            }
             depth = 'content';
             if (sameSection && depth === 'content') {
                 const target = document.getElementById('doorpiQuickPanel')?.querySelector(contentFocusFor(section));
@@ -9092,6 +9107,7 @@ function showUserPicker(users, requireSelection = false) {
         }
 
         function wire(overlay) {
+            window.DoorpiScreenshotGallery?.wire?.(overlay.querySelector('.dq-screenshot-shell'), 'quick');
             wireBluetooth(overlay.querySelector('.dq-content'));
             wireWifi(overlay.querySelector('.dq-content'));
             wireSound(overlay.querySelector('.dq-content'));
@@ -9117,6 +9133,11 @@ function showUserPicker(users, requireSelection = false) {
                             programList.scrollTop + itemRect.top - listRect.top
                             - (programList.clientHeight - itemRect.height) / 2));
                         programList.scrollTop = top;
+                        return;
+                    }
+                    const screenshotCard = target.closest('.shot-game-card, .shot-photo-card, [data-shot-back-games], [data-shot-folder]');
+                    if (screenshotCard) {
+                        window.DoorpiScreenshotGallery?.revealFocus?.(screenshotCard);
                         return;
                     }
                     target.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
@@ -9407,6 +9428,12 @@ function showUserPicker(users, requireSelection = false) {
 
         function handleDirection(direction) {
             if (!api.isOpen()) return false;
+            if (document.querySelector('.context-menu.visible')) return false;
+            if (window.DoorpiScreenshotGallery?.viewerOpen?.()) {
+                window.DoorpiScreenshotGallery.moveViewer?.(direction);
+                return true;
+            }
+            if (section === 'screenshots') return window.DoorpiScreenshotGallery?.moveGalleryFocus?.(direction) === true;
             if (section === 'sound' && window.DoorpiSoundUI?.handleDirection?.('quick', direction)) return true;
             const active = document.activeElement;
             if (section === 'updates' && active?.matches('.dq-release-notes') && (direction === 'DOWN' || direction === 'UP')) {
@@ -11520,6 +11547,7 @@ function renderFolderList(folders) {
             transition: opacity 0.13s ease, transform 0.13s ease;
             pointer-events: none;
         }
+        .context-menu.screenshot-context { z-index: 91000; }
         .context-menu.visible {
             opacity: 1; transform: scale(1) translateY(0); pointer-events: all;
         }
@@ -12223,6 +12251,16 @@ function renderFolderList(folders) {
             <button class="ctx-item ctx-danger" id="ctxDeleteMediaPermanent" role="menuitem">
                 <span class="ctx-icon">⊘</span> <span>${t('mediaHistoryDeletePermanent')}</span>
             </button>
+            <div class="ctx-separator" id="ctxScreenshotSeparator"></div>
+            <button class="ctx-item" id="ctxScreenshotShareX" role="menuitem" style="display:none">
+                <span class="ctx-icon">𝕏</span> <span>${t('screenshotShareToX')}</span>
+            </button>
+            <button class="ctx-item" id="ctxScreenshotMove" role="menuitem" style="display:none">
+                <span class="ctx-icon">↗</span> <span>${t('screenshotMoveToFolder')}</span>
+            </button>
+            <button class="ctx-item ctx-danger" id="ctxScreenshotDelete" role="menuitem" style="display:none">
+                <span class="ctx-icon">✕</span> <span>${t('screenshotDelete')}</span>
+            </button>
         `;
         document.body.appendChild(el);
         return el;
@@ -12393,15 +12431,25 @@ function renderFolderList(folders) {
             .some(id => String(id).toLowerCase() === 'youtube');
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
+        const isScreenshot = card.dataset.doorpiScreenshotContext === 'true';
         const isHistoryCard = !!card.dataset.historyGameName;
         const isMediaHistoryCard = card.dataset.mediaHistory === 'true';
         _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
         _ctxMenu.classList.toggle('bluetooth-device-context', isBluetoothDeviceCard);
+        _ctxMenu.classList.toggle('screenshot-context', isScreenshot);
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
         const ctxDeleteMediaPermanentBtn = _ctxMenu.querySelector('#ctxDeleteMediaPermanent');
+        const ctxScreenshotSeparator = _ctxMenu.querySelector('#ctxScreenshotSeparator');
+        const ctxScreenshotShareXBtn = _ctxMenu.querySelector('#ctxScreenshotShareX');
+        const ctxScreenshotMoveBtn = _ctxMenu.querySelector('#ctxScreenshotMove');
+        const ctxScreenshotDeleteBtn = _ctxMenu.querySelector('#ctxScreenshotDelete');
         if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
+        if (ctxScreenshotSeparator) ctxScreenshotSeparator.style.display = 'none';
+        if (ctxScreenshotShareXBtn) ctxScreenshotShareXBtn.style.display = 'none';
+        if (ctxScreenshotMoveBtn) ctxScreenshotMoveBtn.style.display = 'none';
+        if (ctxScreenshotDeleteBtn) ctxScreenshotDeleteBtn.style.display = 'none';
         const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
         const ctxRuntimeBtn = _ctxMenu.querySelector('#ctxRuntimeAction');
         const ctxRuntimeText = _ctxMenu.querySelector('#ctxRuntimeActionText');
@@ -12473,7 +12521,15 @@ function renderFolderList(folders) {
             _ctxMenu.appendChild(ctxCloseBtn);
         }
 
-        if (isHistoryCard) {
+        if (isScreenshot) {
+            _ctxMenu.querySelectorAll('.ctx-item').forEach(item => item.style.display = 'none');
+            _ctxMenu.querySelectorAll('.ctx-separator').forEach(item => item.style.display = 'none');
+            if (ctxScreenshotShareXBtn) ctxScreenshotShareXBtn.style.display = 'flex';
+            if (ctxScreenshotMoveBtn) ctxScreenshotMoveBtn.style.display = 'flex';
+            if (ctxScreenshotDeleteBtn) ctxScreenshotDeleteBtn.style.display = 'flex';
+            _ctxMenu.querySelector('#ctxGameName').textContent = [card.dataset.screenshotGameName, card.dataset.screenshotCapturedAt]
+                .filter(Boolean).join(' · ');
+        } else if (isHistoryCard) {
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'none';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -12611,7 +12667,12 @@ function renderFolderList(folders) {
         isCtxMenuOpen = false;
         _ctxMenu.classList.remove('visible');
 
-        if (_ctxCard) _ctxCard.classList.remove('ctx-active');
+        if (_ctxCard) {
+            _ctxCard.classList.remove('ctx-active');
+            if (_ctxCard.dataset.doorpiScreenshotContext === 'true')
+                window.DoorpiScreenshotGallery?.contextMenuClosed?.(_ctxCard);
+        }
+        _ctxMenu.classList.remove('screenshot-context');
 
         setTimeout(() => { if (!_ctxMenu.classList.contains('visible')) _ctxMenu.style.display = 'none'; }, 160);
         const card = _ctxCard;
@@ -12651,6 +12712,24 @@ function renderFolderList(folders) {
         const appId = card?.dataset.appId || card?.dataset.gameId || '';
         _closeCtxMenu({ restoreFocus: false });
         if (appId) window._navMenuOpenAccountSharing?.(appId);
+    });
+
+    document.getElementById('ctxScreenshotMove')?.addEventListener('click', () => {
+        const id = _ctxCard?.dataset?.screenshotId || '';
+        _closeCtxMenu();
+        if (id) window.DoorpiScreenshotGallery?.contextAction?.('move', id);
+    });
+
+    document.getElementById('ctxScreenshotShareX')?.addEventListener('click', () => {
+        const id = _ctxCard?.dataset?.screenshotId || '';
+        _closeCtxMenu();
+        if (id) window.DoorpiScreenshotGallery?.contextAction?.('share-x', id);
+    });
+
+    document.getElementById('ctxScreenshotDelete')?.addEventListener('click', () => {
+        const id = _ctxCard?.dataset?.screenshotId || '';
+        _closeCtxMenu();
+        if (id) window.DoorpiScreenshotGallery?.contextAction?.('delete', id);
     });
 
     document.getElementById('ctxStoreGamepadControl').addEventListener('click', (event) => {

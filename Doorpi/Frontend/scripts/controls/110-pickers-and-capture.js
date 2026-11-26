@@ -42,7 +42,8 @@
     function openGlobalPicker() {
         const choices = [
             ['doorpi-return', lang() === 'pt' ? 'Voltar ao Doorpi' : 'Return to Doorpi'],
-            ['task-switcher', lang() === 'pt' ? 'Alternar entre janelas' : 'Switch windows']
+            ['task-switcher', lang() === 'pt' ? 'Alternar entre janelas' : 'Switch windows'],
+            ['screenshot', tx('screenshotAction')]
         ];
         openPopup(`<div class="cc-dialog"><div class="cc-dialog-head"><div><h2>${tx('chooseGlobal')}</h2><p>${tx('chooseGlobalDesc')}</p></div><button class="cc-btn" data-cc-focus data-popup-close>${tx('close')}</button></div><div class="cc-picker-list">${choices.map(([command,label]) => `<button class="cc-picker-item" data-cc-focus data-global-choice="${command}"><span class="cc-picker-icon">${iconSvg('system')}</span><span><strong>${label}</strong><span>${tx('systemAction')}</span></span>${iconSvg('chevron')}</button>`).join('')}</div></div>`, 'global');
         state.overlay.querySelectorAll('[data-global-choice]').forEach(button => button.addEventListener('click', () => {

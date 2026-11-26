@@ -101,6 +101,7 @@ function signalNavigation() {
 
 function triggerContextMenu() {
     if (isModalOpen || isCtxMenuOpen || isEditModalOpen || isVkbOpenForNavigation() || window.isGlobalLoading) return;
+    if (window.DoorpiScreenshotGallery?.openContextMenu?.()) return;
     if (window.isNavMenuOpen) { window._navMenuTriggerCtxMenu?.(); return; }
 
     const focused = document.activeElement;
@@ -914,6 +915,10 @@ function gamepadTriangle() {
 
 function moveFocus(direction) {
     if (window.isGlobalLoading) return;
+    if (window.DoorpiScreenshotGallery?.viewerOpen?.() && !document.querySelector('.context-menu.visible')) {
+        window.DoorpiScreenshotGallery.moveViewer?.(direction);
+        return;
+    }
 
     if (window.DoorpiProfileSync?.isOpen?.()) {
         window.DoorpiProfileSync.moveFocus?.(direction);
@@ -1726,6 +1731,11 @@ function isDoorpiGameInputSuppressed() {
 }
 
 window.requestDoorpiBackAction = function () {
+    if (window.DoorpiScreenshotGallery?.back?.()) {
+        window.DoorpiUiSound?.play('back');
+        return true;
+    }
+
     if (window._doorpiMediaPermanentDialogBack?.()) {
         window.DoorpiUiSound?.play('back');
         return true;
@@ -2387,8 +2397,24 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             }, NAV.GAMEPAD.REPEAT_DELAY + 50);
         }
         if (isCtxMenuOpen) {
-            _currentDirection = null;
-            _moveState = 0;
+            // O D-pad chega como eventos Arrow* pelo navegador. Aqui lemos
+            // somente o analógico para evitar que um toque avance duas vezes.
+            const contextAnalogDir = axisDirection(gamepad, thr);
+            if (contextAnalogDir && contextAnalogDir !== _currentDirection) {
+                _currentDirection = contextAnalogDir;
+                _controlsDirectionStartedAt = now;
+                _controlsDirectionLastMoveAt = now;
+                moveFocus(contextAnalogDir);
+            } else if (contextAnalogDir &&
+                       now - _controlsDirectionStartedAt >= GAMEPAD.INITIAL_DELAY &&
+                       now - _controlsDirectionLastMoveAt >= GAMEPAD.REPEAT_DELAY) {
+                _controlsDirectionLastMoveAt = now;
+                moveFocus(contextAnalogDir);
+            } else if (!contextAnalogDir) {
+                _currentDirection = null;
+                _controlsDirectionStartedAt = 0;
+                _controlsDirectionLastMoveAt = 0;
+            }
             if (primaryJustPressed(buttons, GAMEPAD)) {
                 document.activeElement?.click();
             }
@@ -2408,6 +2434,10 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
             return;
         }
         // -------------------------------
+
+        if (!isCtxMenuOpen && !isVkbOpenForNavigation() && window.DoorpiScreenshotGallery?.shareSelectionActive?.() &&
+            buttonJustPressed(buttons[GAMEPAD.BTN_START], GAMEPAD.BTN_START) &&
+            window.DoorpiScreenshotGallery?.confirmShareSelection?.()) return;
 
         if (window.isDoorpiOverlayOpen?.() && !isVkbOpenForNavigation()) {
             if (primaryJustPressed(buttons, GAMEPAD)) {
@@ -2479,7 +2509,8 @@ window.addEventListener('blur', () => { window.isDoorpiFocused = false; });
                         if (window.requestDoorpiBackAction?.()) return;
                         window._navMenuHandleKey?.('Escape');
                     }
-                    if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE)) window._navMenuTriggerCtxMenu?.();
+                    if (buttonJustPressed(buttons[GAMEPAD.BTN_SQUARE], GAMEPAD.BTN_SQUARE) &&
+                        !window.DoorpiScreenshotGallery?.openContextMenu?.()) window._navMenuTriggerCtxMenu?.();
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_L1], GAMEPAD.BTN_L1)) window._navMenuCycleTab?.(-1);
                     if (buttonJustPressed(buttons[GAMEPAD.BTN_R1], GAMEPAD.BTN_R1)) window._navMenuCycleTab?.(1);
                     return;

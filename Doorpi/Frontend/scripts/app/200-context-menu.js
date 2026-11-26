@@ -37,6 +37,16 @@
             <button class="ctx-item ctx-danger" id="ctxDeleteMediaPermanent" role="menuitem">
                 <span class="ctx-icon">⊘</span> <span>${t('mediaHistoryDeletePermanent')}</span>
             </button>
+            <div class="ctx-separator" id="ctxScreenshotSeparator"></div>
+            <button class="ctx-item" id="ctxScreenshotShareX" role="menuitem" style="display:none">
+                <span class="ctx-icon">𝕏</span> <span>${t('screenshotShareToX')}</span>
+            </button>
+            <button class="ctx-item" id="ctxScreenshotMove" role="menuitem" style="display:none">
+                <span class="ctx-icon">↗</span> <span>${t('screenshotMoveToFolder')}</span>
+            </button>
+            <button class="ctx-item ctx-danger" id="ctxScreenshotDelete" role="menuitem" style="display:none">
+                <span class="ctx-icon">✕</span> <span>${t('screenshotDelete')}</span>
+            </button>
         `;
         document.body.appendChild(el);
         return el;
@@ -207,15 +217,25 @@
             .some(id => String(id).toLowerCase() === 'youtube');
         const isGpuUpdaterCard = card.dataset.gpuUpdaterCard === 'true';
         const isBluetoothDeviceCard = card.dataset.bluetoothDeviceCard === 'true';
+        const isScreenshot = card.dataset.doorpiScreenshotContext === 'true';
         const isHistoryCard = !!card.dataset.historyGameName;
         const isMediaHistoryCard = card.dataset.mediaHistory === 'true';
         _ctxMenu.classList.toggle('gpu-updater-context', isGpuUpdaterCard);
         _ctxMenu.classList.toggle('bluetooth-device-context', isBluetoothDeviceCard);
+        _ctxMenu.classList.toggle('screenshot-context', isScreenshot);
 
         const ctxEditBtn = _ctxMenu.querySelector('#ctxEdit');
         const ctxDeleteBtn = _ctxMenu.querySelector('#ctxDelete');
         const ctxDeleteMediaPermanentBtn = _ctxMenu.querySelector('#ctxDeleteMediaPermanent');
+        const ctxScreenshotSeparator = _ctxMenu.querySelector('#ctxScreenshotSeparator');
+        const ctxScreenshotShareXBtn = _ctxMenu.querySelector('#ctxScreenshotShareX');
+        const ctxScreenshotMoveBtn = _ctxMenu.querySelector('#ctxScreenshotMove');
+        const ctxScreenshotDeleteBtn = _ctxMenu.querySelector('#ctxScreenshotDelete');
         if (ctxDeleteMediaPermanentBtn) ctxDeleteMediaPermanentBtn.style.display = 'none';
+        if (ctxScreenshotSeparator) ctxScreenshotSeparator.style.display = 'none';
+        if (ctxScreenshotShareXBtn) ctxScreenshotShareXBtn.style.display = 'none';
+        if (ctxScreenshotMoveBtn) ctxScreenshotMoveBtn.style.display = 'none';
+        if (ctxScreenshotDeleteBtn) ctxScreenshotDeleteBtn.style.display = 'none';
         const ctxSharingBtn = _ctxMenu.querySelector('#ctxSharing');
         const ctxRuntimeBtn = _ctxMenu.querySelector('#ctxRuntimeAction');
         const ctxRuntimeText = _ctxMenu.querySelector('#ctxRuntimeActionText');
@@ -287,7 +307,15 @@
             _ctxMenu.appendChild(ctxCloseBtn);
         }
 
-        if (isHistoryCard) {
+        if (isScreenshot) {
+            _ctxMenu.querySelectorAll('.ctx-item').forEach(item => item.style.display = 'none');
+            _ctxMenu.querySelectorAll('.ctx-separator').forEach(item => item.style.display = 'none');
+            if (ctxScreenshotShareXBtn) ctxScreenshotShareXBtn.style.display = 'flex';
+            if (ctxScreenshotMoveBtn) ctxScreenshotMoveBtn.style.display = 'flex';
+            if (ctxScreenshotDeleteBtn) ctxScreenshotDeleteBtn.style.display = 'flex';
+            _ctxMenu.querySelector('#ctxGameName').textContent = [card.dataset.screenshotGameName, card.dataset.screenshotCapturedAt]
+                .filter(Boolean).join(' · ');
+        } else if (isHistoryCard) {
             if (ctxRuntimeBtn) ctxRuntimeBtn.style.display = 'none';
             if (ctxStoreGamepadBtn) ctxStoreGamepadBtn.style.display = 'none';
             if (ctxStoreAutoAddBtn) ctxStoreAutoAddBtn.style.display = 'none';
@@ -425,7 +453,12 @@
         isCtxMenuOpen = false;
         _ctxMenu.classList.remove('visible');
 
-        if (_ctxCard) _ctxCard.classList.remove('ctx-active');
+        if (_ctxCard) {
+            _ctxCard.classList.remove('ctx-active');
+            if (_ctxCard.dataset.doorpiScreenshotContext === 'true')
+                window.DoorpiScreenshotGallery?.contextMenuClosed?.(_ctxCard);
+        }
+        _ctxMenu.classList.remove('screenshot-context');
 
         setTimeout(() => { if (!_ctxMenu.classList.contains('visible')) _ctxMenu.style.display = 'none'; }, 160);
         const card = _ctxCard;
@@ -465,6 +498,24 @@
         const appId = card?.dataset.appId || card?.dataset.gameId || '';
         _closeCtxMenu({ restoreFocus: false });
         if (appId) window._navMenuOpenAccountSharing?.(appId);
+    });
+
+    document.getElementById('ctxScreenshotMove')?.addEventListener('click', () => {
+        const id = _ctxCard?.dataset?.screenshotId || '';
+        _closeCtxMenu();
+        if (id) window.DoorpiScreenshotGallery?.contextAction?.('move', id);
+    });
+
+    document.getElementById('ctxScreenshotShareX')?.addEventListener('click', () => {
+        const id = _ctxCard?.dataset?.screenshotId || '';
+        _closeCtxMenu();
+        if (id) window.DoorpiScreenshotGallery?.contextAction?.('share-x', id);
+    });
+
+    document.getElementById('ctxScreenshotDelete')?.addEventListener('click', () => {
+        const id = _ctxCard?.dataset?.screenshotId || '';
+        _closeCtxMenu();
+        if (id) window.DoorpiScreenshotGallery?.contextAction?.('delete', id);
     });
 
     document.getElementById('ctxStoreGamepadControl').addEventListener('click', (event) => {

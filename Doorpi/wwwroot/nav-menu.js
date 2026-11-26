@@ -7172,7 +7172,24 @@ window.isNavMenuOpen = false;
         <path d="M8 6.5h8c2.6 0 4.1 1.6 4.7 4.3l1 4.5c.6 2.8-1.8 4.2-3.7 2.4L15.5 15h-7L6 17.7c-1.9 1.8-4.3.4-3.7-2.4l1-4.5C3.9 8.1 5.4 6.5 8 6.5Z"/>
         <path d="M6.5 10.8h3m-1.5-1.5v3"/><g fill="currentColor" stroke="none"><circle cx="15.5" cy="11.7" r=".9"/><circle cx="18" cy="9.9" r=".9"/></g>
     </svg>`;
+    window.addEventListener('doorpi:screenshot-gallery-rendered', event => {
+        if (event.detail?.surface !== 'settings' || _settingsSubView !== 'screenshots') return;
+        const body = document.getElementById('navContentBody');
+        const viewer = document.querySelector('.shot-viewer');
+        if (viewer) {
+            _contentItems = [viewer];
+        } else {
+            const cards = Array.from(body?.querySelectorAll('.shot-game-card, .shot-photo-card, .shot-empty') || []);
+            const controls = Array.from(body?.querySelectorAll('[data-shot-back-games], [data-shot-back-settings], [data-shot-folder]') || []);
+            _contentItems = [...cards, ...controls];
+        }
+        const focusTarget = event.detail?.focusSelector ? (viewer || body?.querySelector(event.detail.focusSelector)) : null;
+        const focusIdx = focusTarget ? _contentItems.indexOf(focusTarget) : -1;
+        _contentIdx = focusIdx >= 0 ? focusIdx : Math.max(0, Math.min(_contentIdx, _contentItems.length - 1));
+        _updateContentFocus();
+    });
     function _renderSettingsLegacy(body) {
+        if (_settingsSubView === 'screenshots') { window.DoorpiScreenshotGallery?.renderInto?.(body, 'settings'); return; }
         if (_settingsSubView === 'accountHub') { _renderSettingsAccountHub(body); return; }
         if (_settingsSubView === 'account') { _renderSettingsAccount(body); return; }
         if (_settingsSubView === 'extensions') { _renderSettingsExtensions(body); return; }
@@ -7288,6 +7305,14 @@ window.isNavMenuOpen = false;
                 description: 'Personalize comandos, atalhos e comportamento do ponteiro para cada jogo, aplicativo ou serviço web.',
                 scope: ['Perfis de controle', 'Atalhos globais', 'Mouse e teclado', 'Comandos primários'],
                 action: 'controls'
+            },
+            {
+                id: 'setScreenshots', group: 'Experiência', icon: svgVideo,
+                title: _t('screenshotGalleryTitle', 'Galeria de capturas'),
+                short: _t('screenshotGalleryShort', 'Capturas de gameplay agrupadas por jogo'),
+                description: _t('screenshotGalleryDescription', 'Revise, organize e remova capturas feitas durante suas partidas.'),
+                scope: ['Por jogo', 'Data e horário', 'Mover capturas', 'Local de salvamento'],
+                action: 'screenshots'
             },
             {
                 id: 'setDevices', group: 'Experiência', icon: svgDevices,
@@ -7424,6 +7449,14 @@ window.isNavMenuOpen = false;
                         break;
                     case 'controls':
                         window.DoorpiControls?.open?.();
+                        break;
+                    case 'screenshots':
+                        window.DoorpiScreenshotGallery?.enter();
+                        _settingsReturnToRoot = true;
+                        _settingsSubView = 'screenshots';
+                        _contentIdx = 0;
+                        _renderContent('settings');
+                        _updateContentFocus();
                         break;
                     case 'webPermissions':
                         _settingsSubView = 'webPermissions';
@@ -10461,6 +10494,7 @@ window.isNavMenuOpen = false;
                 const isExtensionsView = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'extensions';
                 const isSettingsHome = CATS[_catIdx]?.id === 'settings' && !_settingsSubView;
                 const isThemeSettings = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'themes';
+                const isScreenshotGallery = CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'screenshots';
                 const isStorageView = CATS[_catIdx]?.id === 'settings'
                     && _settingsSubView === 'system'
                     && _systemSubView === 'storage';
@@ -10471,6 +10505,8 @@ window.isNavMenuOpen = false;
                     _revealInsideScrollContainer(focused, focused.closest?.('.nav-settings-home-nav'));
                 } else if (isThemeSettings) {
                     _revealInsideScrollContainer(focused, focused.closest?.('.theme-settings-list'));
+                } else if (isScreenshotGallery) {
+                    window.DoorpiScreenshotGallery?.revealFocus?.(focused);
                 } else if (isExtensionsView) {
                     const list = focused.closest?.('.nav-ext-list');
                     if (list) {
@@ -10754,6 +10790,11 @@ window.isNavMenuOpen = false;
         if (window.isDoorpiFileBrowserOpen?.()) return false;
         if (window._vkbIsOpen) return false;
         if (_navMenuPhase === 'closing') return false;
+        if (window.DoorpiScreenshotGallery?.viewerOpen?.() && !document.querySelector('.context-menu.visible') && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key)) {
+            if (key === 'ArrowLeft' || key === 'ArrowRight')
+                window.DoorpiScreenshotGallery.moveViewer?.(key === 'ArrowLeft' ? 'LEFT' : 'RIGHT');
+            return true;
+        }
         const sortDialog = document.querySelector('.nav-profile-sort-dialog[open]');
         if (sortDialog) {
             if (['Backspace','Escape','y','Y'].includes(key)) sortDialog.close();
@@ -11142,6 +11183,18 @@ window.isNavMenuOpen = false;
             } else if (key === 'ArrowLeft' && _contentIdx > 0) {
                 _contentIdx = 0;
                 _updateContentFocus();
+            }
+            return true;
+        }
+
+        if (CATS[_catIdx]?.id === 'settings' && _settingsSubView === 'screenshots' &&
+            ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+            if (window.DoorpiScreenshotGallery?.moveGalleryFocus?.(key.slice(5).toUpperCase())) {
+                const focusIndex = _contentItems.indexOf(document.activeElement);
+                if (focusIndex >= 0) {
+                    _contentIdx = focusIndex;
+                    _updateContentFocus();
+                }
             }
             return true;
         }

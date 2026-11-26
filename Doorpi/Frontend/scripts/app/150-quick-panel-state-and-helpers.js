@@ -185,6 +185,7 @@
             const items = [
                 ['updates', t('updatesTitle'), updateDot],
                 ['storage', t('quickStorageLabel'), ''],
+                ['screenshots', t('screenshotGalleryTitle'), ''],
                 ['sound', t('soundTitle'), ''],
                 ['connectivity', t('navSetConnectivity'), ''],
                 ['files', t('fileExplorerTitle'), ''],

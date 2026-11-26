@@ -58,6 +58,8 @@
             navigateHint: 'Navegar', selectHint: 'Selecionar', backHint: 'Voltar',
             configureShortcut: 'Gravar combinação', editOutput: 'Alterar ação', currentShortcut: 'Combinação atual',
             mute: 'Mudo', volumeDown: 'Volume -', volumeUp: 'Volume +',
+            screenshotAction: 'Capturar tela do jogo',
+            screenshotEnable: 'Ativar captura de tela', screenshotEnableDesc: 'Atalho global opcional, desativado por padrão.',
             pointerFree: 'Mover ponteiro', pointerUp: 'Mover para cima', pointerDown: 'Mover para baixo', pointerLeft: 'Mover para esquerda', pointerRight: 'Mover para direita',
             pointerDistance: 'Distância por toque', pointerDistanceDesc: 'Usado com botões e D-Pad. Cada acionamento move esta quantidade.', pixels: 'pixels',
             wheelAmount: 'Quantidade de rolagem', wheelAmountDesc: '120 unidades equivalem a um entalhe da roda; o aplicativo decide quantas linhas ou pixels isso representa.', wheelNotch: 'entalhe', wheelNotches: 'entalhes',
@@ -120,6 +122,8 @@
             navigateHint: 'Navigate', selectHint: 'Select', backHint: 'Back',
             configureShortcut: 'Record combination', editOutput: 'Change action', currentShortcut: 'Current combination',
             mute: 'Mute', volumeDown: 'Volume -', volumeUp: 'Volume +',
+            screenshotAction: 'Capture game screenshot',
+            screenshotEnable: 'Enable game screenshots', screenshotEnableDesc: 'Optional global shortcut, disabled by default.',
             pointerFree: 'Move pointer', pointerUp: 'Move up', pointerDown: 'Move down', pointerLeft: 'Move left', pointerRight: 'Move right',
             pointerDistance: 'Distance per press', pointerDistanceDesc: 'Used with buttons and D-Pad. Each activation moves this amount.', pixels: 'pixels',
             wheelAmount: 'Scroll amount', wheelAmountDesc: '120 units equal one wheel notch; the application decides how many lines or pixels that represents.', wheelNotch: 'notch', wheelNotches: 'notches',
@@ -268,6 +272,7 @@
         if (action?.systemCommand === 'doorpi-return') return lang() === 'pt' ? 'Voltar ao Doorpi' : 'Return to Doorpi';
         if (action?.systemCommand === 'close-web-app') return tx('closeWebApp');
         if (action?.systemCommand === 'youtube-play-pause') return tx('ytPlayPause');
+        if (action?.systemCommand === 'screenshot') return tx('screenshotAction');
         return action?.systemCommand || 'System';
     }
     function triggerLabel(value) { return value === 'hold' ? tx('hold') : value === 'release' ? tx('release') : value === 'long-press' ? tx('longPress') : tx('press'); }
@@ -690,7 +695,10 @@
                 ? `<div class="cc-detail-block"><span class="cc-detail-label">${tx('wheelAmount')}</span><div class="cc-range-card"><div class="cc-range-head"><strong>${tx('wheelAmount')}</strong><output data-wheel-amount-out>${wheelDelta / 120} ${tx(wheelDelta === 120 ? 'wheelNotch' : 'wheelNotches')} · ${wheelDelta}</output></div><input class="cc-range" data-cc-focus data-wheel-amount data-binding-index="${index}" type="range" min="120" max="1200" step="120" value="${wheelDelta}"><span class="cc-range-help">${tx('wheelAmountDesc')}</span></div></div>`
                 : '';
         const analogConfig = continuousAnalog ? `<div class="cc-detail-block"><span class="cc-detail-label">${tx('analogContinuous')}</span><div class="cc-pointer"><div class="cc-range-card"><div class="cc-range-head"><strong>${binding.action?.type === 'wheel' ? tx('scrollSpeed') : tx('analogSensitivity')}</strong><output data-action-sensitivity-out>${Math.round(((binding.action?.type === 'wheel' ? state.draft.scrollSensitivity : state.draft.mouseSensitivity) || 1) * 100)}%</output></div><input class="cc-range" data-cc-focus data-action-sensitivity="${binding.action?.type}" type="range" min="25" max="300" step="5" value="${Math.round(((binding.action?.type === 'wheel' ? state.draft.scrollSensitivity : state.draft.mouseSensitivity) || 1) * 100)}"><span class="cc-range-help" data-range-help>${tx('adjustRange')}</span></div><div class="cc-range-card"><div class="cc-range-head"><strong>${tx('analogDeadzone')}</strong><output data-action-deadzone-out>${Math.round((state.draft.mouseDeadZone || .14) * 100)}%</output></div><input class="cc-range" data-cc-focus data-action-deadzone type="range" min="5" max="50" step="1" value="${Math.round((state.draft.mouseDeadZone || .14) * 100)}"><span class="cc-range-help" data-range-help>${tx('adjustRange')}</span></div></div></div>` : '';
+        const screenshotToggle = binding.action?.type === 'system' && binding.action?.systemCommand === 'screenshot'
+            ? `<div class="cc-detail-block"><span class="cc-detail-label">${tx('settings')}</span><button class="cc-btn ${binding.enabled ? 'primary' : ''}" data-cc-focus data-toggle-screenshot="${index}" aria-pressed="${!!binding.enabled}">${binding.enabled ? tx('inputModeOn') : tx('inputModeOff')}</button><p class="cc-fork-note">${tx('screenshotEnableDesc')}</p></div>` : '';
         return `<aside class="cc-detail-panel"><span class="cc-eyebrow">${tx('selectedCommand')}</span><div class="cc-detail-title-row"><span class="cc-row-icon">${bindingIcon(binding)}</span><div><h2>${esc(bindingTitle(binding))}</h2><p>${bindingTypeLabel(binding)} · ${esc(bindingTitle(binding))}</p></div></div>
+            ${screenshotToggle}
             <div class="cc-detail-block"><span class="cc-detail-label">${tx('controllerActivations')}</span><div class="cc-activation-stack">${activationCardHtml(binding,index,'primary')}${activationCardHtml(binding,index,'secondary')}</div></div>${amountConfig}${analogConfig}
             <div class="cc-detail-actions">${binding.action?.type === 'keyboard' ? `<button class="cc-btn" data-cc-focus data-edit-keys="${index}">${iconSvg('edit')}${tx('editOutput')}</button>` : ''}${canRemove ? `<button class="cc-btn danger" data-cc-focus data-remove="${index}">${iconSvg('trash')}${tx('remove')}</button>` : ''}</div>
         </aside>`;
@@ -705,6 +713,7 @@
             state.selectedBindingIndex = Number(button.dataset.bindingSelect); renderContent(); focusDefault(`[data-binding-select="${state.selectedBindingIndex}"]`);
         }));
         host.querySelectorAll('[data-edit-keys]').forEach(button => button.addEventListener('click', () => openKeyboard(Number(button.dataset.editKeys))));
+        host.querySelectorAll('[data-toggle-screenshot]').forEach(button => button.addEventListener('click', () => { const index=Number(button.dataset.toggleScreenshot),binding=state.draft.bindings[index]; if (!binding) return; binding.enabled=!binding.enabled; state.selectedBindingIndex=index; markDirty(); renderContent(); focusDefault(`[data-toggle-screenshot="${index}"]`); }));
         host.querySelectorAll('[data-capture]').forEach(button => button.addEventListener('click', () => openCapture(Number(button.dataset.capture),button.dataset.captureSlot || 'primary')));
         host.querySelectorAll('[data-clear-secondary]').forEach(button => button.addEventListener('click', () => { ensureFork(); const index=Number(button.dataset.clearSecondary),binding=state.draft.bindings[index]; if (!binding) return; binding.secondaryControllerButtons=[]; binding.secondaryTrigger='press'; binding.secondaryLongPressDurationMs=1200; state.selectedBindingIndex=index; markDirty(); renderContent(); focusDefault(`[data-capture="${index}"][data-capture-slot="secondary"]`); }));
         host.querySelectorAll('[data-remove]').forEach(button => button.addEventListener('click', () => { ensureFork(); const index=Number(button.dataset.remove); state.draft.bindings.splice(index, 1); state.selectedBindingIndex = -1; normalizeSelectedBinding(); markDirty(); renderContent(); }));
@@ -779,7 +788,8 @@
     function openGlobalPicker() {
         const choices = [
             ['doorpi-return', lang() === 'pt' ? 'Voltar ao Doorpi' : 'Return to Doorpi'],
-            ['task-switcher', lang() === 'pt' ? 'Alternar entre janelas' : 'Switch windows']
+            ['task-switcher', lang() === 'pt' ? 'Alternar entre janelas' : 'Switch windows'],
+            ['screenshot', tx('screenshotAction')]
         ];
         openPopup(`<div class="cc-dialog"><div class="cc-dialog-head"><div><h2>${tx('chooseGlobal')}</h2><p>${tx('chooseGlobalDesc')}</p></div><button class="cc-btn" data-cc-focus data-popup-close>${tx('close')}</button></div><div class="cc-picker-list">${choices.map(([command,label]) => `<button class="cc-picker-item" data-cc-focus data-global-choice="${command}"><span class="cc-picker-icon">${iconSvg('system')}</span><span><strong>${label}</strong><span>${tx('systemAction')}</span></span>${iconSvg('chevron')}</button>`).join('')}</div></div>`, 'global');
         state.overlay.querySelectorAll('[data-global-choice]').forEach(button => button.addEventListener('click', () => {

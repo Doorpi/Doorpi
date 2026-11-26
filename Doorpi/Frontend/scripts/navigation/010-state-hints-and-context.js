@@ -101,6 +101,7 @@ function signalNavigation() {
 
 function triggerContextMenu() {
     if (isModalOpen || isCtxMenuOpen || isEditModalOpen || isVkbOpenForNavigation() || window.isGlobalLoading) return;
+    if (window.DoorpiScreenshotGallery?.openContextMenu?.()) return;
     if (window.isNavMenuOpen) { window._navMenuTriggerCtxMenu?.(); return; }
 
     const focused = document.activeElement;

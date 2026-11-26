@@ -8,6 +8,7 @@
         if (action?.systemCommand === 'doorpi-return') return lang() === 'pt' ? 'Voltar ao Doorpi' : 'Return to Doorpi';
         if (action?.systemCommand === 'close-web-app') return tx('closeWebApp');
         if (action?.systemCommand === 'youtube-play-pause') return tx('ytPlayPause');
+        if (action?.systemCommand === 'screenshot') return tx('screenshotAction');
         return action?.systemCommand || 'System';
     }
     function triggerLabel(value) { return value === 'hold' ? tx('hold') : value === 'release' ? tx('release') : value === 'long-press' ? tx('longPress') : tx('press'); }
