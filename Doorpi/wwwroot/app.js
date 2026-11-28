@@ -5093,6 +5093,17 @@
                     window.showDoorpiToast?.(t(data.reason || 'pinRecoveryFailed'), '');
                 }
             }
+            else if (data.type === 'setupUsersSaved') {
+                _handleSetupUsersSaved(data);
+            }
+            else if (data.type === 'steamGridKeyInput') {
+                if (data.reason === 'steamGridKeyOpenFailed') _finishSteamGridKeyPage(data.requestId);
+                _handleSetupSteamGridInput(data);
+                window._handleAccountSteamGridMessage?.(data);
+            }
+            else if (data.type === 'steamGridKeySaved') {
+                window._handleAccountSteamGridMessage?.(data);
+            }
             else if (data.type === 'clipboardText') {
                 if (data.text?.trim()) {
                     const clipboardText = data.text.trim();
@@ -5102,15 +5113,7 @@
                     if (window._artworkWizardHandleClipboard?.(clipboardText)) {
                         return;
                     }
-                    // Intercepta a colagem no Nav Menu de Conta/Perfil
-                    if (window._isPastingApiKey) {
-                        window._isPastingApiKey = false;
-                        if (typeof window._updatePendingApiKey === 'function') {
-                            window._updatePendingApiKey(data.text.trim());
-                        }
-                    }
-                    // Intercepta a colagem no Nav Menu de Extensões
-                    else if (window._isPastingWebAppUrl) {
+                    if (window._isPastingWebAppUrl) {
                         window._isPastingWebAppUrl = false;
                         const input = document.getElementById('webAppUrlInput');
                         if (input) {
@@ -5127,18 +5130,6 @@
                         } else {
                             const input = document.getElementById('navExtUrlInput');
                             if (input) input.value = clipboardText;
-                        }
-                    }
-                    // Configuração Inicial (Setup)
-                    else if (typeof isSetupOpen !== 'undefined' && isSetupOpen) {
-                        const input = document.getElementById('setupApiInput');
-                        if (input) {
-                            input.value = data.text.trim();
-                            if (typeof _currUser !== 'undefined' && _currUser) _currUser.apiKey = data.text.trim();
-                            const hint = document.getElementById('setupApiHint');
-                            if (hint) hint.textContent = typeof t === 'function' ? t('setupStep3PasteSuccess') : 'Copiado com sucesso!';
-                            if (typeof _updateStatus === 'function') _updateStatus();
-                            document.getElementById('btnSetupFinish')?.focus();
                         }
                     }
                 }

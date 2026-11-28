@@ -216,7 +216,6 @@ namespace Doorpi
         private string gameHistoryFile = "";
         private string mediaHistoryFile = "";
 
-        private string _currentToastTitle = "";
         private bool _useNativeBootIntro = false;
         private readonly bool _requiresConsoleShellStartupGate;
         private BootIntroWindow? _nativeBootIntroWindow;
@@ -229,7 +228,6 @@ namespace Doorpi
         private readonly DateTime _processStartedUtc = DateTime.UtcNow;
         private readonly LatestStartupProbe _homeWebViewHealthProbes = new();
         private int _homeWebViewSelfRestartStarted = 0;
-        private string _currentToastSub = "";
 
         private string _vkbStrBackspace = "Apagar";
         private string _vkbStrEnter = "Enter";
@@ -535,6 +533,13 @@ namespace Doorpi
             };
             this.Activated += (s, e) =>
             {
+                if (IsSteamGridBrowserVisible())
+                {
+                    webView.Visibility = Visibility.Collapsed;
+                    if (_popupWindow == null) _ytWebView?.Focus();
+                    return;
+                }
+
                 ResumeGameplayBackgroundMode();
                 if (DateTime.UtcNow.Ticks < Interlocked.Read(ref _returnFromExternalModeSuppressUntil))
                     return;
@@ -2492,6 +2497,12 @@ namespace Doorpi
             BootStartupTrace.Record("profile-ui-data-send-start");
             BootStartupTrace.RecordProcess(Environment.ProcessId, "DoorpiMain", "profile-host-process-metrics");
             _interactiveUserSessionStarted = true;
+            if (!_trophyServicesStarted)
+            {
+                _trophyServicesStarted = true;
+                StartLibraryTrophies();
+                StartSteamCacheMonitor();
+            }
             BackfillSteamHistoryArtwork(currentUserId);
             ResumePendingSteamImport(currentUserId);
             RecoverInterruptedGameplaySession();
@@ -13778,7 +13789,6 @@ namespace Doorpi
         private Task<bool> UpsertAutoAddedPlatformGamesAsync(List<InstalledApp> platformGames)
         {
             var games = LoadGames();
-            var steamIds = new HashSet<int>();
             string owner = currentUserId;
             bool changed = false;
 
@@ -13793,7 +13803,6 @@ namespace Doorpi
                     continue;
 
                 string? steamAppId = ExtractSteamAppId(app);
-                if (int.TryParse(steamAppId, out int id) && id > 0) steamIds.Add(id);
                 bool steamReady = !string.IsNullOrEmpty(steamAppId);
                 var steamAssets = steamReady ? BuildSteamCdnAssets(steamAppId!) : ("", "", "", "");
 
@@ -13820,7 +13829,7 @@ namespace Doorpi
                 changed = true;
             }
 
-            if (changed) { SaveGames(games); QueueSteamGames(owner, steamIds); }
+            if (changed) SaveGames(games);
             return Task.FromResult(changed);
         }
 
@@ -14277,7 +14286,6 @@ namespace Doorpi
             var existingGames = LoadGames();
             bool isFirstGame = existingGames.Count == 0;
             bool dbChanged = false;
-            var steamIds = new HashSet<int>();
             string owner = currentUserId;
             long generation = _themeProfileGeneration;
 
@@ -14366,7 +14374,6 @@ namespace Doorpi
                 };
 
                 existingGames.Add(game);
-                if (int.TryParse(ExtractSteamAppId(app), out int steamId) && steamId > 0) steamIds.Add(steamId);
                 if (isEmulatorGame)
                 {
                     foreach (string discPath in app.EmulatorDiscPaths?.Count > 0
@@ -14381,7 +14388,6 @@ namespace Doorpi
             {
                 if (owner != currentUserId || generation != _themeProfileGeneration) return;
                 SaveGames(existingGames);
-                QueueSteamGames(owner, steamIds);
                 _ = Dispatcher.BeginInvoke(() => LoadGamesIntoUI());
             }
 

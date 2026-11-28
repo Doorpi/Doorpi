@@ -72,6 +72,8 @@ public static class ProfileSyncSerializer
         public IReadOnlyList<CloudControlAssignmentV1> ControlAssignments { get; init; } = Array.Empty<CloudControlAssignmentV1>();
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? Steam { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SortedDictionary<string,long>? PhantomBladeTrophies { get; init; }
 
         public static CanonicalProfileContent From(CloudProfileV1 profile)
             => new()
@@ -80,6 +82,7 @@ public static class ProfileSyncSerializer
                 AvatarFromGame = profile.SchemaVersion >= 7 ? profile.AvatarFromGame : null,
                 Cover = profile.SchemaVersion >= 8 ? NormalizeCover(profile.Cover) : null,
                 SchemaVersion = profile.SchemaVersion,
+                PhantomBladeTrophies = profile.PhantomBladeTrophies is { Count: > 0 } trophies ? new(trophies, StringComparer.Ordinal) : null,
                 Steam = profile.SchemaVersion >= 6 && profile.Steam != null ? Doorpi.Steam.SteamProfileMerge.Fingerprint(profile.Steam) : null,
                 ProfileName = profile.ProfileName ?? "",
                 PinCode = profile.PinCode ?? "",

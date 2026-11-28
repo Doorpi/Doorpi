@@ -23,6 +23,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Xml.Linq;
 using Doorpi.ProfileSync;
+using Doorpi.Storage;
 
 namespace Doorpi
 {
@@ -247,6 +248,9 @@ namespace Doorpi
                             "first-run-tutorial-finished",
                             StringComparison.OrdinalIgnoreCase);
                         FocusDoorpiMainWebView(onlyIfFocusLost: !tutorialFinished);
+#if DEBUG
+                        ShowLocalTrophyPreviewOnLogin(mode);
+#endif
                     });
                 }
                 else if (action == "requestUpdateStatus")
@@ -1717,11 +1721,48 @@ namespace Doorpi
                         }
                     }
                 }
+                else if (action == "openSteamGridKeyPage")
+                {
+                    ResumeExecutionLockWatch();
+                    await OpenSteamGridBrowserAsync(root);
+                }
+                else if (action == "pasteSteamGridKey")
+                {
+                    string requestId = GetStr(root, "requestId");
+                    try
+                    {
+                        string text = Clipboard.GetText().Trim();
+                        PostProfileSyncMessage(new { type = "steamGridKeyInput", requestId, text });
+                    }
+                    catch (ExternalException)
+                    {
+                        PostProfileSyncMessage(new { type = "steamGridKeyInput", requestId, reason = "steamGridKeyClipboardError" });
+                    }
+                }
+                else if (action == "saveSteamGridKey")
+                {
+                    await SaveSteamGridKeyAsync(root);
+                }
                 else if (action == "saveSetupUsers" && root.TryGetProperty("users", out var setupUsersEl))
                 {
+                    string requestId = GetStr(root, "requestId");
+                    void ReplySetup(string reason, int userIndex = -1) => webView.CoreWebView2?.PostWebMessageAsString(
+                        JsonSerializer.Serialize(new { type = "setupUsersSaved", requestId, reason, userIndex }));
                     int activeIndex = root.TryGetProperty("activeIndex", out var activeEl) ? activeEl.GetInt32() : 0;
                     var incoming = setupUsersEl.EnumerateArray().ToList();
+                    if (incoming.Count == 0) { ReplySetup("steamGridKeySaveFailed"); return; }
+                    string owner = currentUserId;
+                    long generation = _themeProfileGeneration;
+                    long registryRevision = StateStorage.GetRevision(profilesFile);
                     var existingUsers = LoadUserProfiles();
+                    for (int i = 0; i < incoming.Count; i++)
+                    {
+                        var candidate = incoming[i];
+                        if (candidate.TryGetProperty("importCloud", out var cloud) && cloud.GetBoolean()) continue;
+                        string reason = await ValidateSteamGridKeyAsync(GetStr(candidate, "apiKey").Trim());
+                        if (reason.Length > 0) { ReplySetup("steamGridKeyInvalid", i); return; }
+                    }
+
                     bool wasEmpty = existingUsers.Count == 0 || existingUsers.All(u => string.IsNullOrWhiteSpace(u.Name));
                     var savedProfiles = new List<(UserProfile Profile, List<string> Folders, bool SyncConnected, bool ImportCloud)>();
 
@@ -1733,9 +1774,9 @@ namespace Doorpi
                         string setupCoverUrl = GetStr(userEl, "coverSourceUrl");
                         if (setupCoverBase64.Length > 32_000_000 || (setupCoverBase64.Length > 0 &&
                             (!setupCoverBase64.StartsWith("/9j/", StringComparison.Ordinal) ||
-                             !Convert.TryFromBase64String(setupCoverBase64, new byte[setupCoverBase64.Length], out _)))) return;
+                            !Convert.TryFromBase64String(setupCoverBase64, new byte[setupCoverBase64.Length], out _)))) { ReplySetup("steamGridKeySaveFailed"); return; }
                         if (setupCoverUrl.Length > 4096 || (setupCoverUrl.Length > 0 &&
-                            (!Uri.TryCreate(setupCoverUrl, UriKind.Absolute, out var setupCoverUri) || setupCoverUri.Scheme != "https"))) return;
+                            (!Uri.TryCreate(setupCoverUrl, UriKind.Absolute, out var setupCoverUri) || setupCoverUri.Scheme != "https"))) { ReplySetup("steamGridKeySaveFailed"); return; }
                         var profile = new UserProfile
                         {
                             Id = string.IsNullOrWhiteSpace(requestedProfileId)
@@ -1759,7 +1800,7 @@ namespace Doorpi
                             CoverUsesMostPlayedGame = userEl.TryGetProperty("coverUsesMostPlayedGame", out var setupUseGameEl) &&
                                 (setupUseGameEl.ValueKind == JsonValueKind.True || setupUseGameEl.ValueKind == JsonValueKind.False)
                                 ? setupUseGameEl.GetBoolean() : string.IsNullOrEmpty(setupCoverBase64) && string.IsNullOrEmpty(setupCoverUrl),
-                            SteamGridApiKey = GetStr(userEl, "apiKey"),
+                            SteamGridApiKey = GetStr(userEl, "apiKey").Trim(),
                             PinCode = NormalizePinCode(GetStr(userEl, "pin")),
                             IsAdmin = isFirstAdmin,
                             DateCreated = DateTime.Now,
@@ -1771,21 +1812,40 @@ namespace Doorpi
                             : new List<string>();
 
                         existingUsers.Add(profile);
-                        string userDir = Path.Combine(dataFolder, "users", profile.Id);
-                        Directory.CreateDirectory(userDir);
-                        WriteUserProfileFile(Path.Combine(userDir, "user.json"), profile);
-                        File.WriteAllText(Path.Combine(userDir, "games.json"), "[]");
-                        File.WriteAllText(Path.Combine(userDir, "media.json"), "[]");
-                        File.WriteAllText(Path.Combine(userDir, "folders.json"),
-                            JsonSerializer.Serialize(folders.Select(p => new FolderStats { Path = p }).ToList(),
-                                IndentedJsonOptions));
-
                         bool syncConnected = userEl.TryGetProperty("syncConnected", out var syncConnectedEl) && syncConnectedEl.GetBoolean();
                         bool importCloud = userEl.TryGetProperty("importCloud", out var importCloudEl) && importCloudEl.GetBoolean();
                         savedProfiles.Add((profile, folders, syncConnected, importCloud));
                     }
 
-                    SaveUserProfiles(existingUsers.Where(u => !string.IsNullOrWhiteSpace(u.Name)).ToList());
+                    try
+                    {
+                        bool saved = false;
+                        StateStorage.ExecuteTransaction(() =>
+                        {
+                            if (owner != currentUserId || generation != _themeProfileGeneration ||
+                                StateStorage.GetRevision(profilesFile) != registryRevision) return;
+
+                            SaveUserProfiles(existingUsers.Where(u => !string.IsNullOrWhiteSpace(u.Name)).ToList());
+                            var writes = new Dictionary<string, string?>();
+                            foreach (var item in savedProfiles)
+                            {
+                                string userDir = Path.Combine(dataFolder, "users", item.Profile.Id);
+                                writes[Path.Combine(userDir, "games.json")] = "[]";
+                                writes[Path.Combine(userDir, "media.json")] = "[]";
+                                writes[Path.Combine(userDir, "folders.json")] = JsonSerializer.Serialize(
+                                    item.Folders.Select(p => new FolderStats { Path = p }).ToList(), IndentedJsonOptions);
+                            }
+                            StateStorage.WriteBatch(writes);
+                            saved = true;
+                        });
+                        if (!saved) { ReplySetup("steamGridKeyProfileChanged"); return; }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException or CryptographicException)
+                    {
+                        ReplySetup("steamGridKeySaveFailed");
+                        return;
+                    }
+                    ReplySetup("");
 
                     if (savedProfiles.Count > 0)
                     {
@@ -1899,7 +1959,6 @@ namespace Doorpi
                     bool isLast = root.TryGetProperty("isLast", out var isLastEl) && isLastEl.GetBoolean();
                     bool skipTasks = root.TryGetProperty("skipTasks", out var skipEl) && skipEl.GetBoolean();
                     bool hasPin = root.TryGetProperty("pin", out _);
-                    bool hasApiKey = root.TryGetProperty("apiKey", out _);
                     bool hasApplicationHistoryEnabled = root.TryGetProperty("applicationHistoryEnabled", out var historyEnabledEl) &&
                                                         (historyEnabledEl.ValueKind == JsonValueKind.True || historyEnabledEl.ValueKind == JsonValueKind.False);
                     bool hasPhotoMetadata = root.TryGetProperty("photoSource", out _) ||
@@ -1923,7 +1982,6 @@ namespace Doorpi
                         PhotoCropX = root.TryGetProperty("photoCropX", out var photoCropXEl) && photoCropXEl.TryGetDouble(out double photoCropX) ? photoCropX : 0,
                         PhotoCropY = root.TryGetProperty("photoCropY", out var photoCropYEl) && photoCropYEl.TryGetDouble(out double photoCropY) ? photoCropY : 0,
                         PhotoZoom = root.TryGetProperty("photoZoom", out var photoZoomEl) && photoZoomEl.TryGetDouble(out double photoZoom) ? photoZoom : 1,
-                        SteamGridApiKey = hasApiKey ? GetStr(root, "apiKey") : "",
                         PinCode = requestedPin,
                         ApplicationHistoryEnabled = !hasApplicationHistoryEnabled || historyEnabledEl.GetBoolean(),
                         DateCreated = DateTime.Now,
@@ -1949,7 +2007,6 @@ namespace Doorpi
                             existingUser.PhotoCropY = profile.PhotoCropY;
                             existingUser.PhotoZoom = profile.PhotoZoom;
                         }
-                        if (hasApiKey) existingUser.SteamGridApiKey = profile.SteamGridApiKey;
                         if (hasPin) existingUser.PinCode = requestedPin;
                         if (hasApplicationHistoryEnabled)
                         {
@@ -2358,9 +2415,6 @@ namespace Doorpi
                 else if (action == "launchMediaApp" && root.TryGetProperty("url", out var mediaUrlEl))
                 {
                     ResumeExecutionLockWatch();
-
-                    _currentToastTitle = GetStr(root, "toastTitle", "Copiado!");
-                    _currentToastSub = GetStr(root, "toastSub", "Retornando...");
 
                     string mediaUrl = mediaUrlEl.GetString() ?? "";
                     string appType = root.TryGetProperty("appType", out var atEl)

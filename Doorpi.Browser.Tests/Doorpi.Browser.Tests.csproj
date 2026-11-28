@@ -11,6 +11,7 @@
     <Compile Include="../Doorpi/Browser/BrowserPermissionService.cs" Link="BrowserPermissionService.cs" />
     <Compile Include="../Doorpi/Browser/BrowserPermissionStore.cs" Link="BrowserPermissionStore.cs" />
     <Compile Include="../Doorpi/Browser/LocalStateResourcePolicy.cs" Link="LocalStateResourcePolicy.cs" />
+    <Compile Include="../Doorpi/Browser/SteamGridNavigation.cs" Link="SteamGridNavigation.cs" />
     <Compile Include="../Doorpi/DurableFileStore.cs" Link="DurableFileStore.cs" />
   </ItemGroup>
 </Project>

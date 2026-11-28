@@ -5,7 +5,11 @@
                 const data = JSON.parse(e.data);
                 if (data.type === 'steamProfileStatus') {
                     _acceptSteamPresentation(data);
-                    window._refreshSteamAccountUi?.(data);
+                    if (!data.silent) window._refreshSteamAccountUi?.(data);
+                }
+                if (data.type === 'doorpiTrophiesChanged' && data.profileId === _steamProfileView.profileId) {
+                    postToHost?.({action:'steamProfileStatus',silent:true,openApp:_steamAchievementGame});
+
                 }
                 if (data.type === 'steamGameHeader') acceptSteamHeader(data);
                 if (data.type === 'steamProfileAchievements') _acceptSteamPresentation(data);
@@ -44,17 +48,6 @@
                     }
                 }
 
-                if (data.type === 'clipboardText' && window._isPastingApiKey) {
-                    window._isPastingApiKey = false;
-                    const text = data.text.trim();
-                    if (text) {
-                        window._updatePendingApiKey?.(text);
-                        if (text !== _menuData.user.SteamGridApiKey) {
-                            _menuData.user.SteamGridApiKey = text;
-                        }
-                    }
-                }
-                
                 if (data.type === 'bootModeState') {
                     window._doorpiBootMode = data.mode || 0;
                     if (typeof window._updateBootModeUI === 'function') {

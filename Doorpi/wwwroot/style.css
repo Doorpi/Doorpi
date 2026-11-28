@@ -7342,8 +7342,6 @@ body.quick-panel-open .home-feature-stage { opacity:.35; }
 .nav-achievement-games > header { display:flex; align-items:center; gap:12px; }
 .nav-achievement-games > header > div:first-child { margin-inline-end:auto; }
 .nav-steam-games-heading { display:flex; align-items:center; gap:12px; min-width:0; }
-.nav-steam-games-logo { display:grid; place-items:center; width:clamp(30px,2.1vw,48px); height:clamp(30px,2.1vw,48px); flex:0 0 auto; color:#9fc6e8; }
-.nav-steam-games-logo svg { width:100%; height:100%; }
 .nav-steam-games-heading > div { min-width:0; }
 .nav-steam-games-heading small { color:inherit; opacity:.72; font-size:clamp(11px,.72vw,17px); }
 .nav-steam-sync-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:42px; padding:0 14px; border:1px solid #ffffff25; border-radius:8px; background:#ffffff09; color:inherit; font:inherit; cursor:pointer; }

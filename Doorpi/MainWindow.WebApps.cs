@@ -2921,7 +2921,7 @@ namespace Doorpi
                         ResetWebKeyboardBackState(suppressUntilPhysicalRelease: true);
                         keyboardBackHoldActive = false;
                         keyboardBackCloseFired = false;
-                        Dispatcher.Invoke(() => CloseYouTubeInline());
+                        Dispatcher.Invoke(CloseWebAppFromBackHold);
                         return true;
                     }
 
@@ -3324,7 +3324,7 @@ namespace Doorpi
                                 bCloseFired = true;
                                 ReleaseMediaLeftMouseIfDown();
                                 HideWebAppCloseHoldOverlay();
-                                Dispatcher.Invoke(() => CloseYouTubeInline());
+                                Dispatcher.Invoke(CloseWebAppFromBackHold);
                                 Thread.Sleep(120);
                                 continue;
                             }
@@ -3787,6 +3787,16 @@ namespace Doorpi
             }
             catch { }
             DisposePopupWebView(popupView);
+        }
+
+        private void CloseWebAppFromBackHold()
+        {
+            if (_steamGridBrowser != null && _popupWindow != null)
+            {
+                ClosePopupWindowAndDispose();
+                return;
+            }
+            CloseYouTubeInline();
         }
 
         private void EnsurePopupVkbControllerFocus()
@@ -4421,9 +4431,13 @@ namespace Doorpi
             {
                 bool keepPopupBehindLoading = _webAppLoadingActive;
                 ClosePopupWindowAndDispose();
+                var mainView = _ytWebView ?? throw new InvalidOperationException("A WebView principal foi encerrada.");
+                var steamGridBrowser = _steamGridBrowser;
+                long steamGridPopupGeneration = steamGridBrowser == null ? 0 : ++steamGridBrowser.PopupGeneration;
+                long keyPageRevisionBeforePopup = steamGridBrowser?.Navigation.KeyPageRevision ?? 0;
 
                 // Definimos o Owner para que o Windows saiba para quem deve devolver o foco após fecharmos.
-                _popupWindow = new Window
+                var popupWindow = new Window
                 {
                     Title = "Login",
                     Width = Math.Max(600, Math.Min(SystemParameters.WorkArea.Width - 48, 1500)),
@@ -4433,30 +4447,46 @@ namespace Doorpi
                     Owner = _webAppWindow ?? this,
                     ShowInTaskbar = false
                 };
+                _popupWindow = popupWindow;
 
                 if (keepPopupBehindLoading)
                 {
-                    _popupWindow.Width = 1;
-                    _popupWindow.Height = 1;
-                    _popupWindow.Left = -32000;
-                    _popupWindow.Top = -32000;
-                    _popupWindow.Opacity = 0;
-                    _popupWindow.ShowActivated = false;
-                    _popupWindow.Topmost = false;
+                    popupWindow.Width = 1;
+                    popupWindow.Height = 1;
+                    popupWindow.Left = -32000;
+                    popupWindow.Top = -32000;
+                    popupWindow.Opacity = 0;
+                    popupWindow.ShowActivated = false;
+                    popupWindow.Topmost = false;
                 }
 
-                _popupWebView = new WebView2();
-                _popupWindow.Content = _popupWebView;
+                var popupView = new WebView2();
+                _popupWebView = popupView;
+                popupWindow.Content = popupView;
 
-                _popupWindow.Closed += (s, _) =>
+                popupWindow.Closed += (s, _) =>
                 {
-                    var closedPopupView = _popupWebView;
-                    DisposePopupWebView(closedPopupView);
-                    _popupWebView = null;
-                    _popupWindow = null;
+                    if (ReferenceEquals(_popupWindow, popupWindow))
+                    {
+                        _popupWebView = null;
+                        _popupWindow = null;
+                        DisposePopupWebView(popupView);
+                    }
 
                     // Restaura o foco explicitamente sem matar a sessão ativa
                     Dispatcher.InvokeAsync(() => {
+                        if (_popupWindow != null) return;
+                        if (steamGridBrowser != null)
+                        {
+                            if (IsCurrentSteamGridBrowser(steamGridBrowser) && ReferenceEquals(mainView, _ytWebView))
+                            {
+                                ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
+                                HideWebAppCloseHoldOverlay();
+                                if (!IsActive) Activate();
+                                mainView.Focus();
+                            }
+                            return;
+                        }
                         if (_webAppWindow != null && _webAppWindow.WindowState != WindowState.Minimized)
                         {
                             // Cenário 1: App de mídia em janela própria
@@ -4479,42 +4509,81 @@ namespace Doorpi
                     });
                 };
 
-                _popupWindow.Show();
+                popupWindow.Show();
                 if (!keepPopupBehindLoading)
-                    _popupWindow.Activate();
+                    popupWindow.Activate();
 
-                var mainView = _ytWebView ?? throw new InvalidOperationException("A WebView principal foi encerrada.");
                 var env = _activeMediaWebViewEnvironment ?? mainView.CoreWebView2.Environment;
-                var permissionContext = CloneWebPermissionContext(sender as CoreWebView2 ?? mainView.CoreWebView2, _popupWindow);
+                var permissionContext = CloneWebPermissionContext(sender as CoreWebView2 ?? mainView.CoreWebView2, popupWindow);
                 await EnsureWebViewWithProfileAsync(
-                    _popupWebView,
+                    popupView,
                     env,
                     _activeMediaWebViewProfileName);
 
-                await _popupWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
+                var popupCore = popupView.CoreWebView2;
+                if (steamGridBrowser == null)
+                    await popupCore.AddScriptToExecuteOnDocumentCreatedAsync("window.name = 'doorpi_popup';");
                 if (!_isGenericBrowserMode && CanTrackRegisteredMediaWebApp(_currentWebAppUrl ?? ""))
-                    await InjectNativeMediaActivityTrackerAsync(_popupWebView.CoreWebView2);
+                    await InjectNativeMediaActivityTrackerAsync(popupCore);
                 try
                 {
                     var popupTrackingLevel = mainView.CoreWebView2.Profile.PreferredTrackingPreventionLevel;
-                    _popupWebView.CoreWebView2.Profile.PreferredTrackingPreventionLevel = popupTrackingLevel;
+                    popupCore.Profile.PreferredTrackingPreventionLevel = popupTrackingLevel;
                     LogWebViewSiteDiagnostic($"popup-tracking-prevention level={popupTrackingLevel} uri={TruncateForLog(e.Uri ?? "")}");
                 }
                 catch { }
-                _popupWebView.CoreWebView2.Settings.UserAgent = await BuildBrandedUserAgentAsync(_popupWebView.CoreWebView2);
-                ApplyProductionWebViewSettings(_popupWebView.CoreWebView2, allowDefaultContextMenus: true);
-                await ConfigureWebPermissionsAsync(_popupWebView.CoreWebView2,
-                    permissionContext);
+                popupCore.Settings.UserAgent = await BuildBrandedUserAgentAsync(popupCore);
+                ApplyProductionWebViewSettings(popupCore, allowDefaultContextMenus: true);
+                await ConfigureWebPermissionsAsync(popupCore, permissionContext);
 
 
-                _popupWebView.CoreWebView2.DocumentTitleChanged += (s, _) =>
-                { if (_popupWindow != null) _popupWindow.Title = _popupWebView.CoreWebView2.DocumentTitle; };
+                popupCore.DocumentTitleChanged += (s, _) =>
+                { if (ReferenceEquals(popupWindow, _popupWindow)) popupWindow.Title = popupCore.DocumentTitle; };
 
-                _popupWebView.CoreWebView2.WebMessageReceived += YtOnWebMessageReceived;
-                _popupWebView.CoreWebView2.WindowCloseRequested += (s, _) => _popupWindow?.Close();
-
-                _popupWebView.CoreWebView2.NavigationCompleted += async (s, args) =>
+                var popupNavigation = steamGridBrowser == null ? null : new SteamGridNavigation();
+                if (popupNavigation != null)
                 {
+                    popupView.ZoomFactor = 1.35;
+                    popupNavigation.ObserveNavigation(e.Uri, e.IsUserInitiated);
+                    popupCore.NavigationStarting += (_, args) => popupNavigation.ObserveNavigation(args.Uri, args.IsUserInitiated);
+                }
+                bool popupCloseQueued = false;
+                bool QueueSteamGridPopupClose(bool finishedBySite = false)
+                {
+                    if (steamGridBrowser == null || !IsCurrentSteamGridBrowser(steamGridBrowser) ||
+                        !ReferenceEquals(popupWindow, _popupWindow)) return false;
+                    if (popupCloseQueued) return true;
+                    bool returnToKeyPage = popupNavigation?.ShouldReturnFromPopup(popupCore.Source, finishedBySite) == true;
+                    if (!returnToKeyPage && !finishedBySite) return false;
+
+                    popupCloseQueued = true;
+                    // Let window.close() and the opener callback finish before destroying the popup view.
+                    _ = Dispatcher.InvokeAsync(() =>
+                    {
+                        if (!ReferenceEquals(popupWindow, _popupWindow)) return;
+                        ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
+                        popupWindow.Close();
+                        if (!returnToKeyPage || !IsCurrentSteamGridBrowser(steamGridBrowser) ||
+                            !ReferenceEquals(mainView, _ytWebView)) return;
+                        _ = ReturnToSteamGridKeyAfterPopupAsync(steamGridBrowser, steamGridPopupGeneration, keyPageRevisionBeforePopup);
+                    }, System.Windows.Threading.DispatcherPriority.Background);
+                    return true;
+                }
+
+                popupCore.WebMessageReceived += YtOnWebMessageReceived;
+                popupCore.WindowCloseRequested += (s, _) =>
+                {
+                    if (!QueueSteamGridPopupClose(finishedBySite: true)) popupWindow.Close();
+                };
+                if (steamGridBrowser != null)
+                    popupCore.SourceChanged += (_, args) =>
+                    {
+                        if (!args.IsNewDocument) QueueSteamGridPopupClose();
+                    };
+
+                popupCore.NavigationCompleted += async (s, args) =>
+                {
+                    if (!ReferenceEquals(popupView, _popupWebView)) return;
                     // Mesma proteção para o popup: reseta VKB se a página navegou com ele aberto
                     if (_vkbOwnerView == _popupWebView)
                     {
@@ -4526,6 +4595,7 @@ namespace Doorpi
                     var popup = _popupWebView;
                     var yt = _ytWebView;
                     if (popup == null) return;
+                    if (args.IsSuccess && QueueSteamGridPopupClose()) return;
 
                     if (!keepPopupBehindLoading)
                     {
@@ -4533,6 +4603,7 @@ namespace Doorpi
                         _ = popup.CoreWebView2.ExecuteScriptAsync("window.focus();");
                     }
                     QueuePopupVkbControllerFocusSync();
+                    if (steamGridBrowser != null) return;
                     try
                     {
                         string currentUrl = popup.CoreWebView2.Source;
@@ -4548,15 +4619,15 @@ namespace Doorpi
                     catch { }
                 };
 
-                await YtInjectGenericSiteAsync(_popupWebView.CoreWebView2);
+                await YtInjectGenericSiteAsync(popupCore);
 
-                e.NewWindow = _popupWebView.CoreWebView2;
+                if (ReferenceEquals(popupWindow, _popupWindow)) e.NewWindow = popupCore;
                 deferral.Complete();
 
                 if (!keepPopupBehindLoading)
                 {
                     await Task.Delay(200);
-                    _popupWebView.Focus();
+                    if (ReferenceEquals(popupView, _popupWebView)) popupView.Focus();
                 }
             });
         }
@@ -4735,32 +4806,6 @@ namespace Doorpi
         }}
     }} catch(e) {{}}
     }}
-    // ── 1. REDIRECIONAMENTO STEAMGRIDDB ──────────────────────────────────────
-    // Removido do JavaScript para evitar conflito/crash com o React do SteamGridDB.
-    // Agora o redirecionamento é controlado 100% pelo C# via NavigationStarting.
-
-    // ── 2. AUTO-COPY NO CLIQUE (Chave API) ───────────────────────────────────
-    document.addEventListener('click', function(e) {{
-        if (location.hostname !== 'www.steamgriddb.com') return;
-        
-        const el = e.target.closest('code') || (e.target.tagName === 'CODE' ? e.target : null);
-        if (!el) return;
-        
-        const apiText = el.innerText.trim();
-        if (apiText.length > 20) {{ // Chave da API tem 32 chars
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            window.getSelection().removeAllRanges();
-            window.getSelection().addRange(range);
-            window.chrome.webview.postMessage('copy_api_key:' + apiText);
-            showConsoleToast(
-                '{_currentToastTitle}' || 'Doorpi',
-                '{_currentToastSub}'   || 'Chave copiada!'
-            );
-            setTimeout(() => window.chrome.webview.postMessage('close_app'), 2200);
-        }}
-    }});
-
     // ── 3. TOAST ──────────────────────────────────────────────────────────────
     function showConsoleToast(title, sub) {{
         if (!document.getElementById('doorpi-toast-style')) {{
@@ -7079,23 +7124,19 @@ namespace Doorpi
             });
         }
 
-        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "", SteamConnectAttempt? steamConnection = null)
+        private async Task OpenWebViewInlineAsync(string url, bool isYouTube = false, string appName = "", string heroImg = "", string gridImg = "", bool isGenericBrowser = false, string logoImg = "", SteamConnectAttempt? steamConnection = null, SteamGridBrowser? steamGridBrowser = null)
         {
             CancelMediaWebViewGlobalWarmup();
-            // Corrige a URL logo de cara se a abertura já for apontando para a home
             ResetWebKeyboardBackState(suppressUntilPhysicalRelease: IsWebKeyboardBackPhysicallyDown());
             HideWebAppCloseHoldOverlay();
 
-            if (url.TrimEnd('/') == "https://www.steamgriddb.com")
-                url = "https://www.steamgriddb.com/profile/preferences/api";
-
-            bool isUtility = steamConnection != null || url.Contains("steamgriddb.com") || url.Contains("chromewebstore.google.com");
+            bool isUtility = steamConnection != null || steamGridBrowser != null || url.Contains("chromewebstore.google.com");
             bool isTrailerCapture = isGenericBrowser && _genericBrowserCaptureWebAppUrl &&
                                     string.Equals(_genericBrowserCaptureTarget, "gameTrailer", StringComparison.OrdinalIgnoreCase);
 
             if (_ytWebView != null)
             {
-                if (isUtility && _webAppWindow == null && steamConnection == null)
+                if (isUtility && _webAppWindow == null && steamConnection == null && steamGridBrowser == null)
                 {
                     Panel.SetZIndex(_ytWebView, 1000);
                     _ytWebView.Visibility = Visibility.Visible;
@@ -7314,6 +7355,11 @@ namespace Doorpi
             await EnsureWebViewWithProfileAsync(permissionView, env, profile.ProfileName);
             if (currentUserId != permissionContext.UserId || !ReferenceEquals(permissionView, _ytWebView)) return;
             if (steamConnection != null) await AttachSteamConnectAsync(permissionView.CoreWebView2, steamConnection);
+            if (steamGridBrowser != null)
+            {
+                permissionView.ZoomFactor = 1.35;
+                await AttachSteamGridBrowserAsync(permissionView.CoreWebView2, steamGridBrowser);
+            }
             await ConfigureWebPermissionsAsync(permissionView.CoreWebView2, permissionContext);
             await RestoreRetainedMediaSessionCookiesAsync(
                 _ytWebView.CoreWebView2,
@@ -7388,10 +7434,6 @@ namespace Doorpi
                         DiscordRpcManager.Instance.UpdateState("media", _currentWebAppUrl, title);
                 };
             }
-            // =========================================================================
-            // INTERCEPTAÇÃO LIMPA: Previne carregar o React e a tela do SteamGridDB,
-            // forçando a navegação de forma segura antes da rede processar a página.
-            // =========================================================================
             _ytWebView.CoreWebView2.NavigationStarting += (s, e) =>
             {
 
@@ -7408,7 +7450,6 @@ namespace Doorpi
                     ResetGenericBrowserKeyboardForNavigation();
                 }
 
-                string? currentUri = e.Uri?.TrimEnd('/');
                 string sourceBefore = _ytWebView?.CoreWebView2?.Source ?? "";
                 LogWebViewSiteDiagnostic(
                     $"navigation-start uri={TruncateForLog(e.Uri ?? "")} userInitiated={e.IsUserInitiated} redirect={e.IsRedirected} sourceBefore={TruncateForLog(sourceBefore)}");
@@ -7416,11 +7457,6 @@ namespace Doorpi
                 if (isGenericBrowser && !string.IsNullOrWhiteSpace(e.Uri))
                     UpdateGenericBrowserActiveTab(pendingUrl: e.Uri, isLoading: true);
 
-                if (currentUri == "https://www.steamgriddb.com")
-                {
-                    e.Cancel = true;
-                    _ytWebView?.CoreWebView2?.Navigate("https://www.steamgriddb.com/profile/preferences/api");
-                }
             };
 
             _ytWebView.CoreWebView2.DOMContentLoaded += async (_, _) =>
@@ -8604,6 +8640,9 @@ namespace Doorpi
 
             var coreWebView = ytWebView.CoreWebView2;
             EndSteamConnectAttempt(coreWebView);
+            var closedSteamGridBrowser = _steamGridBrowser is { } browser &&
+                (browser.Core == null || ReferenceEquals(browser.Core, coreWebView)) ? browser : null;
+            if (closedSteamGridBrowser != null) _steamGridBrowser = null;
             Task sessionCookieCapture = CaptureRetainedMediaSessionCookiesAsync(
                 coreWebView,
                 _activeMediaWebViewProfileName,
@@ -8752,7 +8791,13 @@ namespace Doorpi
                 }
                 catch { }
             }
-            webView.CoreWebView2?.PostWebMessageAsString("{\"type\":\"mediaAppClosed\"}");
+            webView.CoreWebView2?.PostWebMessageAsString(closedSteamGridBrowser == null
+                ? "{\"type\":\"mediaAppClosed\"}"
+                : System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "mediaAppClosed", returnTo = "steamGrid",
+                    requestId = closedSteamGridBrowser.RequestId, keyCopied = closedSteamGridBrowser.KeyCopied
+                }));
             SendRuntimeSessionsToUI();
 
             // Só fecha sessão de loja quando a própria loja está rodando em modo web.
@@ -8843,12 +8888,17 @@ namespace Doorpi
 
         private async void YtOnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
-            var msg = e.TryGetWebMessageAsString();
+            string msg;
+            try { msg = e.TryGetWebMessageAsString(); }
+            catch (ArgumentException) { return; }
             if (msg == null) return;
             if (msg.StartsWith(SteamConnectionCapture.Prefix, StringComparison.Ordinal)) return;
 
             bool isPopup = (_popupWebView != null && sender == _popupWebView.CoreWebView2);
-            WebView2 senderView = isPopup ? _popupWebView! : _ytWebView!;
+            var senderView = isPopup ? _popupWebView : _ytWebView;
+            if (senderView == null || !ReferenceEquals(sender, senderView.CoreWebView2)) return;
+            if (_steamGridBrowser != null &&
+                (msg == "close_app" || (isPopup && msg is "web_keyboard_back_down" or "web_keyboard_back_up" or "web_keyboard_home"))) return;
 
             if (msg.StartsWith("doorpi_media_activity:", StringComparison.Ordinal))
             {
@@ -9109,16 +9159,6 @@ namespace Doorpi
             {
                 mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
                 mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
-            }
-            else if (msg.StartsWith("copy_api_key:"))
-            {
-                if (!IsWebMessageFromHost(e, "www.steamgriddb.com")) return;
-                string key = msg["copy_api_key:".Length..];
-                Dispatcher.Invoke(() =>
-                {
-                    try { System.Windows.Clipboard.SetText(key); }
-                    catch (Exception ex) { Debug.WriteLine($"[Doorpi] Erro ao copiar: {ex.Message}"); }
-                });
             }
             else if (msg.StartsWith("auto_install_extension_json:"))
             {

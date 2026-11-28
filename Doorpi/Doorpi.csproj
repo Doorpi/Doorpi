@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -132,6 +132,8 @@
     <None Update="wwwroot\navigation.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="wwwroot\sounds\achievement.wav" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="wwwroot\sounds\achievement-platinum.wav" CopyToOutputDirectory="PreserveNewest" />
     <None Update="wwwroot\sounds\nav.wav">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -173,6 +175,7 @@
     <Folder Include="Data\images\" />
     <EmbeddedResource Include="Frontend\web-scripts\steam-connect.js" LogicalName="Doorpi.SteamConnect.js" />
     <EmbeddedResource Include="Frontend\web-scripts\steam-connect.css" LogicalName="Doorpi.SteamConnect.css" />
+    <EmbeddedResource Include="Frontend\web-scripts\steamgrid-connect.js" LogicalName="Doorpi.SteamGridConnect.js" />
   </ItemGroup>
 
   <Target Name="BuildFrontendStyles" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">

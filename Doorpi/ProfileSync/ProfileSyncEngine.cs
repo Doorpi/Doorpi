@@ -406,6 +406,7 @@ public static class ProfileSyncEngine
 
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
+        merged.PhantomBladeTrophies = MergePilotTrophies(local.PhantomBladeTrophies, remote.PhantomBladeTrophies);
         merged.Steam = MergeSteamProfiles(local.Steam, remote.Steam, conflictPaths);
         // Schema is a format capability, not editable user data. Prefer the newest
         // supported representation and never turn a v1 -> v2 migration into a
@@ -531,6 +532,7 @@ public static class ProfileSyncEngine
         // escolha para edicoes concorrentes que nao podem ser inferidas com seguranca.
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
+        merged.PhantomBladeTrophies = MergePilotTrophies(local.PhantomBladeTrophies, remote.PhantomBladeTrophies);
         merged.Steam = MergeSteamProfiles(local.Steam, remote.Steam, conflictPaths);
         merged.SchemaVersion = Math.Max(local.SchemaVersion, remote.SchemaVersion);
         merged.ProfileId = local.ProfileId ?? "";
@@ -1320,6 +1322,14 @@ public static class ProfileSyncEngine
         return left > long.MaxValue - right ? long.MaxValue : left + right;
     }
 
+    internal static Dictionary<string,long>? MergePilotTrophies(Dictionary<string,long>? left, Dictionary<string,long>? right)
+    {
+        var merged = new Dictionary<string,long>(left ?? new(), StringComparer.Ordinal);
+        foreach (var (id, time) in right ?? new())
+            merged[id] = merged.TryGetValue(id, out long previous) ? Math.Min(previous, time) : time;
+        return merged.Count > 0 ? merged : null;
+    }
+
     private static Doorpi.Steam.SteamProfileData? MergeSteamProfiles(Doorpi.Steam.SteamProfileData? local, Doorpi.Steam.SteamProfileData? remote, HashSet<string> conflicts)
     {
         if (local != null && remote != null && local.SteamId != remote.SteamId)
@@ -1336,6 +1346,8 @@ public static class ProfileSyncEngine
         ArgumentNullException.ThrowIfNull(remote);
 
         var differences = new List<ProfileDifference>();
+        if (!(local.PhantomBladeTrophies ?? new()).OrderBy(x => x.Key, StringComparer.Ordinal).SequenceEqual((remote.PhantomBladeTrophies ?? new()).OrderBy(x => x.Key, StringComparer.Ordinal)))
+            differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.SteamProfile, Path = "phantomBladeTrophies", LocalSummary = "Conquistas Doorpi", RemoteSummary = "Conquistas Doorpi" });
         if (Doorpi.Steam.SteamProfileMerge.Fingerprint(local.Steam) != Doorpi.Steam.SteamProfileMerge.Fingerprint(remote.Steam))
             differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.SteamProfile, Path = "steam", LocalSummary = local.Steam?.DisplayName ?? "Não importado", RemoteSummary = remote.Steam?.DisplayName ?? "Não importado" });
         AddValueDifference(differences, ProfileDifferenceKind.SchemaVersion, "schemaVersion",

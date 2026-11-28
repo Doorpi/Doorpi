@@ -23,6 +23,7 @@ public partial class MainWindow
         _steamPresentationCache = (directory, generation, revisions, data);
         return data;
     }
+    private volatile bool _steamBackgroundImport;
     private readonly SemaphoreSlim _steamImportGate = new(1, 1);
     private static readonly HttpClient SteamHttpClient = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
 
@@ -34,11 +35,19 @@ public partial class MainWindow
                 await SendSteamGameHeaderAsync(appId);
             return true;
         }
-        if (action is not ("steamConnect" or "steamProfileStatus" or "steamProfileAchievements" or "steamPasteKey" or "steamSaveManualKey" or "steamPasteAccount" or "steamDisconnect" or "steamImport")) return false;
+        if (action is not ("steamConnect" or "saveTrophyGameOrder" or "steamProfileStatus" or "steamProfileAchievements" or "steamPasteKey" or "steamSaveManualKey" or "steamPasteAccount" or "steamDisconnect" or "steamImport")) return false;
         if (action == "steamConnect") { await BeginSteamConnectAsync(root); return true; }
         string owner = currentUserId;
         if (string.IsNullOrWhiteSpace(owner)) return true;
         string directory = Path.Combine(dataFolder, "users", ProfileSync.GoogleOAuthClient.SafeProfileId(owner));
+        string orderPath = Path.Combine(directory,"trophy-game-order.json");
+        if (action == "saveTrophyGameOrder")
+        {
+            if (root.TryGetProperty("profileId",out var profile) && profile.GetString()==owner &&
+                root.TryGetProperty("order",out var value) && value.GetString() is string order && order is "earned" or "hours" or "recent")
+                StateStorage.WriteAllText(orderPath,JsonSerializer.Serialize(order));
+            return true;
+        }
         string userPath = Path.Combine(directory, "user.json");
         long generation = _themeProfileGeneration;
         long capturedUserRevision = StateStorage.GetRevision(userPath);
@@ -48,16 +57,19 @@ public partial class MainWindow
         SteamSyncOperation? currentOperation = null;
         SteamProfileData? statusData = null;
         bool statusLoaded = false;
+        bool silent = root.ValueKind==JsonValueKind.Object && root.TryGetProperty("silent",out var mode) && mode.ValueKind==JsonValueKind.True;
+        int openApp = silent && root.TryGetProperty("openApp",out var opened) && opened.TryGetInt32(out int app) ? app : 0;
         void Status(string message, bool busy = false)
         {
             if (!statusLoaded) { statusData = ReadSteamPresentation(directory, generation); statusLoaded = true; }
             var data = statusData;
-            var summaries = busy ? null : data?.Games.OrderByDescending(game => game.PlaytimeMinutes).Take(20).Select(game => new { game.Name, game.PlaytimeMinutes, unlocked = game.Achievements.Count(item => item.Unlocked), total = game.Achievements.Count, achievements = game.Achievements.Where(item => item.Unlocked).OrderByDescending(item => item.UnlockTimeUnix).Take(5).Select(item => item.Name).ToArray() }).ToArray();
-            PostProfileSyncMessage(new { type = "steamProfileStatus", profileId = owner, hasKey = SteamProfileStore.HasKey(directory), account = SteamProfileStore.ReadConnectedAccount(directory), steamId = data?.SteamId ?? "", displayName = data?.DisplayName ?? "", gameCount = data?.Games.Count ?? 0, achievementCount = data?.Games.Sum(game => game.Achievements.Count(item => item.Unlocked)) ?? 0,
-                completedGames = data?.Games.Count(game => game.Achievements.Count > 0 && game.Achievements.All(item => item.Unlocked)) ?? 0,
-                medals = SteamMedals.Count(data?.Games.SelectMany(game => game.Achievements) ?? Enumerable.Empty<SteamAchievementData>()),
-                achievementGames = data?.Games.Count(game => game.Achievements.Count > 0) ?? 0,
-                achievementIndex = busy ? null : data?.Games.OrderBy(game => game.Name).Select(game => new { game.AppId, game.Name, game.PlaytimeMinutes, game.LastPlayedUnix, medals = SteamMedals.Count(game.Achievements), unlocked = game.Achievements.Count(item => item.Unlocked), total = game.Achievements.Count, previewIcons = SteamMedals.InDisplayOrder(game.Achievements).Take(6).Select(item => new { item.IconFile, item.IconUrl }), checkedUtc = game.AchievementsCheckedUtc }).ToArray(),
+            var trophyGames = ProfileTrophyGames(directory,data);
+            var summaries = busy ? null : trophyGames.OrderByDescending(game => game.PlaytimeMinutes).Take(20).Select(game => new { game.Name, game.PlaytimeMinutes, unlocked = game.Achievements.Count(item => item.Unlocked), total = game.Achievements.Count, achievements = game.Achievements.Where(item => item.Unlocked).OrderByDescending(item => item.UnlockTimeUnix).Take(5).Select(item => item.Name).ToArray() }).ToArray();
+            PostProfileSyncMessage(new { type = "steamProfileStatus", gameOrder = StateStorage.Exists(orderPath) ? JsonSerializer.Deserialize<string>(StateStorage.ReadAllText(orderPath)) : "earned", silent, openApp, detailItems = openApp>0 ? SteamMedals.InDisplayOrder(trophyGames.Find(g=>g.AppId==openApp)?.Achievements ?? []).Select(item=>new { item.ApiName,item.Name,item.Description,item.Unlocked,item.UnlockTimeUnix,item.IconFile,item.IconUrl,item.GlobalUnlockPercent }).ToArray() : null, profileId = owner, hasKey = SteamProfileStore.HasKey(directory), account = SteamProfileStore.ReadConnectedAccount(directory), steamId = data?.SteamId ?? "", displayName = data?.DisplayName ?? "", gameCount = trophyGames.Count, achievementCount = trophyGames.Sum(game => game.Achievements.Count(item => item.Unlocked)),
+                completedGames = trophyGames.Count(game => game.Achievements.Count > 0 && game.Achievements.All(item => item.Unlocked)),
+                medals = SteamMedals.Count(trophyGames.SelectMany(game => game.Achievements)),
+                achievementGames = trophyGames.Count(game => game.Achievements.Count > 0),
+                achievementIndex = busy ? null : trophyGames.OrderBy(game => game.Name).Select(game => new { game.AppId, game.Name, libraryPath = CatalogOwnerMatches ? _registeredSteamGames.GetValueOrDefault(game.AppId)?.Path : null, game.PlaytimeMinutes, game.LastPlayedUnix, medals = SteamMedals.Count(game.Achievements), unlocked = game.Achievements.Count(item => item.Unlocked), total = game.Achievements.Count, previewIcons = SteamMedals.InDisplayOrder(game.Achievements).Take(6).Select(item => new { item.IconFile, item.IconUrl }), checkedUtc = game.AchievementsCheckedUtc }).ToArray(),
                 games = summaries, busy, message,
                 phase = currentOperation?.Phase ?? "", progressCurrent = currentOperation?.Current ?? 0,
                 progressTotal = currentOperation?.Total ?? 0, progressPercent = currentOperation?.Percent ?? 0,
@@ -71,9 +83,9 @@ public partial class MainWindow
                 int appId = root.TryGetProperty("appId", out var appValue) && appValue.TryGetInt32(out var parsedApp) ? parsedApp : 0;
                 int offset = root.TryGetProperty("offset", out var offsetValue) && offsetValue.TryGetInt32(out var parsedOffset) ? Math.Max(0, parsedOffset) : 0;
                 string requestId = root.TryGetProperty("requestId", out var requestValue) ? requestValue.GetString() ?? "" : "";
-                var game = ReadSteamPresentation(directory, generation)?.Games.FirstOrDefault(game => game.AppId == appId);
+                var game = ProfileTrophyGames(directory,ReadSteamPresentation(directory,generation)).FirstOrDefault(g => g.AppId == appId);
                 var items = SteamMedals.InDisplayOrder(game?.Achievements ?? []).Skip(offset).Take(40)
-                    .Select(item => new { item.Name, item.Description, item.Unlocked, item.UnlockTimeUnix, item.IconFile, item.IconUrl, item.GlobalUnlockPercent }).ToArray();
+                    .Select(item => new { item.ApiName,item.Name, item.Description, item.Unlocked, item.UnlockTimeUnix, item.IconFile, item.IconUrl, item.GlobalUnlockPercent }).ToArray();
                 PostProfileSyncMessage(new { type = "steamProfileAchievements", profileId = owner, requestId, appId, offset, total = game?.Achievements.Count ?? 0, items });
                 return true;
             }
@@ -82,8 +94,8 @@ public partial class MainWindow
                 string operationPath = Path.Combine(directory, "steam-sync-operation.json");
                 var operation = StateStorage.Exists(operationPath) ? JsonSerializer.Deserialize<SteamSyncOperation>(StateStorage.ReadAllText(operationPath)) : null;
                 currentOperation = operation;
-                bool running = _steamImportGate.CurrentCount == 0;
-                Status(running && operation != null ? operation.Message : SteamProfileStore.HasKey(directory) ? "Conexão salva neste Windows. Atualize para consultar horas e conquistas." : "Escolha Configurar Steam, entre na sua conta e clique na chave.", running);
+                bool running = !silent && !_steamBackgroundImport && _steamImportGate.CurrentCount == 0;
+                Status(running && operation != null ? operation.Message : SteamProfileStore.HasKey(directory) ? "Conexão Steam salva. Horas e conquistas são atualizadas automaticamente." : "Escolha Configurar Steam, entre na sua conta e clique na chave.", running);
                 return true;
             }
             if (action == "steamPasteAccount")
@@ -93,7 +105,7 @@ public partial class MainWindow
                 PostProfileSyncMessage(new { type = "steamProfileStatus", profileId = owner, account, hasKey = SteamProfileStore.HasKey(directory), busy = false, message = "Perfil preenchido. Importe para consultar os dados públicos." });
                 return true;
             }
-            if (!_steamImportGate.Wait(0)) { Status("Já existe uma importação Steam em andamento.", true); return true; }
+            if (!_steamImportGate.Wait(0)) { if(automaticCompletion==null) Status("Já existe uma importação Steam em andamento.", true); return true; }
             try
             {
                 if (action is "steamPasteKey" or "steamSaveManualKey")
@@ -133,7 +145,8 @@ public partial class MainWindow
                 if (automaticCompletion == null) NotifySteamOperation(owner, firstSync
                     ? "Primeira sincronização: importando biblioteca, horas e troféus jogo a jogo. Pode demorar; se fechar o Doorpi, a importação será retomada na próxima abertura."
                     : "Consultando a Steam. Você pode continuar usando o Doorpi.", true);
-                Status(currentOperation.Message, true);
+                _steamBackgroundImport = automaticCompletion != null;
+                if (!_steamBackgroundImport) Status(currentOperation.Message, true);
                 string lastProgress = currentOperation.Message;
                 int progressActive = 1;
                 DateTimeOffset lastProgressSaved = DateTimeOffset.MinValue;
@@ -187,12 +200,17 @@ public partial class MainWindow
                 await Dispatcher.InvokeAsync(() =>
                 {
                     if (owner != currentUserId) return;
+                    if(automaticCompletion!=null)
+                    {
+                        if(SteamProfileMerge.Fingerprint(previous)!=SteamProfileMerge.Fingerprint(imported)) PublishTrophyChange(owner);
+                        return;
+                    }
                     Status($"{lastProgress} {imported.Games.Count} jogos; {imported.Games.Sum(game => game.Achievements.Count(item => item.Unlocked))} conquistas desbloqueadas.");
                     LoadGamesIntoUI();
                     // Steam progress/completion must not reset the profile view.
                 });
             }
-            finally { _steamImportGate.Release(); }
+            finally { _steamBackgroundImport=false; _steamImportGate.Release(); }
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or IOException or HttpRequestException or JsonException or CryptographicException or OperationCanceledException or FormatException)
         {
@@ -209,6 +227,7 @@ public partial class MainWindow
                 SaveSteamOperation(directory, operationAccount, true, message, new(currentOperation.Phase, message, currentOperation.Current, currentOperation.Total, currentOperation.Percent), firstSync);
                 NotifySteamOperation(owner, message + " Nova tentativa no próximo login ou pela atualização manual.", false);
             }
+            if(automaticCompletion!=null) return true;
             try { Status(message); } catch { PostProfileSyncMessage(new { type = "steamProfileStatus", profileId = owner, busy = false, message = "Não foi possível ler os dados Steam armazenados. Eles não foram substituídos." }); }
         }
         return true;

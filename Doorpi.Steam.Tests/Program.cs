@@ -7,7 +7,59 @@ using Doorpi.ProfileSync;
 using Doorpi.Steam;
 using Doorpi.Storage;
 
+if(args is ["--check-public-catalog", var publicApp])
+{
+    using var catalogClient=new HttpClient(new HttpClientHandler{AllowAutoRedirect=false});
+    var catalog=await LocalSteamCatalog.FetchAsync(catalogClient,int.Parse(publicApp),"Teste");
+    Console.WriteLine($"Public catalog: {catalog.Achievements.Count} definitions, {catalog.Achievements.Count(a=>a.IconUrl!=null)} icons");
+    if(catalog.Achievements.Count==0 || catalog.Achievements.All(a=>a.IconUrl==null)) throw new InvalidDataException();
+    return;
+}
+if (args is ["--inspect-cache", var cacheRoot])
+{
+    int games = 0, unlocked = 0, unsupported = 0, partial = 0;
+    foreach (var file in Directory.EnumerateFiles(cacheRoot, "UserGameStats_*.bin"))
+    {
+        if (!int.TryParse(Path.GetFileNameWithoutExtension(file).Split('_').Last(), out var app)) continue;
+        string schema = Path.Combine(cacheRoot, $"UserGameStatsSchema_{app}.bin");
+        if (!File.Exists(schema)) continue;
+        try
+        {
+            var earned = SteamCachedAchievements.ReadUnlocked(file,schema,app);
+            var catalog = SteamCachedAchievements.ReadCatalog(schema,app);
+            if (earned.Any(a => !catalog.Any(def => def.ApiName == a.ApiName))) throw new Exception("Unlock outside schema");
+            if (earned.Count > 0 && earned.Count < catalog.Count) partial++;
+            unlocked += earned.Count;
+            games++;
+        }
+        catch (InvalidDataException) { unsupported++; }
+    }
+    Console.WriteLine($"Parsed {games} game caches, {unlocked} unlocked, {unsupported} unsupported, {partial} partial games incorrectly completed by an unlock-only list");
+    if (unlocked == 0) throw new InvalidDataException("No cache unlocks verified");
+    return;
+}
 int checks = 0;
+var starting=DateTimeOffset.UtcNow;
+var aliceTrophies=new LocalTrophySession(starting);
+Check(aliceTrophies.Observe("shared",new(){["earlier"]=0}).Count==0,"Prior Windows unlock credited to Alice");
+Check(aliceTrophies.Observe("shared",new(){["earlier"]=0,["new"]=0}).ContainsKey("new"),"New untimed unlock not recorded");
+var bobTrophies=new LocalTrophySession(starting.AddSeconds(1));
+Check(bobTrophies.Observe("shared",new(){["earlier"]=0,["new"]=0,["oldTimed"]=starting.ToUnixTimeSeconds()-10}).Count==0,"Shared save copied unlocks to Bob");
+Check(aliceTrophies.Observe("second source",new(){["recent"]=starting.ToUnixTimeSeconds()}).ContainsKey("recent"),"Early unlock during this session lost");
+var localEdition = new SteamGameData { Achievements = [
+    new() { ApiName = "local", Unlocked = true }, new() { ApiName = "both", Unlocked = true, UnlockTimeUnix = 12 }, new() { ApiName = "official" }] };
+var purchasedEdition = new SteamGameData { AppId = 4115450, PlaytimeMinutes = 130, Achievements = [
+    new() { ApiName = "local" }, new() { ApiName = "both", Unlocked = true, UnlockTimeUnix = 22 }, new() { ApiName = "official", Unlocked = true, UnlockTimeUnix = 30 }] };
+var combinedEdition = SteamProfileMerge.CombineDoorpiTrophies(localEdition, purchasedEdition, true);
+Check(combinedEdition.Achievements.Count(a => a.Unlocked) == 3 && combinedEdition.PlaytimeMinutes == 130, "Local-to-official transition lost progress");
+Check(combinedEdition.Achievements.Single(a => a.ApiName == "both").UnlockTimeUnix == 12, "Purchase lost the earliest unlock time");
+Check(!purchasedEdition.Achievements[0].Unlocked, "Doorpi unlocks overwrote official account state");
+var pilotLocal = new CloudProfileV1 { PhantomBladeTrophies = new() { ["ACH_001"] = 22 } };
+var pilotRemote = new CloudProfileV1 { PhantomBladeTrophies = new() { ["ACH_001"] = 18, ["ACH_002"] = 30 } };
+var pilotMerged = ProfileSyncEngine.MergePilotTrophies(pilotLocal.PhantomBladeTrophies, pilotRemote.PhantomBladeTrophies)!;
+Check(pilotMerged.Count == 2 && pilotMerged["ACH_001"] == 18, "Pilot merge lost an unlock or its first timestamp");
+Check(ProfileSyncSerializer.ComputeContentHash(pilotLocal) != ProfileSyncSerializer.ComputeContentHash(pilotRemote), "Pilot unlocks missing from cloud hash");
+Check(ProfileSyncSerializer.DeserializeProfile(ProfileSyncSerializer.SerializeProfile(pilotLocal))?.PhantomBladeTrophies?["ACH_001"] == 22, "Pilot unlock lost in cloud round-trip");
 SteamAchievementData[] mixedUnlocks = [
     new() { Name="locked rare", GlobalUnlockPercent=0.1 },
     new() { Name="earned common", Unlocked=true, GlobalUnlockPercent=70 },
@@ -113,6 +165,37 @@ string root = Path.Combine(AppContext.BaseDirectory, "test-data", Guid.NewGuid()
 StateStorage.Initialize(root);
 string directory = Path.Combine(root, "Data", "users", "alice");
 StateStorage.WriteBatch(SteamProfileStore.BuildWrites(directory, imported));
+string aliceOrder=Path.Combine(directory,"trophy-game-order.json");
+string bobOrder=Path.Combine(root,"Data","users","bob","trophy-game-order.json");
+StateStorage.WriteAllText(aliceOrder,JsonSerializer.Serialize("hours"));
+StateStorage.WriteAllText(bobOrder,JsonSerializer.Serialize("recent"));
+Check(JsonSerializer.Deserialize<string>(StateStorage.ReadAllText(aliceOrder))=="hours" && JsonSerializer.Deserialize<string>(StateStorage.ReadAllText(bobOrder))=="recent","Trophy sorting must persist independently per profile");
+string aliceLedger=Path.Combine(directory,"doorpi-local-trophies.json");
+string bobLedger=Path.Combine(root,"Data","users","bob","doorpi-local-trophies.json");
+StateStorage.WriteAllText(aliceLedger,JsonSerializer.Serialize(new Dictionary<string,long>{{"620/one",17}}));
+Check(!StateStorage.Exists(bobLedger),"Independent account inherited Alice's unlock");
+StateStorage.WriteAllText(bobLedger,JsonSerializer.Serialize(new Dictionary<string,long>{{"620/two",23}}));
+Check(!StateStorage.ReadAllText(aliceLedger).Contains("two") && !StateStorage.ReadAllText(bobLedger).Contains("one"),"SQLite local trophies escaped their profile");
+var damaged=SteamProfileMerge.Merge(null,imported)!;
+damaged.Games.Add(new SteamGameData{AppId=321,Name="Steam 321",Achievements=[new(){AppId=321,ApiName="ONE",Name="One",Unlocked=true}]});
+Check(SteamProfileMerge.Merge(imported,damaged)!.Games.Count==imported.Games.Count,"Old cloud snapshot resurrected placeholders");
+var legacyWrites=new Dictionary<string,string?>(SteamProfileStore.BuildWrites(directory,damaged));
+var placeholder=damaged.Games.Last();
+legacyWrites[Path.Combine(directory,"steam-games.json")]=JsonSerializer.Serialize(damaged.Games.Select(g=>new SteamGameData{AppId=g.AppId,Id=g.AppId.ToString(),Name=g.Name,PlaytimeMinutes=g.PlaytimeMinutes,AchievementsCheckedUtc=g.AchievementsCheckedUtc}));
+legacyWrites[Path.Combine(directory,"steam-achievements.json")]=JsonSerializer.Serialize(damaged.Games.SelectMany(g=>g.Achievements).Select(a=>new SteamAchievementData{Id=a.AppId+"/"+a.ApiName,AppId=a.AppId,ApiName=a.ApiName,Name=a.Name,IconFile=a.IconFile,GlobalUnlockPercent=a.GlobalUnlockPercent,Unlocked=a.Unlocked}));
+StateStorage.WriteBatch(legacyWrites);
+Check(SteamProfileStore.ArchiveUnverifiedCacheRows(directory),"Legacy placeholder was not repaired");
+Check(!SteamProfileStore.ArchiveUnverifiedCacheRows(directory) && SteamProfileStore.Read(directory)!.Games.Count==imported.Games.Count,"Repair must be idempotent and preserve verified games");
+Check(StateStorage.ReadAllText(Path.Combine(directory,"steam-cache-recovery.json")).Contains("ONE"),"Lost the original unlock during repair");
+var installDir=Path.Combine(root,"game-fixture");
+Directory.CreateDirectory(installDir);
+string executable=Path.Combine(installDir,"Game.exe");
+File.WriteAllText(executable,"fixture");
+File.WriteAllText(Path.Combine(installDir,"steam_appid.txt"),"620");
+Check(LocalSteamCatalog.Identify(new GameModel{Path=executable})==620,"Local Steam ID not detected");
+foreach(string source in new[]{"Epic","GOG Galaxy","Xbox","Steam"})
+    Check(LocalSteamCatalog.Identify(new GameModel{Source=source,Path=executable})==0,"Inspected official store files");
+Check(LocalSteamCatalog.Identify(new GameModel{LaunchUrl="steam://rungameid/620",Path="missing.exe"})==620,"Steam link required folder access");
 SteamProfileStore.SaveKey(directory, key);
 Check(SteamProfileStore.ReadKey(directory) == key, "Protected Steam credential could not be recovered");
 SteamProfileStore.SaveConnection(directory,key,id);

@@ -53,6 +53,10 @@ public sealed class SteamAchievementData
 
 public static class SteamProfileMerge
 {
+    internal static bool IsLegacyPlaceholder(SteamGameData game) =>
+        game.Name==$"Steam {game.AppId}" && game.AchievementsCheckedUtc==null && game.PlaytimeMinutes==0 &&
+        game.Achievements.Count>0 && game.Achievements.All(a=>a.Unlocked);
+
     // Portable profile data only. API keys and machine session state never enter this model.
     public static SteamProfileData? Merge(SteamProfileData? left, SteamProfileData? right)
     {
@@ -86,6 +90,27 @@ public static class SteamProfileMerge
         return result;
     }
 
+    internal static SteamGameData CombineDoorpiTrophies(SteamGameData game, SteamGameData? official, bool hasCurrentRarity)
+    {
+        if (official != null)
+        {
+            game.AppId = official.AppId;
+            if (official.Name.Length>0 && official.Name!=$"Steam {official.AppId}") game.Name = official.Name;
+            game.PlaytimeMinutes = official.PlaytimeMinutes;
+            game.LastPlayedUnix = official.LastPlayedUnix;
+            foreach (var item in official.Achievements)
+            {
+                var local = game.Achievements.Find(a => a.ApiName == item.ApiName);
+                if (local == null) continue;
+                if (!hasCurrentRarity) local.GlobalUnlockPercent = item.GlobalUnlockPercent ?? local.GlobalUnlockPercent;
+                local.Unlocked |= item.Unlocked;
+                if (item.Unlocked && item.UnlockTimeUnix > 0 && (local.UnlockTimeUnix == 0 || item.UnlockTimeUnix < local.UnlockTimeUnix))
+                    local.UnlockTimeUnix = item.UnlockTimeUnix;
+            }
+        }
+        return game;
+    }
+
     public static string Fingerprint(SteamProfileData? data)
     {
         var normalized = Clone(data);
@@ -101,5 +126,11 @@ public static class SteamProfileMerge
         return JsonSerializer.Serialize(normalized);
     }
 
-    private static SteamProfileData? Clone(SteamProfileData? value) => value == null ? null : JsonSerializer.Deserialize<SteamProfileData>(JsonSerializer.Serialize(value));
+    private static SteamProfileData? Clone(SteamProfileData? value)
+    {
+        if(value==null) return null;
+        var copy=JsonSerializer.Deserialize<SteamProfileData>(JsonSerializer.Serialize(value))!;
+        copy.Games.RemoveAll(IsLegacyPlaceholder);
+        return copy;
+    }
 }

@@ -146,13 +146,14 @@ let _setupSyncMessage = '';
     .shake { animation: setupShake 0.33s ease; }
 
     .setup-api-row { display: flex; gap: clamp(8px, 0.9vw, 12px); align-items: stretch; }
-    .setup-api-row .setup-input { flex: 1; }
+    .setup-api-row .setup-input { flex: 1; min-width: 0; font-size: clamp(1.1rem, 1.45vw, 1.5rem); }
     .setup-icon-btn { background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.18); border-radius: clamp(10px, 1vw, 13px); color: rgba(255,255,255,0.72); font-size: clamp(0.82rem, 0.92vw, 1.12rem); font-weight: 600; padding: 0 clamp(16px, 1.7vw, 24px); cursor: pointer; outline: none; transition: all 0.15s; display: flex; align-items: center; gap: 7px; }
     .setup-icon-btn:focus, .setup-icon-btn:hover { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.9); color: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,0.12); }
     .setup-api-link-btn { background: rgba(100,160,255,0.09); border: 1px solid rgba(100,160,255,0.25); border-radius: clamp(10px, 1vw, 13px); color: rgba(140,190,255,0.9); font-size: clamp(0.8rem, 0.88vw, 1.08rem); font-weight: 600; padding: 0 clamp(16px, 1.7vw, 24px); cursor: pointer; outline: none; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+    #btnSetupApiLink { align-self: flex-start; min-height: 44px; font-size: clamp(1rem, 1.15vw, 1.2rem); }
     .setup-api-link-btn:focus, .setup-api-link-btn:hover { background: rgba(100,160,255,0.20); border-color: rgba(100,160,255,0.9); color: rgba(200,225,255,1); box-shadow: 0 0 0 4px rgba(100,160,255,0.15); }
-    .setup-api-hint { font-size: clamp(0.8rem, 0.88vw, 1.05rem); color: rgba(255,255,255,0.38); margin: 0; transition: color 0.2s; }
-    .setup-api-hint.error { color: rgba(255,100,100,0.9); }
+    .setup-api-hint { font-size: clamp(1rem, 1.1vw, 1.2rem); color: rgba(255,255,255,0.75); margin: 0; transition: color 0.2s; }
+    .setup-api-hint.error { color: #ffaaa6; }
 
     .setup-layout-panel { display: grid; gap: clamp(14px, 1.5vw, 20px); }
     .setup-layout-preview {
@@ -274,7 +275,7 @@ let _setupSyncMessage = '';
     .setup-footer #btnSetupCancel { min-height: clamp(46px, 3vw, 62px); min-width: clamp(160px, 10vw, 230px); justify-content: center; border-radius: clamp(12px, 1.2vw, 16px); padding: 0 clamp(28px, 2.6vw, 48px); font-size: clamp(0.96rem, 1.05vw, 1.32rem); }
     .setup-finish-btn { background: rgba(255,255,255,0.92); border: 2px solid transparent; border-radius: clamp(12px, 1.2vw, 16px); color: #06060e; font-size: clamp(1rem, 1.15vw, 1.5rem); font-weight: 700; padding: clamp(15px, 1.6vw, 22px) clamp(52px, 5.2vw, 80px); min-width: clamp(260px, 16vw, 390px); cursor: pointer; outline: none; letter-spacing: 0.02em; transition: all 0.2s; box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
     .setup-finish-btn:focus, .setup-finish-btn:hover { background: #fff; transform: translateY(-2px) scale(1.03); box-shadow: 0 0 0 5px rgba(255,255,255,0.2), 0 16px 36px rgba(0,0,0,0.5); }
-    `;
+`;
     document.head.appendChild(s);
 })();
 
@@ -399,12 +400,12 @@ let _setupSyncMessage = '';
                     <div class="setup-section-content">
                         <div class="setup-section-divider"></div>
                         <p class="setup-section-desc" data-i18n="setupApiDesc"></p>
+                        <button class="setup-api-link-btn setup-focusable" id="btnSetupApiLink" tabindex="-1"><span data-i18n="setupStep3LinkText"></span></button>
                         <div class="setup-api-row">
-                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" maxlength="32" />
+                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-describedby="setupApiHint" />
                             <button class="setup-icon-btn setup-focusable" id="btnSetupPaste" tabindex="-1"><span data-i18n="setupStep3PasteMode"></span></button>
-                            <button class="setup-api-link-btn setup-focusable" id="btnSetupApiLink" tabindex="-1"><span data-i18n="setupStep3LinkText"></span></button>
                         </div>
-                        <p class="setup-api-hint" id="setupApiHint" data-i18n="setupStep3PasteHint"></p>
+                        <p class="setup-api-hint" id="setupApiHint" aria-live="polite" data-i18n="setupStep3PasteHint"></p>
                     </div>
                 </div>
             </div>
@@ -452,6 +453,7 @@ let _setupSyncMessage = '';
             </div>
         </div>
 
+        <p class="setup-api-hint" id="setupSaveError" role="status" hidden></p>
         <div class="setup-footer">
             <button class="setup-power-btn setup-focusable" id="btnSetupExit" style="display:none;" tabindex="-1">
                 ${svgExit} <span data-i18n="powerExit">Sair</span>
@@ -649,6 +651,7 @@ function _loadCurrentUserIntoForm() {
     document.getElementById('setupPinInput').value = _currUser.pin || '';
     _setSetupPinHintError(!_isValidSetupPin(_currUser.pin));
     document.getElementById('setupApiInput').value = _currUser.apiKey;
+    _setSetupApiHint();
     const btn = document.getElementById('setupPhotoBtn');
     if (_currUser.photoBase64) {
         btn.innerHTML = `<img src="${window._doorpiUserPhotoSrc?.(_currUser.photoBase64) || `data:image/png;base64,${_currUser.photoBase64}`}" />`;
@@ -672,7 +675,7 @@ function _updateStatus() {
         statusId.className = 'setup-section-status ' + (nameDone ? 'done' : 'required-empty');
     }
 
-    const apiDone = !!_currUser.apiKey.trim();
+    const apiDone = !!_currUser.importCloud;
     const statusApi = document.getElementById('statusApiKey');
     if (statusApi) {
         statusApi.textContent = apiDone ? '✓' : '';
@@ -1050,6 +1053,8 @@ function openSetup(isAddingUser = false) {
     _setupCloudProfileId = '';
     _setupSyncConnectFromRegistration = false;
     _setupSyncMessage = '';
+    _setupApiInputRequest = null;
+    _setSetupSaving(false);
     _setupLayoutConfirmed = !!isAddingUser;
     _setupUsers = [{
         id: '', name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
@@ -1136,6 +1141,7 @@ function closeSetup(options = {}) {
 }
 
 function setupBack() {
+    if (_setupSaveRequest) return true;
     if (_setupPhase === 'registration') {
         _setupReturnToAuth();
         return true;
@@ -1220,7 +1226,105 @@ function _setSetupPinHintError(isError) {
     hint.classList.toggle('error', !!isError);
 }
 
+let _setupSaveRequest = null;
+let _setupApiInputRequest = null;
+let _steamGridOpenRequestId = '';
+let _steamGridReopenAfter = 0;
+
+function _openSteamGridKeyPage() {
+    if (_steamGridOpenRequestId || performance.now() < _steamGridReopenAfter) return '';
+    const requestId = crypto.randomUUID();
+    _steamGridOpenRequestId = requestId;
+    postToHost({ action: 'openSteamGridKeyPage', requestId, texts: {
+        copy: t('steamGridKeyCopyBack'), back: t('steamGridKeyBack'),
+        open: t('steamGridKeyOpen'), clipboardError: t('steamGridKeyClipboardError')
+    } });
+    return requestId;
+}
+
+function _finishSteamGridKeyPage(requestId, keyCopied = false) {
+    if (!requestId || requestId !== _steamGridOpenRequestId) return;
+    _steamGridOpenRequestId = '';
+    if (keyCopied) _steamGridReopenAfter = performance.now() + 400;
+}
+
+function _setSetupApiHint(message = 'setupStep3PasteHint', error = false) {
+    const hint = document.getElementById('setupApiHint');
+    const input = document.getElementById('setupApiInput');
+    hint.textContent = t(message);
+    hint.classList.toggle('error', error);
+    input.classList.toggle('error', error);
+    input.setAttribute('aria-invalid', String(error));
+}
+
+function _setSetupSaving(saving) {
+    if (!saving) _setupSaveRequest = null;
+    document.querySelectorAll('#setupContainer .setup-section').forEach(section => section.inert = saving);
+    for (const id of ['btnSetupFinish', 'btnSetupCancel', 'btnSetupBackAuth']) {
+        document.getElementById(id).disabled = saving;
+    }
+    const status = document.getElementById('setupSaveError');
+    status.classList.remove('error');
+    status.textContent = saving ? t('steamGridKeyValidating') : '';
+    status.hidden = !saving;
+}
+
+function _setSetupApiInput(value) {
+    if (!_currUser || _setupSaveRequest) return;
+    _currUser.apiKey = value;
+    document.getElementById('setupApiInput').value = value;
+    _setSetupApiHint(value.trim() ? 'steamGridKeyCheckOnFinish' : 'setupStep3PasteHint');
+}
+
+function _handleSetupSteamGridInput(data) {
+    if (!isSetupOpen || !_setupApiInputRequest || data.requestId !== _setupApiInputRequest.id ||
+        _currUser !== _setupApiInputRequest.user || _setupPhase !== 'registration') return;
+    _setupApiInputRequest = null;
+    if (data.reason || !data.text) {
+        _setSetupApiHint(data.reason || 'steamGridKeyClipboardEmpty', true);
+        return;
+    }
+    _setSetupApiInput(data.text);
+    document.getElementById('setupApiInput').focus();
+}
+
+function _handleSetupUsersSaved(data) {
+    if (!isSetupOpen || !_setupSaveRequest || data.requestId !== _setupSaveRequest) return;
+    _setSetupSaving(false);
+    if (data.reason) {
+        if (_setupUsers[data.userIndex]) {
+            _currUser = _setupUsers[data.userIndex];
+            _loadCurrentUserIntoForm();
+            _renderSetupUsers();
+            _expandSection(document.getElementById('setupSectionApiKey'));
+            _setSetupApiHint(data.reason, true);
+            document.getElementById('setupApiInput').focus();
+        } else {
+            const status = document.getElementById('setupSaveError');
+            status.textContent = t(data.reason);
+            status.classList.add('error');
+            status.hidden = false;
+            document.getElementById('btnSetupFinish').focus();
+        }
+        return;
+    }
+
+    if (!_isAddingUserMode) {
+        try {
+            localStorage.setItem('doorpi.firstRunTutorial.pending.v1', 'true');
+            localStorage.removeItem('doorpi.firstRunTutorial.done.v1');
+        } catch { }
+        _setupApplyLayoutScale(Math.round(_setupPendingLayoutScale * 100), true);
+        window._userSwitching = true;
+        window._doorpiAllowLibraryRenderDuringSessionTransition = true;
+        window._userSwitchStartedAt = performance.now();
+        document.body.classList.add('doorpi-session-transition');
+    }
+    closeSetup({ force: true });
+}
+
 function _validateAndFinish() {
+    if (_setupSaveRequest) return;
     if (_setupPhase === 'layout') {
         if (!_setupLayoutConfirmed) {
             _expandSection(document.getElementById('setupSectionLayout'));
@@ -1245,9 +1349,10 @@ function _validateAndFinish() {
     for (let i = 0; i < _setupUsers.length; i++) {
         const u = _setupUsers[i];
         if (u.importCloud) continue;
-        if (!u.apiKey) {
+        if (!u.apiKey.trim()) {
             _currUser = u; _loadCurrentUserIntoForm(); _renderSetupUsers();
             _expandSection(document.getElementById('setupSectionApiKey'));
+            _setSetupApiHint('steamGridKeyRequired', true);
             setTimeout(() => { _shakeField(document.getElementById('setupApiInput')); document.getElementById('setupApiInput')?.focus(); }, 80);
             return;
         }
@@ -1267,51 +1372,35 @@ function _validateAndFinish() {
         }
     }
 
-    if (!_isAddingUserMode) {
-        try {
-            localStorage.setItem('doorpi.firstRunTutorial.pending.v1', 'true');
-            localStorage.removeItem('doorpi.firstRunTutorial.done.v1');
-        } catch { }
-        _setupApplyLayoutScale(Math.round(_setupPendingLayoutScale * 100), true);
-    }
-
-    if (!_isAddingUserMode) {
-        window._userSwitching = true;
-        window._doorpiAllowLibraryRenderDuringSessionTransition = true;
-        window._userSwitchStartedAt = performance.now();
-        document.body.classList.add('doorpi-session-transition');
-    }
-
-    closeSetup({ force: true });
-
-    setTimeout(() => {
-        postToHost({
-            action: 'saveSetupUsers',
-            activeIndex: 0,
-            createAll: _isAddingUserMode,
-            users: _setupUsers.map(u => ({
-                id: u.id || '',
-                name: u.name,
-                pin: u.pin || '',
-                photoBase64: u.photoBase64,
-                coverBase64: u.coverBase64 || '',
-                coverSource: u.coverSource || '',
-                coverSourceUrl: u.coverSourceUrl || '',
-                coverSteamGridAssetId: u.coverSteamGridAssetId || 0,
-                coverUsesMostPlayedGame: u.coverUsesMostPlayedGame ?? (!u.coverBase64 && !u.coverSourceUrl),
-                photoSource: u.photoSource || '',
-                photoSourceUrl: u.photoSourceUrl || '',
-                photoSteamGridAssetId: Number(u.photoSteamGridAssetId || 0),
-                photoCropX: Number(u.photoCropX || 0),
-                photoCropY: Number(u.photoCropY || 0),
-                photoZoom: Number(u.photoZoom || 1),
-                apiKey: u.apiKey,
-                folders: u.folders,
-                syncConnected: !!u.syncConnected,
-                importCloud: !!u.importCloud
-            }))
-        });
-    }, 150);
+    _setupSaveRequest = crypto.randomUUID();
+    _setSetupSaving(true);
+    postToHost({
+        action: 'saveSetupUsers',
+        requestId: _setupSaveRequest,
+        activeIndex: 0,
+        createAll: _isAddingUserMode,
+        users: _setupUsers.map(u => ({
+            id: u.id || '',
+            name: u.name,
+            pin: u.pin || '',
+            photoBase64: u.photoBase64,
+            coverBase64: u.coverBase64 || '',
+            coverSource: u.coverSource || '',
+            coverSourceUrl: u.coverSourceUrl || '',
+            coverSteamGridAssetId: u.coverSteamGridAssetId || 0,
+            coverUsesMostPlayedGame: u.coverUsesMostPlayedGame ?? (!u.coverBase64 && !u.coverSourceUrl),
+            photoSource: u.photoSource || '',
+            photoSourceUrl: u.photoSourceUrl || '',
+            photoSteamGridAssetId: Number(u.photoSteamGridAssetId || 0),
+            photoCropX: Number(u.photoCropX || 0),
+            photoCropY: Number(u.photoCropY || 0),
+            photoZoom: Number(u.photoZoom || 1),
+            apiKey: u.apiKey.trim(),
+            folders: u.folders,
+            syncConnected: !!u.syncConnected,
+            importCloud: !!u.importCloud
+        }))
+    });
 }
 
 function _setupBeginGoogleConnect(fromRegistration) {
@@ -1395,7 +1484,10 @@ function _bindSetupEvents() {
             onApply: result => window._setupHandlePhotoSelected?.(result)
         });
     });
-    document.getElementById('btnSetupPaste').addEventListener('click', () => { postToHost({ action: 'readClipboard' }); });
+    document.getElementById('btnSetupPaste').addEventListener('click', () => {
+        _setupApiInputRequest = { id: crypto.randomUUID(), user: _currUser };
+        postToHost({ action: 'pasteSteamGridKey', requestId: _setupApiInputRequest.id });
+    });
 
     document.getElementById('setupNameInput').addEventListener('input', (e) => {
         if (_currUser) _currUser.name = e.target.value;
@@ -1404,8 +1496,8 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('setupApiInput').addEventListener('input', (e) => {
-        if (_currUser) _currUser.apiKey = e.target.value;
-        _updateStatus();
+        _setupApiInputRequest = null;
+        _setSetupApiInput(e.target.value);
     });
 
     document.getElementById('setupPinInput').addEventListener('input', (e) => {
@@ -1416,7 +1508,8 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('btnSetupApiLink').addEventListener('click', () => {
-        postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
+        const requestId = _openSteamGridKeyPage();
+        if (requestId) _setupApiInputRequest = { id: requestId, user: _currUser };
     });
 
     document.getElementById('btnSetupAddFolder').addEventListener('click', () => {

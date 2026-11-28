@@ -168,6 +168,13 @@
         _steamAchievementOffset = offset;
         if (!offset) _steamAchievementDetail = null;
         const pendingId = ++_steamAchievementRequest;
+        if (offset && _steamAchievementDetail?.remaining) {
+            const detail = _steamAchievementDetail;
+            detail.pending = true;
+            const items = detail.remaining.splice(0,40);
+            _acceptSteamPresentation({type:'steamProfileAchievements',profileId:_steamView().profileId,requestId:String(pendingId),appId,items,total:detail.total});
+            return;
+        }
         if (_steamAchievementDetail) _steamAchievementDetail.pending = true;
         postToHost?.({ action:'steamProfileAchievements', appId, offset, requestId:String(pendingId) });
         const request = _steamAchievementRequest, profile = _steamView().profileId;
@@ -179,10 +186,34 @@
     function _acceptSteamPresentation(data) {
         const state = _steamView();
         if (!state.profileId || String(data.profileId) !== state.profileId) return;
+        if (!state.gameOrder && ['earned','hours','recent'].includes(data.gameOrder)) state.gameOrder=data.gameOrder;
+        if (data.type === 'steamProfileStatus' && data.silent) {
+            if (!Array.isArray(data.achievementIndex)) return;
+
+            state.games = data.achievementIndex;
+            for (const key of ['achievementCount','completedGames','achievementGames','medals','gameCount'])
+                state[key] = data[key];
+            const view = document.querySelector('.nav-achievements-profile');
+            view?.refreshTrophies?.(data);
+            for (const [tier,count] of Object.entries({...state.medals,platinum:state.completedGames})) {
+                for (const value of document.querySelectorAll('.nav-achievement-summary .nav-medal-'+tier+' strong')) {
+                    const text = Number(count || 0).toLocaleString();
+                    if (value.textContent!==text) value.textContent=text;
+                }
+            }
+            return;
+        }
         if (data.type === 'steamProfileStatus') {
+            const hadIndex = state.receivedTrophyIndex;
+            if (Array.isArray(data.achievementIndex)) state.receivedTrophyIndex = true;
+            if (!data.busy) state.userRequestedSync = false;
             for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message','phase','progressCurrent','progressTotal','progressPercent','firstSync','pending'])
                 if (data[key] != null) state[key] = data[key];
             window._refreshSteamProfileSyncUi?.();
+            if (hadIndex && Array.isArray(data.achievementIndex)) {
+                _acceptSteamPresentation({...data,silent:true});
+                return;
+            }
             if (Array.isArray(data.achievementIndex)) state.games = [...data.achievementIndex].sort((a,b) => b.unlocked-a.unlocked || b.total-a.total || a.Name.localeCompare(b.Name));
             if (Array.isArray(data.achievementIndex) && !state.games.some(game => game.AppId === _steamAchievementGame)) {
                 if (_steamAchievementGame) state.openGame = null;
@@ -265,7 +296,7 @@
     }
     function _bindSteamFocus(item,index) {
         item.addEventListener('mouseenter',() => {
-            _contentIdx=index;
+            _contentIdx=_contentItems.indexOf(item);
             _setTopbarFocus(false);
         });
     }
@@ -275,7 +306,21 @@
             const key = 'steam:'+game.AppId;
             rows.set(key,{key, name:game.Name, minutes:game.PlaytimeMinutes || 0, lastPlayed:(game.LastPlayedUnix || 0)*1000, steam:game});
         }
-        for (const [key,item] of library) {
+        const byPath = new Map(state.games.filter(g=>g.libraryPath).map(g=>[g.libraryPath.toLowerCase(),'steam:'+g.AppId]));
+        // History can win the playtime ranking and carry only its own entity ID.
+        // Recover the path from the registered installation for an unambiguous name.
+        const byHistoryKey = new Map();
+        const normalizedName = name => String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+        for (const installed of _menuData.games || []) {
+            const historyKey = 'name:'+normalizedName(installed.Name);
+            const catalogKey = byPath.get(String(installed.Path || '').toLowerCase()) || null;
+            if (!byHistoryKey.has(historyKey)) byHistoryKey.set(historyKey,catalogKey);
+            else if (byHistoryKey.get(historyKey)!==catalogKey) byHistoryKey.set(historyKey,null);
+        }
+        for (const [libraryKey,item] of library) {
+            if (/^Steam \d+$/.test(item.Name || '') && !rows.has(libraryKey)) continue;
+            const key = byPath.get(String(item.Path || item.Id || '').toLowerCase()) || byHistoryKey.get(libraryKey) || libraryKey;
+            if (state.openGame === libraryKey) state.openGame = key;
             const row = rows.get(key) || {key,name:item.Name};
             row.minutes = Math.max(row.minutes || 0,Number(item.TotalPlaytimeMinutes) || 0);
             row.lastPlayed = Math.max(row.lastPlayed || 0,Date.parse(item.LastPlayed) || 0);
@@ -330,6 +375,8 @@
         const rows = _profileGameRows(library,state);
         const selected = rows.find(row=>row.key===state.openGame);
         const tabs = [...(gamesFirst?[]:[['overview','navProfileOverview']]),['gaming','navGames'],['film-series','navFilmsSeries'],['streaming','navStreamingVideos'],['music','navMusic']];
+        if (selected?.steam?.total && _steamAchievementGame !== selected.steam.AppId)
+            _requestSteamAchievements(selected.steam.AppId);
         const detail = selected?.steam ? _steamAchievementDetail : null;
         const items = detail?.items || [];
         const orders = [['earned','steam.achievements'],['recent','steam.recentOrder'],['hours','steam.hoursOrder']];
@@ -343,7 +390,7 @@
             <div class="nav-achievement-detail-list nav-profile-grid" aria-label="${_t('steam.list')}">
             ${items.map(_steamTrophyCard).join('') || '<p class="nav-achievement-empty" role="status">'+_esc(detail?.error || (selected.steam?.total && !detail?_t('steam.loading'):_t('steam.noTrophies')))+'</p>'}</div>
             ${items.length && detail.error?'<p role="status">'+_esc(detail.error)+'</p>':''}</section>`
-            : `<section class="nav-achievement-games"><header><div class="nav-steam-games-heading"><span class="nav-steam-games-logo" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><div><h3>${_t('steam.yourGames')}</h3><small id="navSteamGamesStatus" role="status" aria-live="polite"></small></div>${state.steamId?'<button type="button" data-steam-focus="sync" id="btnSteamSyncNow" class="nav-steam-sync-button" tabindex="-1" aria-label="'+_esc(_t('steam.syncNow'))+'" title="'+_esc(_t('steam.syncNow'))+'">↻ <span>'+_esc(_t('steam.syncNow'))+'</span></button>':'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>'}</div>${compact?'':_steamSummaryMarkup()}${sortBar}</header>
+            : `<section class="nav-achievement-games"><header><div class="nav-steam-games-heading"><div><h3>${_t('steam.yourGames')}</h3><small id="navSteamGamesStatus" role="status" aria-live="polite"></small></div>${state.steamId?'':'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>'}</div>${compact?'':_steamSummaryMarkup()}${sortBar}</header>
             <div class="nav-steam-games-progress" id="navSteamGamesProgress" hidden><progress id="navSteamGamesProgressBar" max="100" value="0" aria-label="${_esc(_t('steam.syncProgress'))}"></progress><small id="navSteamGamesProgressHint"></small><span id="navSteamGamesFirstSyncHint" hidden>${_esc(_t('steam.firstSyncHint'))}</span></div>
             <div class="nav-achievement-game-list nav-profile-grid">${rows.map((row,i)=>_profileGameRow(row,i,fmtSeconds)).join('') || '<p class="nav-achievement-empty">'+_t('navGameHistoryEmpty')+'</p>'}</div></section>`;
         body.innerHTML = `<div class="nav-unified-profile nav-achievements-profile${entry==='standard'?' profile-standard':''}">
@@ -355,16 +402,6 @@
         const editButton = body.querySelector('[data-steam-focus=edit]');
         if (editButton) _contentItems.push(editButton);
         _contentItems.forEach(_bindSteamFocus);
-        const syncButton = body.querySelector('#btnSteamSyncNow');
-        if (syncButton) syncButton.onclick = () => {
-            if (state.busy) return;
-            state.busy = true;
-            state.phase = 'starting';
-            state.progressPercent = 0;
-            state.message = state.firstSync ? _t('steam.firstSyncStarting') : _t('steam.syncStarting');
-            window._refreshSteamProfileSyncUi?.();
-            postToHost?.({action:'steamImport'});
-        };
         window._refreshSteamProfileSyncUi = () => {
             const activeState = _steamView();
             const status = document.querySelector('#navSteamGamesStatus');
@@ -373,8 +410,8 @@
             const bar = document.querySelector('#navSteamGamesProgressBar');
             const hint = document.querySelector('#navSteamGamesProgressHint');
             const firstHint = document.querySelector('#navSteamGamesFirstSyncHint');
-            const isRunning = !!activeState.busy;
-            if (progress) progress.hidden = !isRunning && !activeState.pending;
+            const isRunning = !!activeState.busy && !!activeState.userRequestedSync;
+            if (progress) progress.hidden = !isRunning;
             if (bar) {
                 bar.value = Math.max(0, Math.min(100, Number(activeState.progressPercent) || 0));
                 bar.classList.toggle('is-pending', !isRunning && !!activeState.pending);
@@ -386,7 +423,6 @@
                 firstHint.hidden = !activeState.firstSync || (!isRunning && !activeState.pending);
                 firstHint.textContent = activeState.pending && !isRunning ? _t('steam.resumeHint') : _t('steam.firstSyncHint');
             }
-            if (syncButton) syncButton.disabled = !!activeState.busy || !activeState.hasKey;
         };
         window._refreshSteamProfileSyncUi();
         editButton?.addEventListener('click',_openProfileEditor);
@@ -433,7 +469,7 @@
         });
         const games = body.querySelector('.nav-achievement-game-list');
         if (games) games.scrollTop = state.gameScroll || 0;
-        body.querySelectorAll('[data-game-row]').forEach(button=>button.onclick=()=>{
+        const bindGame = button => { button.onclick=()=>{
             const row = rows[Number(button.dataset.gameRow)];
             state.gameScroll = games.scrollTop;
             state.openGame = row.key;
@@ -441,7 +477,82 @@
             _renderContent('profile');
             focus('back');
             _contentItems[_contentIdx].dataset.enterTrophies = String(_steamAchievementRequest);
-        });
+        }; };
+        body.querySelectorAll('[data-game-row]').forEach(bindGame);
+        const profileView = body.querySelector('.nav-achievements-profile');
+        profileView.refreshTrophies = data => {
+            const updated = _profileGameRows(library,state);
+            for (const next of updated) {
+                const current = rows.find(row=>row.key===next.key || (row.historyId && row.historyId===next.historyId));
+                const button = current && games?.querySelector('[data-game-row="'+rows.indexOf(current)+'"]');
+                if (!current) {
+                    if (!games) continue;
+                    const index = rows.push(next)-1;
+                    games.querySelector('.nav-achievement-empty')?.remove();
+                    games.insertAdjacentHTML('beforeend',_profileGameRow(next,index,fmtSeconds));
+                    const added = games.lastElementChild;
+                    bindGame(added);
+                    _bindSteamFocus(added,_contentItems.length);
+                    _contentItems.push(added);
+                    continue;
+                }
+                const old = current.steam, game = next.steam;
+                if (button && current.minutes!==next.minutes) button.querySelector('.nav-profile-game-title small').textContent=next.minutes?fmtSeconds(next.minutes*60):_t('steam.zeroHours');
+                Object.assign(current,next);
+                if (!game || (old?.AppId===game.AppId && old?.unlocked===game.unlocked && old?.total===game.total &&
+                    JSON.stringify(old?.medals)===JSON.stringify(game.medals))) continue;
+                if (button) {
+                    button.dataset.steamGame = game.AppId;
+                    const progress = button.querySelector('.nav-game-progress');
+                    progress.title = _gameProgress(next);
+                    progress.setAttribute('aria-label',progress.title);
+                    progress.innerHTML = game.total ? '<b>'+Math.floor(game.unlocked/game.total*100)+'%</b><progress aria-hidden="true" max="'+game.total+'" value="'+game.unlocked+'"></progress>' : '—';
+                    button.querySelector('.nav-game-tier-list').innerHTML = _gameTiers(game);
+                }
+                if (selected===current) {
+                    const header=profileView.querySelector('.nav-achievement-details header');
+                    header.querySelector('p').textContent=_gameProgress(next);
+                    header.querySelector('.nav-game-tier-list').innerHTML=_gameTiers(game);
+                }
+            }
+            const detail = _steamAchievementDetail;
+            if (games) {
+                const buttons = [...games.querySelectorAll('[data-game-row]')];
+                const byKey = new Map(buttons.map(button => [rows[Number(button.dataset.gameRow)].key,button]));
+                const desired = updated.map(row => byKey.get(row.key)).filter(Boolean);
+                if (desired.some((button,i)=>button!==buttons[i])) {
+                    const active = document.activeElement;
+                    const controller = _contentItems[_contentIdx];
+                    const scroll = games.scrollTop;
+                    desired.forEach((button,i)=>{
+                        if (games.children[i]!==button) games.insertBefore(button,games.children[i] || null);
+                    });
+                    _contentItems = [...body.querySelectorAll('[data-steam-focus]:not([data-steam-focus=edit])')];
+                    if (editButton) _contentItems.push(editButton);
+                    if (_contentItems.includes(controller)) _contentIdx = _contentItems.indexOf(controller);
+                    if (games.contains(active) && document.activeElement!==active) active.focus({preventScroll:true});
+                    games.scrollTop = scroll;
+                }
+            }
+            if (!detail || detail.pending || data.openApp!==_steamAchievementGame || !Array.isArray(data.detailItems)) return;
+            const byId = new Map(data.detailItems.map(item=>[item.ApiName,item]));
+            const loaded = new Set();
+            detail.items.forEach((old,index)=>{
+                loaded.add(old.ApiName);
+                const item=byId.get(old.ApiName);
+                if (!item || JSON.stringify(old)===JSON.stringify(item)) return;
+                detail.items[index]=item;
+                const card=profileView.querySelector('[data-steam-focus="trophy-'+index+'"]');
+                if (!card) return;
+                const template=document.createElement('template');
+                template.innerHTML=_steamTrophyCard(item,index);
+                const replacement=template.content.firstElementChild;
+                card.className=replacement.className;
+                card.replaceChildren(...replacement.childNodes);
+            });
+            detail.remaining=data.detailItems.filter(item=>!loaded.has(item.ApiName));
+            detail.total=detail.items.length+detail.remaining.length;
+        };
         const backButton = body.querySelector('[data-steam-focus=back]');
         if (backButton) backButton.onclick = () => {
             closeDetail();
@@ -451,6 +562,7 @@
         };
         body.querySelectorAll('[data-game-order]').forEach(button=>button.onclick=()=>{
             state.gameOrder = button.dataset.gameOrder;
+            postToHost?.({action:'saveTrophyGameOrder',profileId:state.profileId,order:state.gameOrder});
             state.gameScroll = 0;
             dialog?.close();
             _renderContent('profile'); focus(compact ? body.querySelector('[data-game-row]')?.dataset.steamFocus || 'tab-gaming' : button.dataset.steamFocus);

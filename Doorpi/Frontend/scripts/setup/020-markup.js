@@ -119,12 +119,12 @@
                     <div class="setup-section-content">
                         <div class="setup-section-divider"></div>
                         <p class="setup-section-desc" data-i18n="setupApiDesc"></p>
+                        <button class="setup-api-link-btn setup-focusable" id="btnSetupApiLink" tabindex="-1"><span data-i18n="setupStep3LinkText"></span></button>
                         <div class="setup-api-row">
-                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" maxlength="32" />
+                            <input class="setup-input setup-focusable" id="setupApiInput" type="text" readonly tabindex="-1" spellcheck="false" autocomplete="off" aria-describedby="setupApiHint" />
                             <button class="setup-icon-btn setup-focusable" id="btnSetupPaste" tabindex="-1"><span data-i18n="setupStep3PasteMode"></span></button>
-                            <button class="setup-api-link-btn setup-focusable" id="btnSetupApiLink" tabindex="-1"><span data-i18n="setupStep3LinkText"></span></button>
                         </div>
-                        <p class="setup-api-hint" id="setupApiHint" data-i18n="setupStep3PasteHint"></p>
+                        <p class="setup-api-hint" id="setupApiHint" aria-live="polite" data-i18n="setupStep3PasteHint"></p>
                     </div>
                 </div>
             </div>
@@ -172,6 +172,7 @@
             </div>
         </div>
 
+        <p class="setup-api-hint" id="setupSaveError" role="status" hidden></p>
         <div class="setup-footer">
             <button class="setup-power-btn setup-focusable" id="btnSetupExit" style="display:none;" tabindex="-1">
                 ${svgExit} <span data-i18n="powerExit">Sair</span>
