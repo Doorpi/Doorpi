@@ -1,48 +1,48 @@
 {
   "schemaVersion": 1,
   "channel": "beta",
-  "manifestVersion": 1795734772628,
-  "publishedAt": "2026-11-26T23:14:30.5678514Z",
-  "expiresAt": "2026-12-10T23:14:30.5678514Z",
+  "manifestVersion": 1795824405193,
+  "publishedAt": "2026-11-28T00:08:07.1112015Z",
+  "expiresAt": "2026-12-12T00:08:07.1112015Z",
   "minimumSupportedManifestVersion": 1,
   "doorpi": {
-    "version": "0.6.42",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.42/doorpi-0.6.42.doorpiupdate.zip",
-    "sha256": "811d73cb5ac32425ec6c72756834daa932d6b4b62c4e7a56a26f64e45127f206",
-    "sizeBytes": 138208924,
+    "version": "0.7.43",
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.7.43/doorpi-0.7.43.doorpiupdate.zip",
+    "sha256": "c9575ab9469ec46771eaf43f1cf2f5cf6999a123c0ea00f19831ae0a49dc0aa8",
+    "sizeBytes": 138519939,
     "minUpdaterVersion": "0.1.3",
     "forceUpdate": false,
     "allowRollback": false
   },
   "updater": {
     "version": "0.1.3",
-    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.6.42/updater-0.1.3.doorpiupdate.zip",
-    "sha256": "78a7c0e66dfd201029cb0450564d63d8198b317c7c4add5729aec1cc1940fb8d",
-    "sizeBytes": 73560305,
+    "downloadUrl": "https://github.com/Doorpi/Doorpi/releases/download/v0.7.43/updater-0.1.3.doorpiupdate.zip",
+    "sha256": "1b0539556252d29c840e4701bbf90930b2f8bab3869707a7cf4ff2441bd94704",
+    "sizeBytes": 73560421,
     "forceUpdate": false,
     "allowRollback": false
   },
   "changelog": [
     {
-      "version": "0.6.42",
-      "title": "Doorpi 0.6.42",
+      "version": "0.7.43",
+      "title": "Doorpi 0.7.43",
       "items": [
-        "Novo recurso de captura de tela: ative-o nas configurações globais de controle e defina um atalho.",
-        "Compartilhe suas capturas no X (Twitter). Antes de compartilhar pelo Doorpi, entre na sua conta do X no navegador de sua preferência."
+        "Agora você pode desbloquear troféus em qualquer jogo Steam, mesmo que ele não esteja na sua conta.",
+        "Corrigido o cadastro da chave da SteamGridDB."
       ],
       "locales": {
         "pt-BR": {
-          "title": "Doorpi 0.6.42",
+          "title": "Doorpi 0.7.43",
           "items": [
-            "Novo recurso de captura de tela: ative-o nas configurações globais de controle e defina um atalho.",
-            "Compartilhe suas capturas no X (Twitter). Antes de compartilhar pelo Doorpi, entre na sua conta do X no navegador de sua preferência."
+            "Agora você pode desbloquear troféus em qualquer jogo Steam, mesmo que ele não esteja na sua conta.",
+            "Corrigido o cadastro da chave da SteamGridDB."
           ]
         },
         "en": {
-          "title": "Doorpi 0.6.42",
+          "title": "Doorpi 0.7.43",
           "items": [
-            "Take screenshots with Doorpi. Enable screenshots in global controller settings and assign a shortcut.",
-            "Share your screenshots on X (Twitter). Sign in to X in your preferred browser before sharing from Doorpi."
+            "Unlock trophies for any Steam game, even if it isn't on your Steam account.",
+            "Fixed issues when setting up a SteamGridDB API key."
           ]
         }
       }
@@ -51,6 +51,6 @@
   "signature": {
     "algorithm": "RSA-SHA256-PKCS1",
     "keyId": "6b65ba1c963d49d6",
-    "value": "OLMjKTLqla+fVQqAZhTK4LJEi1v16bu+BKdNDIGG+LlKIKEveXLrh7xOh+1EA9AR2IRpJM8pwZOBt1Hnt/nVuJaC61BWZscBrWgm88JomzlPpG2mH0hBop6GAdGDwU8Yyo64lbvUEoAq0mIDAC6KfpFn55hIWiTrfeV53V2KNqiQzPeFUXE2veL+1QpN3+SRhyxmnpkSAa/PdcoHjoUnTZxa9WfAoVN5bEi/B5TuA7mU7DZt4nSwXLHSCMb+umyCZInMe2P2TLZjTIl4R5PcYzLOlyvJa4bngxJuxQEoA038tQ4BBg3F945gPxeAnFYjLoNCepSOviIPNR1di8H9ihfCAbuC8Zu9DwGfb/o1zmE3PCPRBEA4M6WMaJCKZzDdWnwnBDohS9lCdq1DEcdGWYwQ0yqoujdbY8My5r6eJYZdMZ5HcV2SbVNCFWNBiwcmdJTIonGqZCQ1PcO5A1lnHle5AfqGCtKVDYUVk236DYp7/7dySsK7Mk5wc3j+95v9"
+    "value": "ChKYUML72sjmh0ycf2Kkju+2E+jrMVINzCcLKBRzOVIuR1HPcRR1E5L6zH3l0q+oaXTAZeEfOP/REwkj5TZZ/sI0n87TdW8PyfWmIyKiVc7gloYAkoPJuPlXoLMH5gR0pO0N9x57vy85dh/haoKBOp1JOG8wCJWL8iCYYWWXb73SpWu1/AxDtovHAwdRIXPamax2TwYbDE1C9s6NI9Ngqs3MXUDpacTz/SDUcFUJySheSTBzO8Jmc3IIMNp6u+1nWQvhvoDEkSe4yiNWeS3tznMyJxR8Qljp5m2cWkYwvBGmsiV2gkYlfiTM9FdMQJiGeohRlldjBG754Zg4X/Nw5WsqKg+OaacyKChxHrSm0d7zhR9+252mZ80r/xgExg1We55TXh3Vqu6BjWZTIrU6NvlOepk7TUIj44Gtfa4HmkEgJz0czTZead+BsXVJtCOzyeN2UFPLRQeEuj0mkEpbSz1Nl0bAY5TXZGPUhuVbxxiSrBB65nkANJCu0uvfLaMY"
   }
 }
