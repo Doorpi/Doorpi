@@ -85,6 +85,8 @@ public sealed class CloudProfileV1
     public List<CloudControlAssignmentV1> ControlAssignments { get; set; } = new();
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Doorpi.Steam.SteamProfileData? Steam { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string,long>? PhantomBladeTrophies { get; set; }
 }
 
 public sealed class CloudControlProfileV1

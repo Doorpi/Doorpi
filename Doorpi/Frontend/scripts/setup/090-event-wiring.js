@@ -79,7 +79,10 @@ function _bindSetupEvents() {
             onApply: result => window._setupHandlePhotoSelected?.(result)
         });
     });
-    document.getElementById('btnSetupPaste').addEventListener('click', () => { postToHost({ action: 'readClipboard' }); });
+    document.getElementById('btnSetupPaste').addEventListener('click', () => {
+        _setupApiInputRequest = { id: crypto.randomUUID(), user: _currUser };
+        postToHost({ action: 'pasteSteamGridKey', requestId: _setupApiInputRequest.id });
+    });
 
     document.getElementById('setupNameInput').addEventListener('input', (e) => {
         if (_currUser) _currUser.name = e.target.value;
@@ -88,8 +91,8 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('setupApiInput').addEventListener('input', (e) => {
-        if (_currUser) _currUser.apiKey = e.target.value;
-        _updateStatus();
+        _setupApiInputRequest = null;
+        _setSetupApiInput(e.target.value);
     });
 
     document.getElementById('setupPinInput').addEventListener('input', (e) => {
@@ -100,7 +103,8 @@ function _bindSetupEvents() {
     });
 
     document.getElementById('btnSetupApiLink').addEventListener('click', () => {
-        postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
+        const requestId = _openSteamGridKeyPage();
+        if (requestId) _setupApiInputRequest = { id: requestId, user: _currUser };
     });
 
     document.getElementById('btnSetupAddFolder').addEventListener('click', () => {

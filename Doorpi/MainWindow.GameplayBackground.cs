@@ -136,7 +136,7 @@ public partial class MainWindow
                 !IsGameplayBackgroundMode)
             {
                 try { core.Resume(); } catch { }
-                if (webView != null)
+                if (webView != null && !IsSteamGridBrowserVisible())
                     webView.Visibility = Visibility.Visible;
                 return;
             }
@@ -149,7 +149,7 @@ public partial class MainWindow
         {
             Interlocked.Exchange(ref _gameplayBackgroundMode, 0);
             CompleteGameplayBackgroundWaiters();
-            try { if (webView != null) webView.Visibility = Visibility.Visible; } catch { }
+            try { if (webView != null && !IsSteamGridBrowserVisible()) webView.Visibility = Visibility.Visible; } catch { }
             try { _mousePollTimer?.Change(0, 100); } catch { }
             throw;
         }
@@ -169,7 +169,7 @@ public partial class MainWindow
         CompleteGameplayBackgroundWaiters();
 
         try { webView?.CoreWebView2?.Resume(); } catch { }
-        try { if (webView != null) webView.Visibility = Visibility.Visible; } catch { }
+        try { if (webView != null && !IsSteamGridBrowserVisible()) webView.Visibility = Visibility.Visible; } catch { }
         try
         {
             GetCursorPos(out _lastKnownCursorPos);
@@ -184,6 +184,7 @@ public partial class MainWindow
         }
         catch { }
 
+        if (wasSuspended) PublishTrophyChange(currentUserId);
         if (wasSuspended)
             DoorpiBootDiagnostics.Log("gameplay-background-resumed", $"game={_activeSessionGameId}");
 
@@ -247,6 +248,10 @@ public partial class MainWindow
             session.LastCheckpointElapsedMinutes = 0;
             session.LastCheckpointElapsedSeconds = 0;
             session.PlaytimeSessionId = Guid.NewGuid().ToString("N");
+            _trophySessionOwner=currentUserId;
+            _trophySessionGeneration=_themeProfileGeneration;
+            _recentTrophyUntil=default;
+            _localSession=new Doorpi.Steam.LocalTrophySession(session.StartedUtc);
 
             _playtimeCheckpointTimer ??= new System.Threading.Timer(
                 _ => QueueActiveSessionCheckpoint(),
@@ -360,7 +365,6 @@ public partial class MainWindow
         bool committed = false;
         try
         {
-            QueueSteamAfterGameplay(currentUserId, gameId);
             committed = elapsedMinutes < 1;
             if (elapsedMinutes >= 1)
             {
@@ -504,7 +508,6 @@ public partial class MainWindow
                 }
             }
 
-            QueueSteamAfterGameplay(currentUserId, journal.GameId);
             DeleteActiveGameplayJournal();
             DoorpiBootDiagnostics.Log(
                 "playtime-journal-recovered",

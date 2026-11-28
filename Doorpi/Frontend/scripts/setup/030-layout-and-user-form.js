@@ -166,6 +166,7 @@ function _loadCurrentUserIntoForm() {
     document.getElementById('setupPinInput').value = _currUser.pin || '';
     _setSetupPinHintError(!_isValidSetupPin(_currUser.pin));
     document.getElementById('setupApiInput').value = _currUser.apiKey;
+    _setSetupApiHint();
     const btn = document.getElementById('setupPhotoBtn');
     if (_currUser.photoBase64) {
         btn.innerHTML = `<img src="${window._doorpiUserPhotoSrc?.(_currUser.photoBase64) || `data:image/png;base64,${_currUser.photoBase64}`}" />`;
@@ -189,7 +190,7 @@ function _updateStatus() {
         statusId.className = 'setup-section-status ' + (nameDone ? 'done' : 'required-empty');
     }
 
-    const apiDone = !!_currUser.apiKey.trim();
+    const apiDone = !!_currUser.importCloud;
     const statusApi = document.getElementById('statusApiKey');
     if (statusApi) {
         statusApi.textContent = apiDone ? '✓' : '';

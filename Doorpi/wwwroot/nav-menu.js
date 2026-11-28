@@ -5439,6 +5439,13 @@ window.isNavMenuOpen = false;
         _steamAchievementOffset = offset;
         if (!offset) _steamAchievementDetail = null;
         const pendingId = ++_steamAchievementRequest;
+        if (offset && _steamAchievementDetail?.remaining) {
+            const detail = _steamAchievementDetail;
+            detail.pending = true;
+            const items = detail.remaining.splice(0,40);
+            _acceptSteamPresentation({type:'steamProfileAchievements',profileId:_steamView().profileId,requestId:String(pendingId),appId,items,total:detail.total});
+            return;
+        }
         if (_steamAchievementDetail) _steamAchievementDetail.pending = true;
         postToHost?.({ action:'steamProfileAchievements', appId, offset, requestId:String(pendingId) });
         const request = _steamAchievementRequest, profile = _steamView().profileId;
@@ -5450,10 +5457,34 @@ window.isNavMenuOpen = false;
     function _acceptSteamPresentation(data) {
         const state = _steamView();
         if (!state.profileId || String(data.profileId) !== state.profileId) return;
+        if (!state.gameOrder && ['earned','hours','recent'].includes(data.gameOrder)) state.gameOrder=data.gameOrder;
+        if (data.type === 'steamProfileStatus' && data.silent) {
+            if (!Array.isArray(data.achievementIndex)) return;
+
+            state.games = data.achievementIndex;
+            for (const key of ['achievementCount','completedGames','achievementGames','medals','gameCount'])
+                state[key] = data[key];
+            const view = document.querySelector('.nav-achievements-profile');
+            view?.refreshTrophies?.(data);
+            for (const [tier,count] of Object.entries({...state.medals,platinum:state.completedGames})) {
+                for (const value of document.querySelectorAll('.nav-achievement-summary .nav-medal-'+tier+' strong')) {
+                    const text = Number(count || 0).toLocaleString();
+                    if (value.textContent!==text) value.textContent=text;
+                }
+            }
+            return;
+        }
         if (data.type === 'steamProfileStatus') {
+            const hadIndex = state.receivedTrophyIndex;
+            if (Array.isArray(data.achievementIndex)) state.receivedTrophyIndex = true;
+            if (!data.busy) state.userRequestedSync = false;
             for (const key of ['hasKey','steamId','displayName','gameCount','achievementCount','completedGames','achievementGames','medals','busy','message','phase','progressCurrent','progressTotal','progressPercent','firstSync','pending'])
                 if (data[key] != null) state[key] = data[key];
             window._refreshSteamProfileSyncUi?.();
+            if (hadIndex && Array.isArray(data.achievementIndex)) {
+                _acceptSteamPresentation({...data,silent:true});
+                return;
+            }
             if (Array.isArray(data.achievementIndex)) state.games = [...data.achievementIndex].sort((a,b) => b.unlocked-a.unlocked || b.total-a.total || a.Name.localeCompare(b.Name));
             if (Array.isArray(data.achievementIndex) && !state.games.some(game => game.AppId === _steamAchievementGame)) {
                 if (_steamAchievementGame) state.openGame = null;
@@ -5536,7 +5567,7 @@ window.isNavMenuOpen = false;
     }
     function _bindSteamFocus(item,index) {
         item.addEventListener('mouseenter',() => {
-            _contentIdx=index;
+            _contentIdx=_contentItems.indexOf(item);
             _setTopbarFocus(false);
         });
     }
@@ -5546,7 +5577,21 @@ window.isNavMenuOpen = false;
             const key = 'steam:'+game.AppId;
             rows.set(key,{key, name:game.Name, minutes:game.PlaytimeMinutes || 0, lastPlayed:(game.LastPlayedUnix || 0)*1000, steam:game});
         }
-        for (const [key,item] of library) {
+        const byPath = new Map(state.games.filter(g=>g.libraryPath).map(g=>[g.libraryPath.toLowerCase(),'steam:'+g.AppId]));
+        // History can win the playtime ranking and carry only its own entity ID.
+        // Recover the path from the registered installation for an unambiguous name.
+        const byHistoryKey = new Map();
+        const normalizedName = name => String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+        for (const installed of _menuData.games || []) {
+            const historyKey = 'name:'+normalizedName(installed.Name);
+            const catalogKey = byPath.get(String(installed.Path || '').toLowerCase()) || null;
+            if (!byHistoryKey.has(historyKey)) byHistoryKey.set(historyKey,catalogKey);
+            else if (byHistoryKey.get(historyKey)!==catalogKey) byHistoryKey.set(historyKey,null);
+        }
+        for (const [libraryKey,item] of library) {
+            if (/^Steam \d+$/.test(item.Name || '') && !rows.has(libraryKey)) continue;
+            const key = byPath.get(String(item.Path || item.Id || '').toLowerCase()) || byHistoryKey.get(libraryKey) || libraryKey;
+            if (state.openGame === libraryKey) state.openGame = key;
             const row = rows.get(key) || {key,name:item.Name};
             row.minutes = Math.max(row.minutes || 0,Number(item.TotalPlaytimeMinutes) || 0);
             row.lastPlayed = Math.max(row.lastPlayed || 0,Date.parse(item.LastPlayed) || 0);
@@ -5601,6 +5646,8 @@ window.isNavMenuOpen = false;
         const rows = _profileGameRows(library,state);
         const selected = rows.find(row=>row.key===state.openGame);
         const tabs = [...(gamesFirst?[]:[['overview','navProfileOverview']]),['gaming','navGames'],['film-series','navFilmsSeries'],['streaming','navStreamingVideos'],['music','navMusic']];
+        if (selected?.steam?.total && _steamAchievementGame !== selected.steam.AppId)
+            _requestSteamAchievements(selected.steam.AppId);
         const detail = selected?.steam ? _steamAchievementDetail : null;
         const items = detail?.items || [];
         const orders = [['earned','steam.achievements'],['recent','steam.recentOrder'],['hours','steam.hoursOrder']];
@@ -5614,7 +5661,7 @@ window.isNavMenuOpen = false;
             <div class="nav-achievement-detail-list nav-profile-grid" aria-label="${_t('steam.list')}">
             ${items.map(_steamTrophyCard).join('') || '<p class="nav-achievement-empty" role="status">'+_esc(detail?.error || (selected.steam?.total && !detail?_t('steam.loading'):_t('steam.noTrophies')))+'</p>'}</div>
             ${items.length && detail.error?'<p role="status">'+_esc(detail.error)+'</p>':''}</section>`
-            : `<section class="nav-achievement-games"><header><div class="nav-steam-games-heading"><span class="nav-steam-games-logo" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><div><h3>${_t('steam.yourGames')}</h3><small id="navSteamGamesStatus" role="status" aria-live="polite"></small></div>${state.steamId?'<button type="button" data-steam-focus="sync" id="btnSteamSyncNow" class="nav-steam-sync-button" tabindex="-1" aria-label="'+_esc(_t('steam.syncNow'))+'" title="'+_esc(_t('steam.syncNow'))+'">↻ <span>'+_esc(_t('steam.syncNow'))+'</span></button>':'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>'}</div>${compact?'':_steamSummaryMarkup()}${sortBar}</header>
+            : `<section class="nav-achievement-games"><header><div class="nav-steam-games-heading"><div><h3>${_t('steam.yourGames')}</h3><small id="navSteamGamesStatus" role="status" aria-live="polite"></small></div>${state.steamId?'':'<button data-steam-focus="connect" class="nav-icon-btn" tabindex="-1">'+_t('steam.connect')+'</button>'}</div>${compact?'':_steamSummaryMarkup()}${sortBar}</header>
             <div class="nav-steam-games-progress" id="navSteamGamesProgress" hidden><progress id="navSteamGamesProgressBar" max="100" value="0" aria-label="${_esc(_t('steam.syncProgress'))}"></progress><small id="navSteamGamesProgressHint"></small><span id="navSteamGamesFirstSyncHint" hidden>${_esc(_t('steam.firstSyncHint'))}</span></div>
             <div class="nav-achievement-game-list nav-profile-grid">${rows.map((row,i)=>_profileGameRow(row,i,fmtSeconds)).join('') || '<p class="nav-achievement-empty">'+_t('navGameHistoryEmpty')+'</p>'}</div></section>`;
         body.innerHTML = `<div class="nav-unified-profile nav-achievements-profile${entry==='standard'?' profile-standard':''}">
@@ -5626,16 +5673,6 @@ window.isNavMenuOpen = false;
         const editButton = body.querySelector('[data-steam-focus=edit]');
         if (editButton) _contentItems.push(editButton);
         _contentItems.forEach(_bindSteamFocus);
-        const syncButton = body.querySelector('#btnSteamSyncNow');
-        if (syncButton) syncButton.onclick = () => {
-            if (state.busy) return;
-            state.busy = true;
-            state.phase = 'starting';
-            state.progressPercent = 0;
-            state.message = state.firstSync ? _t('steam.firstSyncStarting') : _t('steam.syncStarting');
-            window._refreshSteamProfileSyncUi?.();
-            postToHost?.({action:'steamImport'});
-        };
         window._refreshSteamProfileSyncUi = () => {
             const activeState = _steamView();
             const status = document.querySelector('#navSteamGamesStatus');
@@ -5644,8 +5681,8 @@ window.isNavMenuOpen = false;
             const bar = document.querySelector('#navSteamGamesProgressBar');
             const hint = document.querySelector('#navSteamGamesProgressHint');
             const firstHint = document.querySelector('#navSteamGamesFirstSyncHint');
-            const isRunning = !!activeState.busy;
-            if (progress) progress.hidden = !isRunning && !activeState.pending;
+            const isRunning = !!activeState.busy && !!activeState.userRequestedSync;
+            if (progress) progress.hidden = !isRunning;
             if (bar) {
                 bar.value = Math.max(0, Math.min(100, Number(activeState.progressPercent) || 0));
                 bar.classList.toggle('is-pending', !isRunning && !!activeState.pending);
@@ -5657,7 +5694,6 @@ window.isNavMenuOpen = false;
                 firstHint.hidden = !activeState.firstSync || (!isRunning && !activeState.pending);
                 firstHint.textContent = activeState.pending && !isRunning ? _t('steam.resumeHint') : _t('steam.firstSyncHint');
             }
-            if (syncButton) syncButton.disabled = !!activeState.busy || !activeState.hasKey;
         };
         window._refreshSteamProfileSyncUi();
         editButton?.addEventListener('click',_openProfileEditor);
@@ -5704,7 +5740,7 @@ window.isNavMenuOpen = false;
         });
         const games = body.querySelector('.nav-achievement-game-list');
         if (games) games.scrollTop = state.gameScroll || 0;
-        body.querySelectorAll('[data-game-row]').forEach(button=>button.onclick=()=>{
+        const bindGame = button => { button.onclick=()=>{
             const row = rows[Number(button.dataset.gameRow)];
             state.gameScroll = games.scrollTop;
             state.openGame = row.key;
@@ -5712,7 +5748,82 @@ window.isNavMenuOpen = false;
             _renderContent('profile');
             focus('back');
             _contentItems[_contentIdx].dataset.enterTrophies = String(_steamAchievementRequest);
-        });
+        }; };
+        body.querySelectorAll('[data-game-row]').forEach(bindGame);
+        const profileView = body.querySelector('.nav-achievements-profile');
+        profileView.refreshTrophies = data => {
+            const updated = _profileGameRows(library,state);
+            for (const next of updated) {
+                const current = rows.find(row=>row.key===next.key || (row.historyId && row.historyId===next.historyId));
+                const button = current && games?.querySelector('[data-game-row="'+rows.indexOf(current)+'"]');
+                if (!current) {
+                    if (!games) continue;
+                    const index = rows.push(next)-1;
+                    games.querySelector('.nav-achievement-empty')?.remove();
+                    games.insertAdjacentHTML('beforeend',_profileGameRow(next,index,fmtSeconds));
+                    const added = games.lastElementChild;
+                    bindGame(added);
+                    _bindSteamFocus(added,_contentItems.length);
+                    _contentItems.push(added);
+                    continue;
+                }
+                const old = current.steam, game = next.steam;
+                if (button && current.minutes!==next.minutes) button.querySelector('.nav-profile-game-title small').textContent=next.minutes?fmtSeconds(next.minutes*60):_t('steam.zeroHours');
+                Object.assign(current,next);
+                if (!game || (old?.AppId===game.AppId && old?.unlocked===game.unlocked && old?.total===game.total &&
+                    JSON.stringify(old?.medals)===JSON.stringify(game.medals))) continue;
+                if (button) {
+                    button.dataset.steamGame = game.AppId;
+                    const progress = button.querySelector('.nav-game-progress');
+                    progress.title = _gameProgress(next);
+                    progress.setAttribute('aria-label',progress.title);
+                    progress.innerHTML = game.total ? '<b>'+Math.floor(game.unlocked/game.total*100)+'%</b><progress aria-hidden="true" max="'+game.total+'" value="'+game.unlocked+'"></progress>' : '—';
+                    button.querySelector('.nav-game-tier-list').innerHTML = _gameTiers(game);
+                }
+                if (selected===current) {
+                    const header=profileView.querySelector('.nav-achievement-details header');
+                    header.querySelector('p').textContent=_gameProgress(next);
+                    header.querySelector('.nav-game-tier-list').innerHTML=_gameTiers(game);
+                }
+            }
+            const detail = _steamAchievementDetail;
+            if (games) {
+                const buttons = [...games.querySelectorAll('[data-game-row]')];
+                const byKey = new Map(buttons.map(button => [rows[Number(button.dataset.gameRow)].key,button]));
+                const desired = updated.map(row => byKey.get(row.key)).filter(Boolean);
+                if (desired.some((button,i)=>button!==buttons[i])) {
+                    const active = document.activeElement;
+                    const controller = _contentItems[_contentIdx];
+                    const scroll = games.scrollTop;
+                    desired.forEach((button,i)=>{
+                        if (games.children[i]!==button) games.insertBefore(button,games.children[i] || null);
+                    });
+                    _contentItems = [...body.querySelectorAll('[data-steam-focus]:not([data-steam-focus=edit])')];
+                    if (editButton) _contentItems.push(editButton);
+                    if (_contentItems.includes(controller)) _contentIdx = _contentItems.indexOf(controller);
+                    if (games.contains(active) && document.activeElement!==active) active.focus({preventScroll:true});
+                    games.scrollTop = scroll;
+                }
+            }
+            if (!detail || detail.pending || data.openApp!==_steamAchievementGame || !Array.isArray(data.detailItems)) return;
+            const byId = new Map(data.detailItems.map(item=>[item.ApiName,item]));
+            const loaded = new Set();
+            detail.items.forEach((old,index)=>{
+                loaded.add(old.ApiName);
+                const item=byId.get(old.ApiName);
+                if (!item || JSON.stringify(old)===JSON.stringify(item)) return;
+                detail.items[index]=item;
+                const card=profileView.querySelector('[data-steam-focus="trophy-'+index+'"]');
+                if (!card) return;
+                const template=document.createElement('template');
+                template.innerHTML=_steamTrophyCard(item,index);
+                const replacement=template.content.firstElementChild;
+                card.className=replacement.className;
+                card.replaceChildren(...replacement.childNodes);
+            });
+            detail.remaining=data.detailItems.filter(item=>!loaded.has(item.ApiName));
+            detail.total=detail.items.length+detail.remaining.length;
+        };
         const backButton = body.querySelector('[data-steam-focus=back]');
         if (backButton) backButton.onclick = () => {
             closeDetail();
@@ -5722,6 +5833,7 @@ window.isNavMenuOpen = false;
         };
         body.querySelectorAll('[data-game-order]').forEach(button=>button.onclick=()=>{
             state.gameOrder = button.dataset.gameOrder;
+            postToHost?.({action:'saveTrophyGameOrder',profileId:state.profileId,order:state.gameOrder});
             state.gameScroll = 0;
             dialog?.close();
             _renderContent('profile'); focus(compact ? body.querySelector('[data-game-row]')?.dataset.steamFocus || 'tab-gaming' : button.dataset.steamFocus);
@@ -8417,7 +8529,6 @@ window.isNavMenuOpen = false;
         }
 
         let pendingName = _menuData.user.Name || '';
-        let pendingApi = '';
         let pendingPin = '';
         let apiConfigured = !!(_menuData.user.HasSteamGridApiKey || _menuData.user.hasSteamGridApiKey);
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
@@ -8437,10 +8548,8 @@ window.isNavMenuOpen = false;
 
         const _saveProfileNow = (patch = {}) => {
             if (Object.prototype.hasOwnProperty.call(patch, 'name')) pendingName = patch.name;
-            const hasApiPatch = Object.prototype.hasOwnProperty.call(patch, 'apiKey');
             const hasPinPatch = Object.prototype.hasOwnProperty.call(patch, 'pin');
             const hasHistoryPatch = Object.prototype.hasOwnProperty.call(patch, 'applicationHistoryEnabled');
-            if (hasApiPatch) { pendingApi = patch.apiKey; apiConfigured = !!pendingApi; }
             if (hasPinPatch) { pendingPin = patch.pin; pinConfigured = !!pendingPin; }
             if (hasHistoryPatch) applicationHistoryEnabled = patch.applicationHistoryEnabled !== false;
             _menuData.user.Name = pendingName;
@@ -8464,16 +8573,10 @@ window.isNavMenuOpen = false;
                     photoBase64: _menuData.user.PhotoBase64 || '',
                     skipTasks: true
                 };
-                if (hasApiPatch) message.apiKey = pendingApi;
                 if (hasPinPatch) message.pin = pendingPin;
                 if (hasHistoryPatch) message.applicationHistoryEnabled = applicationHistoryEnabled;
                 postToHost(message);
             }
-        };
-
-        const _saveApiNow = (apiKey) => {
-            _saveProfileNow({ apiKey });
-            pendingApi = '';
         };
 
         const _normalizePin = (value) => String(value || '').replace(/\D/g, '').slice(0, 4);
@@ -8529,7 +8632,7 @@ window.isNavMenuOpen = false;
                     </div>
 
                     <div class="nav-profile-sync nav-connected-account" data-provider="steam">
-                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span><button class="nav-icon-btn nav-steam-header-sync" id="navSteamSyncNow" data-steam-action="import" tabindex="-1" title="${_t('steam.syncNow')}" aria-label="${_t('steam.syncNow')}" hidden>↻ <span>${_t('steam.syncNow')}</span></button></div>
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span></div>
                         <p class="nav-connected-description"><span id="navSteamIdentity">${_t('steam.publicProfile')}</span></p>
                         <button class="nav-icon-btn nav-provider-manage" id="navSteamManage" tabindex="-1" > ${PLATFORM_ICONS.Steam}<span>${_t('steam.connect')}</span></button>
                         <span class="nav-profile-sync-status" id="navSteamConnectionState" role="status">${_t('steam.disconnected')}</span>
@@ -8561,10 +8664,11 @@ window.isNavMenuOpen = false;
                     <div class="nav-profile-field" style="margin-top: 10px;">
                         <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
                         <div class="nav-api-row">
-                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
+                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" spellcheck="false" autocomplete="off" aria-describedby="navApiStatus" style="flex:1;" />
                             <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
-                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
+                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('setupStep3LinkText')}</button>
                         </div>
+                        <small class="nav-connected-description" id="navApiStatus" role="status"></small>
                     </div>
                     </section>
                     <section class="nav-account-section" data-account-panel="privacy"><h3>${_t("navPrivacyActivity")}</h3>
@@ -8718,11 +8822,6 @@ window.isNavMenuOpen = false;
             if (manage) manage.textContent = steamState.hasKey && steamState.account ? _t('steam.anotherAccount') : _t('steam.connect');
             const primary = body.querySelector('#navSteamManage');
             if (primary) primary.disabled = !!steamState.busy;
-            const syncNow = body.querySelector('#navSteamSyncNow');
-            if (syncNow) {
-                syncNow.hidden = !(steamState.hasKey && (steamState.account || steamState.steamId));
-                syncNow.disabled = !!steamState.busy;
-            }
             const connectionState = body.querySelector('#navSteamConnectionState');
             if (connectionState) connectionState.textContent = steamState.busy ? _t('steam.updating') : steamState.hasKey && (steamState.account || steamState.steamId) ? _t('steam.connected') : _t('steam.disconnected');
             if (connectionState && !steamState.busy && /não foi|não pôde|mudou|cancelad|inválid|restrit|privad|indispon|configure primeiro/i.test(steamState.message || '')) connectionState.textContent = steamState.message;
@@ -8891,20 +8990,11 @@ window.isNavMenuOpen = false;
             });
         }
 
-        linkBtn?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
-        });
-
         sharingBtn?.addEventListener('click', () => {
             _settingsSubView = 'sharing';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
-        });
-
-        pasteBtn?.addEventListener('click', () => {
-            window._isPastingApiKey = true;
-            if (typeof postToHost === 'function') postToHost({ action: 'readClipboard' });
         });
 
         let _deleteConfirmStep = false;
@@ -8993,31 +9083,86 @@ window.isNavMenuOpen = false;
             if (event.target.value !== digits) event.target.value = digits;
         });
 
+        const apiStatus = body.querySelector('#navApiStatus');
+        let apiInputRequest = '';
+        let apiSaveRequest = '';
+        let apiHasDraft = false;
+        const apiProfileId = user.Id || window._doorpiCurrentUserId;
+        const setApiFeedback = (message = '', error = false) => {
+            apiStatus.textContent = message ? _t(message) : '';
+            apiInput.setAttribute('aria-invalid', String(error));
+        };
+
+        const submitApi = key => {
+            if (apiSaveRequest) return;
+            if (!key.trim()) { setApiFeedback('steamGridKeyRequired', true); return; }
+            apiInputRequest = '';
+            apiHasDraft = true;
+            apiInput.value = key.trim();
+            apiInput.readOnly = true;
+            linkBtn.disabled = pasteBtn.disabled = true;
+            setApiFeedback('steamGridKeyValidating');
+            apiSaveRequest = crypto.randomUUID();
+            postToHost({ action: 'saveSteamGridKey', requestId: apiSaveRequest, profileId: apiProfileId, key: key.trim() });
+        };
+
+        linkBtn?.addEventListener('click', () => {
+            const requestId = _openSteamGridKeyPage();
+            if (requestId) apiInputRequest = requestId;
+        });
+        pasteBtn?.addEventListener('click', () => {
+            apiInputRequest = crypto.randomUUID();
+            postToHost({ action: 'pasteSteamGridKey', requestId: apiInputRequest });
+        });
         apiInput?.addEventListener('click', event => {
-            apiInput.value = '';
+            if (apiSaveRequest) return;
+            if (!apiHasDraft) apiInput.value = '';
+            apiHasDraft = true;
             apiInput.removeAttribute('readonly');
             if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(apiInput, {
                 onOk: () => {
                     const newKey = apiInput.value.trim();
-                    apiInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
-                    _saveApiNow(newKey);
-                    apiInput.value = maskApi();
-                    _showSavedFeedback();
+                    submitApi(newKey);
                 },
                 onCancel: () => {
                     apiInput.value = maskApi();
+                    apiHasDraft = false;
                     apiInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
                 }
             });
         });
+        apiInput?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' || apiInput.readOnly) return;
+            event.preventDefault();
+            event.stopPropagation();
+            submitApi(apiInput.value);
+        });
+        apiInput?.addEventListener('input', () => setApiFeedback('steamGridKeyPressEnter'));
 
-        window._updatePendingApiKey = (keyText) => {
-            const trimmed = keyText.trim();
-            _saveApiNow(trimmed);
-            if (apiInput) apiInput.value = maskApi();
+        window._handleAccountSteamGridMessage = data => {
+            if (apiProfileId !== window._doorpiCurrentUserId) return;
+            if (data.type === 'steamGridKeyInput' && apiInputRequest && data.requestId === apiInputRequest && apiInput.isConnected) {
+                apiInputRequest = '';
+                if (data.reason || !data.text) setApiFeedback(data.reason || 'steamGridKeyClipboardEmpty', true);
+                else {
+                    apiInput.focus();
+                    submitApi(data.text);
+                }
+                return;
+            }
+            if (data.type !== 'steamGridKeySaved' || !apiSaveRequest || data.requestId !== apiSaveRequest) return;
+            apiSaveRequest = '';
+            linkBtn.disabled = pasteBtn.disabled = false;
+            if (data.reason) { setApiFeedback(data.reason, true); return; }
+            apiConfigured = true;
+            _menuData.user.HasSteamGridApiKey = true;
+            if (window._doorpiProfile) window._doorpiProfile.HasSteamGridApiKey = true;
+            apiHasDraft = false;
+            apiInput.value = maskApi();
+            setApiFeedback();
             _showSavedFeedback();
         };
 
@@ -11886,7 +12031,11 @@ window.isNavMenuOpen = false;
                 const data = JSON.parse(e.data);
                 if (data.type === 'steamProfileStatus') {
                     _acceptSteamPresentation(data);
-                    window._refreshSteamAccountUi?.(data);
+                    if (!data.silent) window._refreshSteamAccountUi?.(data);
+                }
+                if (data.type === 'doorpiTrophiesChanged' && data.profileId === _steamProfileView.profileId) {
+                    postToHost?.({action:'steamProfileStatus',silent:true,openApp:_steamAchievementGame});
+
                 }
                 if (data.type === 'steamGameHeader') acceptSteamHeader(data);
                 if (data.type === 'steamProfileAchievements') _acceptSteamPresentation(data);
@@ -11925,17 +12074,6 @@ window.isNavMenuOpen = false;
                     }
                 }
 
-                if (data.type === 'clipboardText' && window._isPastingApiKey) {
-                    window._isPastingApiKey = false;
-                    const text = data.text.trim();
-                    if (text) {
-                        window._updatePendingApiKey?.(text);
-                        if (text !== _menuData.user.SteamGridApiKey) {
-                            _menuData.user.SteamGridApiKey = text;
-                        }
-                    }
-                }
-                
                 if (data.type === 'bootModeState') {
                     window._doorpiBootMode = data.mode || 0;
                     if (typeof window._updateBootModeUI === 'function') {

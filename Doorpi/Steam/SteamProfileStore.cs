@@ -59,7 +59,7 @@ public static class SteamProfileStore
         Validate(data);
         var games = new List<SteamGameData>();
         var achievements = new List<SteamAchievementData>();
-        foreach (var source in data.Games)
+        foreach (var source in data.Games.Where(g=>!SteamProfileMerge.IsLegacyPlaceholder(g)))
         {
             games.Add(new() { Id = source.AppId.ToString(), AppId = source.AppId, Name = source.Name, PlaytimeMinutes = source.PlaytimeMinutes, LastPlayedUnix = source.LastPlayedUnix, AchievementsCheckedUtc = source.AchievementsCheckedUtc });
             foreach (var item in source.Achievements)
@@ -71,6 +71,30 @@ public static class SteamProfileStore
             [Path.Combine(directory, DataNames[1])] = JsonSerializer.Serialize(games),
             [Path.Combine(directory, DataNames[2])] = JsonSerializer.Serialize(achievements)
         };
+    }
+
+    internal static bool ArchiveUnverifiedCacheRows(string directory)
+    {
+        bool repaired=false;
+        StateStorage.ExecuteTransaction(() =>
+        {
+            var profile=Read(directory);
+            if(profile==null) return;
+            var invalid=profile.Games.Where(SteamProfileMerge.IsLegacyPlaceholder).ToList();
+            if(invalid.Count==0)return;
+            string archive=Path.Combine(directory,"steam-cache-recovery.json");
+            var rows=StateStorage.Exists(archive) ? JsonSerializer.Deserialize<Dictionary<string,SteamGameData>>(StateStorage.ReadAllText(archive)) ?? throw new InvalidDataException() : new();
+            foreach(var game in invalid)
+            {
+                rows.TryAdd(profile.SteamId+"/"+game.AppId,game);
+                profile.Games.Remove(game);
+            }
+            var writes=BuildWrites(directory,profile);
+            var batch=new Dictionary<string,string?>(writes){[archive]=JsonSerializer.Serialize(rows)};
+            StateStorage.WriteBatch(batch);
+            repaired=true;
+        });
+        return repaired;
     }
 
     public static bool HasKey(string directory) => StateStorage.Exists(Path.Combine(directory, "steam-credentials.json"));

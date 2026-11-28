@@ -53,7 +53,6 @@
         }
 
         let pendingName = _menuData.user.Name || '';
-        let pendingApi = '';
         let pendingPin = '';
         let apiConfigured = !!(_menuData.user.HasSteamGridApiKey || _menuData.user.hasSteamGridApiKey);
         let pinConfigured = !!(_menuData.user.HasPin || _menuData.user.hasPin);
@@ -73,10 +72,8 @@
 
         const _saveProfileNow = (patch = {}) => {
             if (Object.prototype.hasOwnProperty.call(patch, 'name')) pendingName = patch.name;
-            const hasApiPatch = Object.prototype.hasOwnProperty.call(patch, 'apiKey');
             const hasPinPatch = Object.prototype.hasOwnProperty.call(patch, 'pin');
             const hasHistoryPatch = Object.prototype.hasOwnProperty.call(patch, 'applicationHistoryEnabled');
-            if (hasApiPatch) { pendingApi = patch.apiKey; apiConfigured = !!pendingApi; }
             if (hasPinPatch) { pendingPin = patch.pin; pinConfigured = !!pendingPin; }
             if (hasHistoryPatch) applicationHistoryEnabled = patch.applicationHistoryEnabled !== false;
             _menuData.user.Name = pendingName;
@@ -100,16 +97,10 @@
                     photoBase64: _menuData.user.PhotoBase64 || '',
                     skipTasks: true
                 };
-                if (hasApiPatch) message.apiKey = pendingApi;
                 if (hasPinPatch) message.pin = pendingPin;
                 if (hasHistoryPatch) message.applicationHistoryEnabled = applicationHistoryEnabled;
                 postToHost(message);
             }
-        };
-
-        const _saveApiNow = (apiKey) => {
-            _saveProfileNow({ apiKey });
-            pendingApi = '';
         };
 
         const _normalizePin = (value) => String(value || '').replace(/\D/g, '').slice(0, 4);
@@ -165,7 +156,7 @@
                     </div>
 
                     <div class="nav-profile-sync nav-connected-account" data-provider="steam">
-                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span><button class="nav-icon-btn nav-steam-header-sync" id="navSteamSyncNow" data-steam-action="import" tabindex="-1" title="${_t('steam.syncNow')}" aria-label="${_t('steam.syncNow')}" hidden>↻ <span>${_t('steam.syncNow')}</span></button></div>
+                        <div class="nav-provider-heading"><span class="nav-provider-icon" aria-hidden="true">${PLATFORM_ICONS.Steam}</span><span><strong>Steam</strong><small>${_t('steam.features')}</small></span></div>
                         <p class="nav-connected-description"><span id="navSteamIdentity">${_t('steam.publicProfile')}</span></p>
                         <button class="nav-icon-btn nav-provider-manage" id="navSteamManage" tabindex="-1" > ${PLATFORM_ICONS.Steam}<span>${_t('steam.connect')}</span></button>
                         <span class="nav-profile-sync-status" id="navSteamConnectionState" role="status">${_t('steam.disconnected')}</span>
@@ -197,10 +188,11 @@
                     <div class="nav-profile-field" style="margin-top: 10px;">
                         <span class="nav-profile-field-label">${_t('navProfileApiLabel', 'Chave API SteamGridDB')}</span>
                         <div class="nav-api-row">
-                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" style="flex:1;" />
+                            <input class="nav-profile-field-input" id="navProfApi" readonly value="${maskApi()}" tabindex="-1" spellcheck="false" autocomplete="off" aria-describedby="navApiStatus" style="flex:1;" />
                             <button class="nav-icon-btn" id="navApiPaste" tabindex="-1">${_t('btnPaste', 'Colar')}</button>
-                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('btnViewKey', 'Ver Chave')}</button>
+                            <button class="nav-icon-btn" id="navApiLink" tabindex="-1">${_t('setupStep3LinkText')}</button>
                         </div>
+                        <small class="nav-connected-description" id="navApiStatus" role="status"></small>
                     </div>
                     </section>
                     <section class="nav-account-section" data-account-panel="privacy"><h3>${_t("navPrivacyActivity")}</h3>
@@ -354,11 +346,6 @@
             if (manage) manage.textContent = steamState.hasKey && steamState.account ? _t('steam.anotherAccount') : _t('steam.connect');
             const primary = body.querySelector('#navSteamManage');
             if (primary) primary.disabled = !!steamState.busy;
-            const syncNow = body.querySelector('#navSteamSyncNow');
-            if (syncNow) {
-                syncNow.hidden = !(steamState.hasKey && (steamState.account || steamState.steamId));
-                syncNow.disabled = !!steamState.busy;
-            }
             const connectionState = body.querySelector('#navSteamConnectionState');
             if (connectionState) connectionState.textContent = steamState.busy ? _t('steam.updating') : steamState.hasKey && (steamState.account || steamState.steamId) ? _t('steam.connected') : _t('steam.disconnected');
             if (connectionState && !steamState.busy && /não foi|não pôde|mudou|cancelad|inválid|restrit|privad|indispon|configure primeiro/i.test(steamState.message || '')) connectionState.textContent = steamState.message;
@@ -527,20 +514,11 @@
             });
         }
 
-        linkBtn?.addEventListener('click', () => {
-            if (typeof postToHost === 'function') postToHost({ action: 'launchMediaApp', url: 'https://www.steamgriddb.com/profile/preferences/api', appType: 'webview' });
-        });
-
         sharingBtn?.addEventListener('click', () => {
             _settingsSubView = 'sharing';
             _contentIdx = 0;
             _renderContent('settings');
             _updateContentFocus();
-        });
-
-        pasteBtn?.addEventListener('click', () => {
-            window._isPastingApiKey = true;
-            if (typeof postToHost === 'function') postToHost({ action: 'readClipboard' });
         });
 
         let _deleteConfirmStep = false;
@@ -629,31 +607,86 @@
             if (event.target.value !== digits) event.target.value = digits;
         });
 
+        const apiStatus = body.querySelector('#navApiStatus');
+        let apiInputRequest = '';
+        let apiSaveRequest = '';
+        let apiHasDraft = false;
+        const apiProfileId = user.Id || window._doorpiCurrentUserId;
+        const setApiFeedback = (message = '', error = false) => {
+            apiStatus.textContent = message ? _t(message) : '';
+            apiInput.setAttribute('aria-invalid', String(error));
+        };
+
+        const submitApi = key => {
+            if (apiSaveRequest) return;
+            if (!key.trim()) { setApiFeedback('steamGridKeyRequired', true); return; }
+            apiInputRequest = '';
+            apiHasDraft = true;
+            apiInput.value = key.trim();
+            apiInput.readOnly = true;
+            linkBtn.disabled = pasteBtn.disabled = true;
+            setApiFeedback('steamGridKeyValidating');
+            apiSaveRequest = crypto.randomUUID();
+            postToHost({ action: 'saveSteamGridKey', requestId: apiSaveRequest, profileId: apiProfileId, key: key.trim() });
+        };
+
+        linkBtn?.addEventListener('click', () => {
+            const requestId = _openSteamGridKeyPage();
+            if (requestId) apiInputRequest = requestId;
+        });
+        pasteBtn?.addEventListener('click', () => {
+            apiInputRequest = crypto.randomUUID();
+            postToHost({ action: 'pasteSteamGridKey', requestId: apiInputRequest });
+        });
         apiInput?.addEventListener('click', event => {
-            apiInput.value = '';
+            if (apiSaveRequest) return;
+            if (!apiHasDraft) apiInput.value = '';
+            apiHasDraft = true;
             apiInput.removeAttribute('readonly');
             if (!window._doorpiShouldOpenVkbFromEvent?.(event)) return;
             window._vkbOpen?.(apiInput, {
                 onOk: () => {
                     const newKey = apiInput.value.trim();
-                    apiInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
-                    _saveApiNow(newKey);
-                    apiInput.value = maskApi();
-                    _showSavedFeedback();
+                    submitApi(newKey);
                 },
                 onCancel: () => {
                     apiInput.value = maskApi();
+                    apiHasDraft = false;
                     apiInput.setAttribute('readonly', '');
                     window._vkbForceClose?.();
                 }
             });
         });
+        apiInput?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' || apiInput.readOnly) return;
+            event.preventDefault();
+            event.stopPropagation();
+            submitApi(apiInput.value);
+        });
+        apiInput?.addEventListener('input', () => setApiFeedback('steamGridKeyPressEnter'));
 
-        window._updatePendingApiKey = (keyText) => {
-            const trimmed = keyText.trim();
-            _saveApiNow(trimmed);
-            if (apiInput) apiInput.value = maskApi();
+        window._handleAccountSteamGridMessage = data => {
+            if (apiProfileId !== window._doorpiCurrentUserId) return;
+            if (data.type === 'steamGridKeyInput' && apiInputRequest && data.requestId === apiInputRequest && apiInput.isConnected) {
+                apiInputRequest = '';
+                if (data.reason || !data.text) setApiFeedback(data.reason || 'steamGridKeyClipboardEmpty', true);
+                else {
+                    apiInput.focus();
+                    submitApi(data.text);
+                }
+                return;
+            }
+            if (data.type !== 'steamGridKeySaved' || !apiSaveRequest || data.requestId !== apiSaveRequest) return;
+            apiSaveRequest = '';
+            linkBtn.disabled = pasteBtn.disabled = false;
+            if (data.reason) { setApiFeedback(data.reason, true); return; }
+            apiConfigured = true;
+            _menuData.user.HasSteamGridApiKey = true;
+            if (window._doorpiProfile) window._doorpiProfile.HasSteamGridApiKey = true;
+            apiHasDraft = false;
+            apiInput.value = maskApi();
+            setApiFeedback();
             _showSavedFeedback();
         };
 

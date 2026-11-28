@@ -11,12 +11,12 @@ public sealed class StoragePathPolicy
         "emulators.json", "emulator-game-suppressions.json", "browser-downloads.json",
         "browser-settings.json", "web-permissions.json", "gpu-updaters.json", "storage-cache.json",
         "windows-update-state.json", "active-gameplay-session.json",
-        "media-metadata-probe.json", "media-network-probe.json", "device-id.txt"
+        "media-metadata-probe.json", "media-network-probe.json", "device-id.txt", "phantom-rarity.json"
     };
     private static readonly HashSet<string> UserDocuments = new(DataDocuments, StringComparer.OrdinalIgnoreCase)
     {
         "profile-sync-state.json", "profile-sync-base.json", "profile-sync-pending-remote.json",
-        "profile-sync-operation.json", "steam-account.json", "steam-games.json", "steam-achievements.json", "steam-credentials.json", "steam-connection.json", "steam-sync-operation.json", "steam-refresh-queue.json"
+        "profile-sync-operation.json", "steam-account.json", "steam-games.json", "steam-achievements.json", "steam-credentials.json", "steam-connection.json", "steam-sync-operation.json", "steam-refresh-queue.json", "doorpi-local-trophies.json", "local-steam-catalogs.json", "trophy-game-order.json", "local-steam-scan-v1.json", "steam-cache-recovery.json"
     };
     private static readonly HashSet<string> UpdateDocuments = new(StringComparer.OrdinalIgnoreCase)
     {

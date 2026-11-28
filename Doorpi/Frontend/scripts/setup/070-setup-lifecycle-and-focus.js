@@ -9,6 +9,8 @@ function openSetup(isAddingUser = false) {
     _setupCloudProfileId = '';
     _setupSyncConnectFromRegistration = false;
     _setupSyncMessage = '';
+    _setupApiInputRequest = null;
+    _setSetupSaving(false);
     _setupLayoutConfirmed = !!isAddingUser;
     _setupUsers = [{
         id: '', name: '', pin: '', photoBase64: '', coverBase64: '', apiKey: '', folders: [],
@@ -95,6 +97,7 @@ function closeSetup(options = {}) {
 }
 
 function setupBack() {
+    if (_setupSaveRequest) return true;
     if (_setupPhase === 'registration') {
         _setupReturnToAuth();
         return true;

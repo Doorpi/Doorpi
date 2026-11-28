@@ -166,6 +166,16 @@ window._mediaHandleMessage = (data) => {
             window.clearDoorpiInputQuarantine?.({ dropPending: true });
             window._currentWebAppConflictEntry = null;
             window._storesHandleMessage?.(data);
+            if (data.returnTo === 'steamGrid') {
+                _finishSteamGridKeyPage(data.requestId, data.keyCopied);
+                if (data.keyCopied) {
+                    window.quarantineDoorpiGamepadActions?.(400);
+                    window.armDoorpiGamepadReleaseGate?.();
+                } else {
+                    document.getElementById(window.isSetupOpen ? 'btnSetupApiLink' : 'navApiLink')?.focus();
+                }
+                break;
+            }
             if (window._suppressNextMediaAppClosedFocus) {
                 window._suppressNextMediaAppClosedFocus = false;
                 break;
