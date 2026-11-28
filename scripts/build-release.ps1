@@ -152,6 +152,19 @@ function New-UpdatePackageFromFolder([string]$folder, [string]$packagePath) {
     Move-Item -LiteralPath $temporaryZipPath -Destination $packagePath -Force
 }
 
+function Get-Sha256([string]$path) {
+    $stream = [System.IO.File]::OpenRead($path)
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $algorithm.ComputeHash($stream)
+        return ([BitConverter]::ToString($bytes)).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Invoke-Checked([string]$file, [string[]]$arguments) {
     & $file @arguments
     if ($LASTEXITCODE -ne 0) {
@@ -359,8 +372,8 @@ if ($UpdaterBridge) {
 } else { New-UpdatePackageFromFolder $doorpiPublish $doorpiPackage }
 New-UpdatePackageFromFolder $updaterPublish $updaterPackage
 
-$doorpiHash = (Get-FileHash $doorpiPackage -Algorithm SHA256).Hash.ToLowerInvariant()
-$updaterHash = (Get-FileHash $updaterPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+$doorpiHash = Get-Sha256 $doorpiPackage
+$updaterHash = Get-Sha256 $updaterPackage
 $doorpiSize = (Get-Item $doorpiPackage).Length
 $updaterSize = (Get-Item $updaterPackage).Length
 $publishedAt = (Get-Date).ToUniversalTime()
