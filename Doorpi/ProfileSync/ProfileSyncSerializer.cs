@@ -84,7 +84,9 @@ public static class ProfileSyncSerializer
                 AvatarFromGame = profile.SchemaVersion >= 7 ? profile.AvatarFromGame : null,
                 Cover = profile.SchemaVersion >= 8 ? NormalizeCover(profile.Cover) : null,
                 SchemaVersion = profile.SchemaVersion,
-                TrophyCatalogs = profile.TrophyCatalogs is { Count: > 0 } ? ProfileSyncSerializer.ComputeBinaryHash(System.Text.Encoding.UTF8.GetBytes(ProfileSyncEngine.CatalogFingerprint(profile.TrophyCatalogs))) : null,
+                TrophyCatalogs = profile.TrophyCatalogs is { Count: > 0 }
+                    ? ProfileSyncSerializer.ComputeBinaryHash(Encoding.UTF8.GetBytes(ProfileSyncSerializer.CatalogFingerprint(profile.TrophyCatalogs)))
+                    : null,
                 PhantomBladeTrophies = profile.PhantomBladeTrophies is { Count: > 0 } trophies ? new(trophies, StringComparer.Ordinal) : null,
                 Steam = profile.SchemaVersion >= 6 && profile.Steam != null ? Doorpi.Steam.SteamProfileMerge.Fingerprint(profile.Steam) : null,
                 ProfileName = profile.ProfileName ?? "",
@@ -257,6 +259,41 @@ public static class ProfileSyncSerializer
 
         private static DateTimeOffset? NormalizeUtc(DateTimeOffset? value)
             => value?.ToUniversalTime();
+    }
+
+    // Keep cloud-content hashing independent from the merge engine. This project is also
+    // used by the recovery path, where only serialization contracts are linked.
+    private static string CatalogFingerprint(Dictionary<int, Doorpi.Steam.SteamGameData> catalogs)
+    {
+        var canonical = catalogs
+            .OrderBy(entry => entry.Key)
+            .Select(entry => new
+            {
+                Key = entry.Key,
+                Game = entry.Value == null ? null : new
+                {
+                    entry.Value.Id,
+                    entry.Value.AppId,
+                    entry.Value.Name,
+                    AchievementsCheckedUtc = entry.Value.AchievementsCheckedUtc?.ToUniversalTime(),
+                    Achievements = entry.Value.Achievements
+                        .OrderBy(achievement => achievement.ApiName, StringComparer.Ordinal)
+                        .Select(achievement => new
+                        {
+                            achievement.Id,
+                            achievement.AppId,
+                            achievement.ApiName,
+                            achievement.Name,
+                            achievement.Description,
+                            achievement.Unlocked,
+                            achievement.UnlockTimeUnix,
+                            achievement.IconFile,
+                            achievement.IconUrl,
+                            achievement.GlobalUnlockPercent
+                        })
+                }
+            });
+        return JsonSerializer.Serialize(canonical, CanonicalOptions);
     }
 
     private sealed class CanonicalProfilePhoto
