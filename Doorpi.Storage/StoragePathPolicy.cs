@@ -7,7 +7,7 @@ public sealed class StoragePathPolicy
     {
         "users.json", "user.json", "current-user.json", "games.json", "game-history.json",
         "media-history.json", "folders.json", "appcache.json", "media.json", "stores.json",
-        "messages.json", "library-bootstrap.json", "display-settings.json", "theme-settings.json", "controls.json",
+        "messages.json", "library-bootstrap.json", "display-settings.json", "sound-settings.json", "theme-settings.json", "controls.json",
         "emulators.json", "emulator-game-suppressions.json", "browser-downloads.json",
         "browser-settings.json", "web-permissions.json", "gpu-updaters.json", "storage-cache.json",
         "windows-update-state.json", "active-gameplay-session.json",

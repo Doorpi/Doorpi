@@ -39,6 +39,18 @@ if (args is ["--inspect-cache", var cacheRoot])
     return;
 }
 int checks = 0;
+var mainPc=new CloudProfileV1{PhantomBladeTrophies=new(){["4115450/ACH_001"]=71},TrophyCatalogs=new(){[4115450]=new(){AppId=4115450,Name="Phantom Blade Zero",Achievements=[new(){ApiName="ACH_001",Name="Primeira conquista"},new(){ApiName="ACH_002",Name="Segunda conquista"}]}}};
+mainPc.TrophyCatalogs![123456]=new(){AppId=123456,Name="Outro jogo local",Achievements=[new(){ApiName="ACH_001",Name="Outro objetivo"}]};
+mainPc.PhantomBladeTrophies!["123456/ACH_001"]=92;
+var secondPc=ProfileSyncSerializer.DeserializeProfile(ProfileSyncSerializer.SerializeProfile(mainPc))!;
+Check(secondPc.TrophyCatalogs![4115450].Achievements.Count==2 && secondPc.PhantomBladeTrophies!["4115450/ACH_001"]==71,"Second PC lost trophy catalog or unlock");
+Check(ProfileSyncEngine.MergeCatalogs(secondPc.TrophyCatalogs,null)![4115450].Achievements.Count==2,"Old cloud snapshot erased catalog");
+Check(secondPc.TrophyCatalogs!.Count==2 && secondPc.TrophyCatalogs[123456].Achievements.Single().Name=="Outro objetivo","Cloud catalog was restricted to one app");
+var combinedUnlocks=ProfileSyncEngine.MergePilotTrophies(secondPc.PhantomBladeTrophies,new(){["123456/ACH_002"]=99})!;
+Check(combinedUnlocks.Count==3 && combinedUnlocks["4115450/ACH_001"]==71 && combinedUnlocks["123456/ACH_001"]==92,"Identical achievement IDs collided across local games");
+var oldSnapshot=new CloudProfileV1{PhantomBladeTrophies=mainPc.PhantomBladeTrophies};
+Check(ProfileSyncSerializer.ComputeContentHash(mainPc)!=ProfileSyncSerializer.ComputeContentHash(oldSnapshot),"Catalog backfill invisible to Drive sync");
+Check(ProfileSyncEngine.Compare(mainPc,oldSnapshot).Differences.Any(d=>d.Path=="trophyCatalogs"),"Catalog backfill absent from profile diff");
 var starting=DateTimeOffset.UtcNow;
 var aliceTrophies=new LocalTrophySession(starting);
 Check(aliceTrophies.Observe("shared",new(){["earlier"]=0}).Count==0,"Prior Windows unlock credited to Alice");

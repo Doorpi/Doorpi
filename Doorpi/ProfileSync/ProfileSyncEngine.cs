@@ -406,6 +406,7 @@ public static class ProfileSyncEngine
 
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
+        merged.TrophyCatalogs = MergeCatalogs(local.TrophyCatalogs,remote.TrophyCatalogs);
         merged.PhantomBladeTrophies = MergePilotTrophies(local.PhantomBladeTrophies, remote.PhantomBladeTrophies);
         merged.Steam = MergeSteamProfiles(local.Steam, remote.Steam, conflictPaths);
         // Schema is a format capability, not editable user data. Prefer the newest
@@ -532,6 +533,7 @@ public static class ProfileSyncEngine
         // escolha para edicoes concorrentes que nao podem ser inferidas com seguranca.
         var conflictPaths = new HashSet<string>(StringComparer.Ordinal);
         CloudProfileV1 merged = CloneProfile(local);
+        merged.TrophyCatalogs = MergeCatalogs(local.TrophyCatalogs,remote.TrophyCatalogs);
         merged.PhantomBladeTrophies = MergePilotTrophies(local.PhantomBladeTrophies, remote.PhantomBladeTrophies);
         merged.Steam = MergeSteamProfiles(local.Steam, remote.Steam, conflictPaths);
         merged.SchemaVersion = Math.Max(local.SchemaVersion, remote.SchemaVersion);
@@ -1322,6 +1324,24 @@ public static class ProfileSyncEngine
         return left > long.MaxValue - right ? long.MaxValue : left + right;
     }
 
+    internal static Dictionary<int,Doorpi.Steam.SteamGameData>? MergeCatalogs(Dictionary<int,Doorpi.Steam.SteamGameData>? left,Dictionary<int,Doorpi.Steam.SteamGameData>? right)
+    {
+        var result=new Dictionary<int,Doorpi.Steam.SteamGameData>();
+        foreach(var group in (left ?? new()).Concat(right ?? new()).GroupBy(p=>p.Key).OrderBy(g=>g.Key))
+        {
+            var games=group.Select(p=>p.Value).OrderBy(g=>g.AchievementsCheckedUtc).ToList();
+            var latest=games.Last();
+            if(group.Key<=0 || games.Any(g=>g.AppId!=group.Key)) throw new System.IO.InvalidDataException("AppID do catálogo inválido.");
+            result[group.Key]=new(){AppId=group.Key,Name=latest.Name,AchievementsCheckedUtc=latest.AchievementsCheckedUtc,
+                Achievements=games.SelectMany(g=>g.Achievements).GroupBy(a=>a.ApiName,StringComparer.Ordinal)
+                    .OrderBy(g=>g.Key,StringComparer.Ordinal).Select(g=>g.Last()).ToList()};
+        }
+        return result.Count==0 ? null : result;
+    }
+
+    internal static string CatalogFingerprint(Dictionary<int,Doorpi.Steam.SteamGameData>? catalogs)
+        => System.Text.Json.JsonSerializer.Serialize(MergeCatalogs(catalogs,null));
+
     internal static Dictionary<string,long>? MergePilotTrophies(Dictionary<string,long>? left, Dictionary<string,long>? right)
     {
         var merged = new Dictionary<string,long>(left ?? new(), StringComparer.Ordinal);
@@ -1346,6 +1366,8 @@ public static class ProfileSyncEngine
         ArgumentNullException.ThrowIfNull(remote);
 
         var differences = new List<ProfileDifference>();
+        if(CatalogFingerprint(local.TrophyCatalogs)!=CatalogFingerprint(remote.TrophyCatalogs))
+            differences.Add(new ProfileDifference { Kind=ProfileDifferenceKind.SteamProfile, Path="trophyCatalogs", LocalSummary="Catálogo de troféus", RemoteSummary="Catálogo de troféus" });
         if (!(local.PhantomBladeTrophies ?? new()).OrderBy(x => x.Key, StringComparer.Ordinal).SequenceEqual((remote.PhantomBladeTrophies ?? new()).OrderBy(x => x.Key, StringComparer.Ordinal)))
             differences.Add(new ProfileDifference { Kind = ProfileDifferenceKind.SteamProfile, Path = "phantomBladeTrophies", LocalSummary = "Conquistas Doorpi", RemoteSummary = "Conquistas Doorpi" });
         if (Doorpi.Steam.SteamProfileMerge.Fingerprint(local.Steam) != Doorpi.Steam.SteamProfileMerge.Fingerprint(remote.Steam))

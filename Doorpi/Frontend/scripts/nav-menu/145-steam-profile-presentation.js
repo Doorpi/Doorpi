@@ -311,6 +311,11 @@
         // Recover the path from the registered installation for an unambiguous name.
         const byHistoryKey = new Map();
         const normalizedName = name => String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+        for (const game of state.games) {
+            const historyKey='name:'+normalizedName(game.Name);
+            const key='steam:'+game.AppId;
+            byHistoryKey.set(historyKey,byHistoryKey.has(historyKey) && byHistoryKey.get(historyKey)!==key ? null : key);
+        }
         for (const installed of _menuData.games || []) {
             const historyKey = 'name:'+normalizedName(installed.Name);
             const catalogKey = byPath.get(String(installed.Path || '').toLowerCase()) || null;

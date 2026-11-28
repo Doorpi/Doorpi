@@ -538,6 +538,7 @@
             }
             // 1. Quando o C# manda limpar a grade (Ao iniciar ou resetar)
             else if (data.type === 'clearGamesGrid') {
+                window.DoorpiHomeTrophies?.setCard(null);
                 if (window.AppStore) window.AppStore.mutations.setBatch('games', []);
             }
             else if (data.type === 'bootstrapStarted') {
@@ -593,6 +594,7 @@
                 }
                 window._doorpiProfile = data.user;
                 window._doorpiCurrentUserId = nextUserId;
+                window.DoorpiHomeTrophies?.setProfile(nextUserId);
                 window._doorpiUserSessionReady = !!nextUserId;
                 window.setDoorpiSessionLocked?.(!window._doorpiUserSessionReady);
                 window._doorpiIsAdmin = !!data.isAdmin || !!(data.user?.IsAdmin || data.user?.isAdmin);
@@ -612,6 +614,12 @@
                 window.DoorpiFirstRunTutorial?.maybeShow?.();
                 setTimeout(() => window.DoorpiUpdatePrompt?.evaluate?.(), 420);
                 if (typeof clearHero === 'function') clearHero();
+            }
+            else if (data.type === 'homeTrophyProgress') {
+                window.DoorpiHomeTrophies?.onProgress(data);
+            }
+            else if (data.type === 'doorpiTrophiesChanged') {
+                window.DoorpiHomeTrophies?.onChange(data.profileId);
             }
             else if (data.type === 'systemUpdateStatus') {
                 window.DoorpiUpdatePrompt?.setStatus(data);
@@ -787,6 +795,7 @@
                 window._doorpiCurrentUserId = window._doorpiUserSessionReady
                     ? (data.currentUserId || '')
                     : '';
+                window.DoorpiHomeTrophies?.setProfile(window._doorpiCurrentUserId);
                 window.setDoorpiSessionLocked?.(!window._doorpiUserSessionReady);
                 showUserPicker(data.users || [], !!data.requireSelection);
             }

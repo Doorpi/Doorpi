@@ -367,6 +367,13 @@ namespace Doorpi
                     int volume = root.TryGetProperty("volume", out var volumeElement) ? volumeElement.GetInt32() : 0;
                     SetSystemVolume(volume);
                 }
+                else if (action == "setAchievementVolume" &&
+                    root.TryGetProperty("volume", out var achievementVolume) &&
+                    achievementVolume.ValueKind == JsonValueKind.Number &&
+                    achievementVolume.TryGetInt32(out int achievementLevel))
+                {
+                    SetAchievementVolume(achievementLevel);
+                }
                 else if (action == "openGpuUpdater")
                 {
                     string updaterId = GetStr(root, "updaterId");

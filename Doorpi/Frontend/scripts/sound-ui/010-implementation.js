@@ -1,9 +1,11 @@
 (function () {
     const SOUND_STEP = 2;
+    const DEFAULT_ACHIEVEMENT_VOLUME = 50;
     const SOUND_ITEMS = [
         { key: 'ambience', group: 'space', labelKey: 'soundAmbienceVolume', fallback: 'Ambiência' },
         { key: 'intro', group: 'space', labelKey: 'soundIntroVolume', fallback: 'Introdução' },
         { key: 'trailer', group: 'space', labelKey: 'soundTrailerVolume', fallback: 'Trailers' },
+        { key: 'achievements', group: 'space', labelKey: 'soundAchievementVolume', fallback: 'Conquistas' },
         { key: 'navigation', group: 'control', labelKey: 'soundNavigationVolume', fallback: 'Navegação' },
         { key: 'confirm', group: 'control', labelKey: 'soundConfirmVolume', fallback: 'Confirmar' },
         { key: 'back', group: 'control', labelKey: 'soundBackVolume', fallback: 'Voltar' }
@@ -83,7 +85,7 @@
     }
 
     function internalVolumes() {
-        return window.DoorpiSoundSettings?.getInternalVolumes?.() || {
+        const volumes = window.DoorpiSoundSettings?.getInternalVolumes?.() || {
             ambience: 100,
             navigation: 100,
             confirm: 100,
@@ -91,6 +93,7 @@
             intro: 100,
             trailer: 34
         };
+        return { ...volumes, achievements: clampVolume(read(status, 'achievementVolume'), DEFAULT_ACHIEVEMENT_VOLUME) };
     }
 
     function statusMessage() {
@@ -365,7 +368,12 @@
             return;
         }
 
-        window.DoorpiSoundSettings?.setInternalVolume?.(key, safe);
+        if (key === 'achievements') {
+            status.achievementVolume = safe;
+            postToHost?.({ action: 'setAchievementVolume', volume: safe });
+        } else {
+            window.DoorpiSoundSettings?.setInternalVolume?.(key, safe);
+        }
         updateValueUi(root, key, safe);
     }
 
@@ -708,6 +716,7 @@
     function updateVisibleStatusValues() {
         document.querySelectorAll('#doorpiQuickPanel .sound-view, #navSoundHost .sound-view').forEach(root => {
             updateValueUi(root, 'master', read(status, 'masterVolume', 0));
+            updateValueUi(root, 'achievements', valueFor('achievements'));
             const device = currentDevice();
             const value = device ? clampVolume(read(device, 'volume', read(status, 'masterVolume', 0))) : null;
             root.querySelectorAll('[data-sound-current-device-name]').forEach(el => {
