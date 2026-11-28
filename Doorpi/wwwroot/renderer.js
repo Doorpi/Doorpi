@@ -258,6 +258,76 @@ window.updateHomeFeatureActionAvailability = function () {
 document.addEventListener('focusin', () => window.updateHomeFeatureActionAvailability());
 document.addEventListener('focusout', () => queueMicrotask(() => window.updateHomeFeatureActionAvailability()));
 
+const homeTrophies = (() => {
+    let profileId = '';
+    let requestId = 0;
+    let refreshTimer;
+    let featuredCard = null;
+    let byApp = new Map();
+    let aliases = new Map();
+
+    function render() {
+        const indicator = document.getElementById('homeFeatureTrophies');
+        if (!indicator) return;
+        const data = featuredCard?.isConnected ? featuredCard.dataset : null;
+        const steamId = Number(/^steam:\/\/(?:rungameid|run)\/(\d+)(?:\/|$)/i.exec(data?.launchUrl || '')?.[1]);
+        const appId = steamId || aliases.get((data?.id || '').toLowerCase()) ||
+            aliases.get((data?.path || '').toLowerCase());
+        const progress = data && (data.channel || 'games') === 'games' && profileId ? byApp.get(appId) : null;
+        const icon = progress && window.doorpiTrophyIcon?.(progress.earned === progress.total ? 'platinum' : 'cup');
+        if (!icon) {
+            indicator.hidden = true;
+            return;
+        }
+
+        indicator.innerHTML = icon;
+        indicator.append(`${progress.earned}/${progress.total}`);
+        const label = typeof t === 'function'
+            ? t('steam.progress', progress.earned, progress.total)
+            : `${progress.earned}/${progress.total}`;
+        const title = progress.earned === progress.total && typeof t === 'function'
+            ? `${t('steam.platinumTitle')} · ${label}` : label;
+        indicator.title = title;
+        indicator.setAttribute('role', 'img');
+        indicator.setAttribute('aria-label', title);
+        indicator.hidden = false;
+    }
+
+    function refresh() {
+        clearTimeout(refreshTimer);
+        const id = ++requestId;
+        if (!profileId) return;
+        refreshTimer = setTimeout(() => postToHost({
+            action: 'homeTrophyProgress', profileId, requestId: id
+        }), 120);
+    }
+
+    return {
+        setProfile(id) {
+            if ((id || '').toLowerCase() === profileId.toLowerCase()) return;
+            profileId = id || '';
+            byApp.clear();
+            aliases.clear();
+            render();
+            refresh();
+        },
+        onProgress(message) {
+            if (message.requestId !== requestId || message.profileId.toLowerCase() !== profileId.toLowerCase()) return;
+            byApp = new Map(message.progress.map(game => [game.appId, game]));
+            aliases = new Map(Object.entries(message.libraryAliases).map(([key, appId]) => [key.toLowerCase(), appId]));
+            render();
+        },
+        onChange(id) {
+            if (profileId && id?.toLowerCase() === profileId.toLowerCase()) refresh();
+        },
+        setCard(card) {
+            featuredCard = card;
+            render();
+        }
+    };
+})();
+window.DoorpiHomeTrophies = homeTrophies;
+
 window.updateHomeFeatureStage = function (card, options = {}) {
     if (!card || card.classList.contains('add-card') || card.classList.contains('loading-card')) return;
 
@@ -310,6 +380,7 @@ window.updateHomeFeatureStage = function (card, options = {}) {
         playtimeValue.textContent = totalPlaytime ||
             (typeof t === 'function' ? t('homeNotPlayedYet') : 'Ainda não jogado');
     }
+    homeTrophies.setCard(channel === 'games' ? card : null);
 
     window.updateHomeFeatureActionAvailability();
 };

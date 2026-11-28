@@ -35,7 +35,7 @@ public partial class MainWindow
                 await SendSteamGameHeaderAsync(appId);
             return true;
         }
-        if (action is not ("steamConnect" or "saveTrophyGameOrder" or "steamProfileStatus" or "steamProfileAchievements" or "steamPasteKey" or "steamSaveManualKey" or "steamPasteAccount" or "steamDisconnect" or "steamImport")) return false;
+        if (action is not ("steamConnect" or "saveTrophyGameOrder" or "steamProfileStatus" or "steamProfileAchievements" or "homeTrophyProgress" or "steamPasteKey" or "steamSaveManualKey" or "steamPasteAccount" or "steamDisconnect" or "steamImport")) return false;
         if (action == "steamConnect") { await BeginSteamConnectAsync(root); return true; }
         string owner = currentUserId;
         if (string.IsNullOrWhiteSpace(owner)) return true;
@@ -78,6 +78,27 @@ public partial class MainWindow
         }
         try
         {
+            if (action == "homeTrophyProgress")
+            {
+                if (!_interactiveUserSessionStarted ||
+                    !string.Equals(GetStr(root, "profileId"), owner, StringComparison.OrdinalIgnoreCase) ||
+                    !root.TryGetProperty("requestId", out var request) || request.ValueKind != JsonValueKind.Number ||
+                    !request.TryGetInt32(out int requestId))
+                    return true;
+
+                var progress = ProfileTrophyGames(directory, ReadSteamPresentation(directory, generation))
+                    .Where(game => game.Achievements.Count > 0)
+                    .Select(game => new { appId = game.AppId, earned = game.Achievements.Count(item => item.Unlocked), total = game.Achievements.Count })
+                    .ToArray();
+                var knownApps = progress.Select(game => game.appId).ToHashSet();
+                var libraryAliases = CatalogOwnerMatches
+                    ? _sessionTrophyIds.Where(item => knownApps.Contains(item.Value.App))
+                        .ToDictionary(item => item.Key, item => item.Value.App)
+                    : new Dictionary<string, int>();
+                if (owner == currentUserId && generation == _themeProfileGeneration)
+                    PostProfileSyncMessage(new { type = "homeTrophyProgress", profileId = owner, requestId, progress, libraryAliases });
+                return true;
+            }
             if (action == "steamProfileAchievements")
             {
                 int appId = root.TryGetProperty("appId", out var appValue) && appValue.TryGetInt32(out var parsedApp) ? parsedApp : 0;

@@ -321,6 +321,7 @@ public partial class MainWindow
             controls.Assignments,
             LoadProfileMediaHistoryForSync(profileId));
         var pilotTrophies = ReadLocalTrophies(LocalTrophyLedger(Path.Combine(dataFolder, "users", profileId)));
+        snapshot.TrophyCatalogs=ReadProfileCatalogs(Path.Combine(dataFolder,"users",profileId));
         snapshot.PhantomBladeTrophies = pilotTrophies.Count == 0 ? null : pilotTrophies;
         snapshot.Steam = Doorpi.Steam.SteamProfileStore.Read(Path.Combine(dataFolder, "users", profileId));
         return (snapshot, DecodeProfilePhoto(profile.PhotoBase64), DecodeProfilePhoto(profile.CoverBase64));
@@ -960,7 +961,7 @@ public partial class MainWindow
     {
         string directory = Path.Combine(dataFolder, "users", GoogleOAuthClient.SafeProfileId(profileId));
         return StateStorage.ReadSnapshot(new[] { profilesFile }
-            .Concat(new[] { "user.json", "games.json", "game-history.json", "media-history.json", "controls.json", "media.json", "stores.json", "steam-account.json", "steam-games.json", "steam-achievements.json", "doorpi-local-trophies.json" }
+            .Concat(new[] { "user.json", "games.json", "game-history.json", "media-history.json", "controls.json", "media.json", "stores.json", "steam-account.json", "steam-games.json", "steam-achievements.json", "doorpi-local-trophies.json", "local-steam-catalogs.json" }
                 .Select(name => Path.Combine(directory, name)))).Revisions;
     }
 
@@ -992,7 +993,7 @@ public partial class MainWindow
                 Path.Combine(profileDirectory, "media.json"), Path.Combine(profileDirectory, "stores.json"),
                 Path.Combine(profileDirectory, "profile-sync-base.json"), Path.Combine(profileDirectory, "profile-sync-pending-remote.json"),
                 Path.Combine(profileDirectory, "profile-sync-pending-remote.json.bak")
-                , Path.Combine(profileDirectory, "steam-account.json"), Path.Combine(profileDirectory, "steam-games.json"), Path.Combine(profileDirectory, "steam-achievements.json"), LocalTrophyLedger(profileDirectory)
+                , Path.Combine(profileDirectory, "steam-account.json"), Path.Combine(profileDirectory, "steam-games.json"), Path.Combine(profileDirectory, "steam-achievements.json"), Path.Combine(profileDirectory,"local-steam-catalogs.json"), LocalTrophyLedger(profileDirectory)
             });
             var expectedRevisions = new Dictionary<string, long>(localSnapshot.Revisions, StringComparer.OrdinalIgnoreCase);
             foreach (var expected in sourceRevisions) expectedRevisions[expected.Key] = expected.Value;
@@ -1191,6 +1192,9 @@ public partial class MainWindow
                 profile, appliedHistory, deviceId, DateTimeOffset.UtcNow,
                 appliedControls.Profiles, appliedControls.Assignments, appliedMediaHistory);
             appliedSnapshot.Steam = appliedSteam;
+            appliedSnapshot.TrophyCatalogs=ProfileSyncEngine.MergeCatalogs(local?.Snapshot.TrophyCatalogs,remote.TrophyCatalogs);
+            if(appliedSnapshot.TrophyCatalogs!=null)
+                writes[Path.Combine(profileDirectory,"local-steam-catalogs.json")]=JsonSerializer.Serialize(appliedSnapshot.TrophyCatalogs);
             appliedSnapshot.PhantomBladeTrophies = ProfileSyncEngine.MergePilotTrophies(local?.Snapshot.PhantomBladeTrophies, remote.PhantomBladeTrophies);
             if (appliedSnapshot.PhantomBladeTrophies != null)
                 writes[LocalTrophyLedger(profileDirectory)] = JsonSerializer.Serialize(appliedSnapshot.PhantomBladeTrophies);
@@ -1205,6 +1209,7 @@ public partial class MainWindow
                         || entry.HistoryHorizontalImageUrl != (remoteGame?.HistoryHorizontalImageUrl ?? "")
                         || entry.ProfileBannerImageUrl != (remoteGame?.ProfileBannerImageUrl ?? "");
                 }));
+            uploadPreservedSteamData |= ProfileSyncEngine.CatalogFingerprint(appliedSnapshot.TrophyCatalogs)!=ProfileSyncEngine.CatalogFingerprint(remote.TrophyCatalogs);
             uploadPreservedSteamData |= appliedSnapshot.PhantomBladeTrophies?.Any(x => remote.PhantomBladeTrophies == null || !remote.PhantomBladeTrophies.TryGetValue(x.Key, out var t) || t != x.Value) == true;
             await ProfileSyncService.ConfirmRemoteAppliedAsync(profileId, appliedSnapshot, result.RemoteRevision,
                 localWrites: writes, expectedRevisions: expectedRevisions,
@@ -1235,6 +1240,7 @@ public partial class MainWindow
         {
             Interlocked.Decrement(ref _profileSyncApplyingRemote);
             _profileRemoteApplyGate.Release();
+            if (profileId==currentUserId) PublishTrophyChange(profileId);
             if (uploadPreservedSteamData) ScheduleProfileSync(profileId);
         }
     }

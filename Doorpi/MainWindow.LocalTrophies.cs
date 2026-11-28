@@ -21,6 +21,7 @@ public partial class MainWindow
     private DispatcherTimer? _localTrophyTimeout;
     private bool _localTrophyPopupIsPlatinum;
     private double _trophyPopupScale;
+    private MediaPlayer? _achievementSoundPlayer;
     private readonly Queue<TrophyNotice> _pendingTrophyNotices = new();
 
     private sealed record TrophyNotice(string GameName, SteamAchievementData[]? Achievements, string Owner, long Generation)
@@ -171,13 +172,45 @@ public partial class MainWindow
         timeout.Start();
 
         if (!created) return;
+        PlayAchievementSound(notice.IsPlatinum);
+    }
+
+    private void PlayAchievementSound(bool platinum)
+    {
+        StopAchievementSound();
+        int volume = GetAchievementVolume();
+        if (volume == 0) return;
         try
         {
-            string file = notice.IsPlatinum ? "achievement-platinum.wav" : "achievement.wav";
+            string file = platinum ? "achievement-platinum.wav" : "achievement.wav";
             string soundPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "sounds", file);
-            if (File.Exists(soundPath)) new System.Media.SoundPlayer(soundPath).Play();
+            if (!File.Exists(soundPath)) return;
+            var player = new MediaPlayer { Volume = volume / 100.0 };
+            _achievementSoundPlayer = player;
+            player.MediaEnded += (_, _) =>
+            {
+                if (_achievementSoundPlayer == player) StopAchievementSound();
+            };
+            player.MediaFailed += (_, e) =>
+            {
+                System.Diagnostics.Debug.WriteLine("[Local trophies] Som de conquista: " + e.ErrorException.Message);
+                if (_achievementSoundPlayer == player) StopAchievementSound();
+            };
+            player.Open(new Uri(soundPath, UriKind.Absolute));
+            player.Play();
         }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Local trophies] Som de conquista: " + ex.Message); }
+        catch (Exception ex)
+        {
+            StopAchievementSound();
+            System.Diagnostics.Debug.WriteLine("[Local trophies] Som de conquista: " + ex.Message);
+        }
+    }
+
+    private void StopAchievementSound()
+    {
+        var player = _achievementSoundPlayer;
+        _achievementSoundPlayer = null;
+        player?.Close();
     }
 
     private void DismissLocalTrophies()
@@ -206,45 +239,43 @@ public partial class MainWindow
         var information = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(13, 0, 0, 0) };
         information.Children.Add(new TextBlock
         {
-            Text = platinum ? Localized("Platina conquistada", "Platinum earned")
-                : Localized("Conquista desbloqueada", "Achievement unlocked"),
-            Foreground = platinum ? accent : new SolidColorBrush(Color.FromRgb(206, 217, 226)),
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        information.Children.Add(new TextBlock
-        {
-            Text = platinum ? Localized("Você conquistou todos os troféus", "You earned every trophy")
+            Text = platinum ? Localized("Todos os troféus conquistados", "All trophies earned")
                 : string.IsNullOrWhiteSpace(achievement!.Name) ? achievement.ApiName : achievement.Name,
-            Foreground = new SolidColorBrush(Color.FromRgb(246, 248, 252)),
-            FontSize = 18,
+            Foreground = new SolidColorBrush(Color.FromRgb(247, 246, 241)),
+            FontSize = 20,
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 1, 0, 2),
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 24,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            MaxHeight = 48,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         var details = new TextBlock
         {
-            Foreground = new SolidColorBrush(Color.FromRgb(199, 210, 223)),
-            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(195, 196, 198)),
+            FontSize = 13,
+            Margin = new Thickness(0, 3, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
         };
-        if (platinum)
-            details.Text = gameName;
-        else
+        details.Inlines.Add(new System.Windows.Documents.Run(platinum ? Localized("Platina", "Platinum") : TrophyTierName(tier))
         {
-            details.Inlines.Add(new System.Windows.Documents.Run(TrophyTierName(tier))
-            {
-                Foreground = accent,
-                FontWeight = FontWeights.SemiBold
-            });
-            if (!string.IsNullOrWhiteSpace(gameName)) details.Inlines.Add("  ·  " + gameName);
-        }
+            Foreground = accent
+        });
+        if (!string.IsNullOrWhiteSpace(gameName)) details.Inlines.Add("  ·  " + gameName);
         information.Children.Add(details);
 
         var content = new Grid { Margin = new Thickness(12, 8, 16, 8) };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var artwork = new Border
+        {
+            Width = 46, Height = 46, CornerRadius = new CornerRadius(3),
+            Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
+        Grid.SetColumn(artwork, 2);
+        content.Children.Add(artwork);
         Grid.SetColumn(art, 0);
         Grid.SetColumn(information, 1);
         content.Children.Add(art);
@@ -255,13 +286,7 @@ public partial class MainWindow
             LayoutTransform = new ScaleTransform(scale, scale),
             Margin = new Thickness(0, 0, 0, 6),
             CornerRadius = new CornerRadius(6),
-            BorderThickness = new Thickness(1, 1, 1, 1),
-            BorderBrush = new LinearGradientBrush(
-                Color.FromArgb(128, colors.Light.R, colors.Light.G, colors.Light.B),
-                Color.FromArgb(53, 184, 205, 224), 10),
-            Background = new LinearGradientBrush(
-                platinum ? Color.FromArgb(249, 40, 67, 109) : Color.FromArgb(246, 51, 65, 79),
-                Color.FromArgb(247, 25, 35, 48), 10),
+            Background = new SolidColorBrush(Color.FromArgb(244, 29, 32, 38)),
             Child = content,
             Opacity = 0,
             RenderTransform = new TranslateTransform(12, 0)
@@ -287,12 +312,11 @@ public partial class MainWindow
                 ? $"https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/{achievement.AppId}/{iconFile}"
                 : null;
         if (artUrl != null || fallbackUrl != null)
-            _ = LoadTrophyArtworkAsync(artUrl, fallbackUrl, art, tier, colors);
+            _ = LoadTrophyArtworkAsync(artUrl, fallbackUrl, artwork);
         return badge;
     }
 
-    private static async Task LoadTrophyArtworkAsync(string? url, string? fallbackUrl, Grid target,
-        string? tier, (Color Light, Color Metal, Color Shade) colors)
+    private static async Task LoadTrophyArtworkAsync(string? url, string? fallbackUrl, Border target)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         var bitmap = url == null ? null : await DownloadTrophyArtworkAsync(url, deadline.Token);
@@ -300,29 +324,8 @@ public partial class MainWindow
             bitmap = await DownloadTrophyArtworkAsync(fallbackUrl, deadline.Token);
         if (bitmap == null) return;
 
-        var imageFrame = new Border
-        {
-            Width = 54,
-            Height = 54,
-            CornerRadius = new CornerRadius(4),
-            Background = new ImageBrush(bitmap) { Stretch = Stretch.UniformToFill },
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        var medal = new Border
-        {
-            Width = 24,
-            Height = 24,
-            CornerRadius = new CornerRadius(4),
-            Background = new SolidColorBrush(Color.FromRgb(31, 43, 56)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(115, colors.Light.R, colors.Light.G, colors.Light.B)),
-            BorderThickness = new Thickness(1),
-            Child = CreateTrophyIcon(tier, colors, 19),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Bottom
-        };
-        target.Children.Clear();
-        target.Children.Add(imageFrame);
-        target.Children.Add(medal);
+        target.Background = new ImageBrush(bitmap) { Stretch = Stretch.UniformToFill };
+        target.Visibility = Visibility.Visible;
     }
 
     private static async Task<BitmapSource?> DownloadTrophyArtworkAsync(string url, CancellationToken token)

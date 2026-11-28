@@ -122,6 +122,28 @@
     font-size: clamp(.58rem, .62vw, .72rem);
 }
 
+.home-feature-trophies {
+    display: inline;
+    margin-inline-start: .78em;
+    color: var(--doorpi-home-playtime-color);
+    font-size: clamp(20px, 1.67vh, 40px);
+    font-weight: 650;
+    letter-spacing: 0;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 85%);
+    white-space: nowrap;
+}
+
+.home-feature-trophies[hidden] { display: none; }
+
+.home-feature-trophies svg {
+    display: inline-block;
+    width: 1.12em;
+    height: 1.12em;
+    margin-inline-end: .28em;
+    vertical-align: -.18em;
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 80%));
+}
+
 .home-feature-primary {
     margin-top: clamp(4px, .8vh, 10px);
     display: inline-flex;

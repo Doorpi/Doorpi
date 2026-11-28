@@ -56,7 +56,7 @@ public partial class MainWindow
                     retry.Clear();nextScan=DateTimeOffset.MinValue;scannedRevision=-1;
                     var index=Path.Combine(dir,"local-steam-scan-v1.json");
                     probes=StateStorage.Exists(index) ? JsonSerializer.Deserialize<Dictionary<string,int>>(StateStorage.ReadAllText(index)) ?? throw new InvalidDataException() : new();
-                    if(StateStorage.Exists(cache)) _localCatalogs=JsonSerializer.Deserialize<Dictionary<int,SteamGameData>>(StateStorage.ReadAllText(cache)) ?? throw new InvalidDataException();
+                    if(StateStorage.Exists(cache)) { _localCatalogs=ReadProfileCatalogs(dir)!; ScheduleProfileSync(owner); }
                 }
                 var userPath=Path.Combine(dir,"user.json");
                 var revision=StateStorage.GetRevision(userPath);
@@ -102,7 +102,8 @@ public partial class MainWindow
                         return ids;
                     });
                     if(!Current()) return;
-                    bool changed = !discovered.Keys.Order().SequenceEqual(_registeredSteamGames.Keys.Order());
+                    bool changed = sessions.Count != _sessionTrophyIds.Count ||
+                        sessions.Any(entry => !_sessionTrophyIds.TryGetValue(entry.Key, out var prior) || prior != entry.Value);
                     if(!StateStorage.Exists(indexPath) || probes.Count!=refreshed.Count || refreshed.Any(p=>!probes.TryGetValue(p.Key,out var value) || value!=p.Value))
                         StateStorage.WriteBatchIfRevision(new Dictionary<string,string?>{[indexPath]=JsonSerializer.Serialize(refreshed)},new Dictionary<string,long>{[indexPath]=indexRevision,[userPath]=revision,[gamesPath]=libraryRevision});
                     probes=refreshed;scannedRevision=libraryRevision;_sessionTrophyIds=sessions;
@@ -128,9 +129,9 @@ public partial class MainWindow
                     fetched=new(){AppId=candidate.Key,Name=candidate.Value.Name,AchievementsCheckedUtc=DateTimeOffset.UtcNow.AddDays(-7),Achievements=schemaItems};
                 }
                 if(!Current())return;
-                var catalogs=new Dictionary<int,SteamGameData>(_localCatalogs){[candidate.Key]=fetched};
+                var catalogs=ProfileSync.ProfileSyncEngine.MergeCatalogs(ReadProfileCatalogs(dir),new(){[candidate.Key]=fetched})!;
                 StateStorage.WriteBatchIfRevision(new Dictionary<string,string?>{[cache]=JsonSerializer.Serialize(catalogs)},new Dictionary<string,long>{[cache]=cacheRevision,[userPath]=revision,[gamesPath]=libraryRevision});
-                _localCatalogs=catalogs;PublishTrophyChange(owner);
+                _localCatalogs=catalogs;ScheduleProfileSync(owner);PublishTrophyChange(owner);
             }
             catch(Exception ex){System.Diagnostics.Debug.WriteLine("[Local catalog] "+ex.Message);}
             finally{busy=false;}
@@ -220,15 +221,17 @@ public partial class MainWindow
         return earnedLastTrophyInSession;
     }
 
+    private static Dictionary<int,SteamGameData>? ReadProfileCatalogs(string directory)
+    {
+        string path=Path.Combine(directory,"local-steam-catalogs.json");
+        return StateStorage.Exists(path) ? JsonSerializer.Deserialize<Dictionary<int,SteamGameData>>(StateStorage.ReadAllText(path)) ?? throw new InvalidDataException("Catálogo inválido.") : null;
+    }
+
     private List<SteamGameData> ProfileTrophyGames(string directory,SteamProfileData? profile)
     {
         var official=(profile?.Games ?? []).ToDictionary(g=>g.AppId);
         var catalogs=official.Values.Where(g=>g.AchievementsCheckedUtc.HasValue && g.Name!=$"Steam {g.AppId}").ToDictionary(g=>g.AppId);
-        if(CatalogOwnerMatches)
-        {
-            foreach(var (app,catalog) in _localCatalogs)
-                if(_registeredSteamGames.ContainsKey(app)) catalogs[app]=catalog;
-        }
+        foreach(var (app,catalog) in ReadProfileCatalogs(directory) ?? new()) catalogs[app]=catalog;
         var ledger=ReadLocalTrophies(LocalTrophyLedger(directory));
         var games=new List<SteamGameData>();
         foreach(var (app,catalog) in catalogs)

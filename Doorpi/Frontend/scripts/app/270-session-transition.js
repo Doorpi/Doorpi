@@ -608,6 +608,7 @@
             if (bgBlur) { bgBlur.style.opacity = '0'; bgBlur.removeAttribute('src'); }
             if (heroImg) { heroImg.style.opacity = '0'; }
             window.clearHomeFeatureLogo?.();
+            window.DoorpiHomeTrophies?.setCard(null);
             if (logoEl) { logoEl.classList.remove('visible'); logoEl.style.opacity = ''; }
             if (gridBgImg) { gridBgImg.style.opacity = '0'; gridBgImg.removeAttribute('src'); }
 

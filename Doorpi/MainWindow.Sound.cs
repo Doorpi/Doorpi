@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Doorpi.Storage;
 
 namespace Doorpi;
 
@@ -9,6 +11,9 @@ public partial class MainWindow
 {
     private readonly object _soundManagerLock = new();
     private SoundManager? _soundManager;
+    private const int DefaultAchievementVolume = 50;
+    private readonly object _achievementVolumeLock = new();
+    private int? _achievementVolume;
     private static readonly JsonSerializerOptions SoundJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private SoundManager GetSoundManager()
@@ -43,6 +48,42 @@ public partial class MainWindow
             return Task.CompletedTask;
         });
 
+    private int GetAchievementVolume()
+    {
+        lock (_achievementVolumeLock)
+        {
+            if (_achievementVolume is int cached) return cached;
+            string settings = Path.Combine(dataFolder, "sound-settings.json");
+            try
+            {
+                if (StateStorage.Exists(settings))
+                {
+                    using var document = JsonDocument.Parse(StateStorage.ReadAllText(settings));
+                    if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                        document.RootElement.TryGetProperty("achievementVolume", out var value) &&
+                        value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int volume))
+                        return (_achievementVolume = Math.Clamp(volume, 0, 100)).Value;
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("[Sound] Volume das conquistas: " + ex.Message); }
+            _achievementVolume = DefaultAchievementVolume;
+            return DefaultAchievementVolume;
+        }
+    }
+
+    private void SetAchievementVolume(int volume)
+    {
+        volume = Math.Clamp(volume, 0, 100);
+        lock (_achievementVolumeLock)
+        {
+            if (GetAchievementVolume() == volume) return;
+            StateStorage.WriteAllText(Path.Combine(dataFolder, "sound-settings.json"),
+                JsonSerializer.Serialize(new { achievementVolume = volume }));
+            _achievementVolume = volume;
+        }
+        if (_achievementSoundPlayer != null) _achievementSoundPlayer.Volume = volume / 100.0;
+    }
+
     private static async Task RunSoundActionAsync(Func<Task> action)
     {
         try { await action().ConfigureAwait(false); }
@@ -62,6 +103,7 @@ public partial class MainWindow
                 status.MessageKey,
                 status.DefaultDeviceId,
                 status.MasterVolume,
+                achievementVolume = GetAchievementVolume(),
                 status.Muted,
                 status.Devices
             }, SoundJsonOptions);
@@ -80,6 +122,7 @@ public partial class MainWindow
 
     private void DisposeSoundManager()
     {
+        StopAchievementSound();
         SoundManager? manager;
         lock (_soundManagerLock)
         {

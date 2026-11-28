@@ -87,6 +87,8 @@ public sealed class CloudProfileV1
     public Doorpi.Steam.SteamProfileData? Steam { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string,long>? PhantomBladeTrophies { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<int,Doorpi.Steam.SteamGameData>? TrophyCatalogs { get; set; }
 }
 
 public sealed class CloudControlProfileV1
